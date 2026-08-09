@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "investment-assistant-backend"
+version = "0.1.0"
+description = "Backend REST API e Quant Engine do Investment Assistant"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "Investment Assistant Team" }
+]
+
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.28.0",
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+    "sqlalchemy>=2.0.28",
+    "alembic>=1.13.1",
+    "psycopg2-binary>=2.9.9",
+    "httpx>=0.27.0",
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "numpy>=1.26.4",
+    "pandas>=2.2.1",
+    "scipy>=1.12.0",
+    "scikit-learn>=1.4.1",
+    "google-generativeai>=0.4.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.2",
+    "pytest-asyncio>=0.23.5",
+    "httpx>=0.27.0",
+    "black>=24.2.0",
+    "ruff>=0.3.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_functions = "test_*"
+asyncio_mode = "auto"
