@@ -6,16 +6,16 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 ---
 
 ## Current Phase
-- **Phase**: Wave 02 (Database Schema & Migrations) -> Wave 03 (Authentication & Users)
+- **Phase**: Wave 03 (Authentication & Users) -> Wave 04 (Portfolio Management)
 - **Status**: 🟡 IN_PROGRESS
 
 ---
 
 ## Overall Progress
 - **Total Waves**: 33 (W00 a W32)
-- **Completed Waves**: 3 (W00, W01, W02)
-- **In Progress Waves**: 1 (W03)
-- **Pending Waves**: 29
+- **Completed Waves**: 4 (W00, W01, W02, W03)
+- **In Progress Waves**: 0
+- **Pending Waves**: 28
 
 ---
 
@@ -85,11 +85,23 @@ Status: 🟢 COMPLETED
 ---
 
 ### Wave 03 — Authentication & Users
-Status: 🟡 IN_PROGRESS
+Status: 🟢 COMPLETED
 
-- [ ] **W03-001**: Hashing de senha (Passlib/Bcrypt) e Tokens JWT (`backend/app/core/security.py`) 🟡 IN_PROGRESS
-- [ ] **W03-002**: Endpoints de Cadastro, Login, Refresh Token e Me ⚪ NOT_STARTED
-- [ ] **W03-003**: Dependencies de Autenticação e Proteção de Rotas (`get_current_user`) ⚪ NOT_STARTED
+- [x] **W03-001**: Hashing de senha (bcrypt) e Tokens JWT (`backend/app/core/security.py`) 🟢 COMPLETED
+- [x] **W03-002**: Endpoints de Cadastro, Login, Refresh Token e Me 🟢 COMPLETED
+- [x] **W03-003**: Dependencies de Autenticação e Proteção de Rotas (`get_current_user`) 🟢 COMPLETED
+
+Detalhes:
+- `backend/app/core/security.py`: hashing de senha com `bcrypt` (não Passlib — ver Technical Decisions) e criação/validação de JWT com `PyJWT`.
+- `backend/app/domain/users/schemas.py`: `UserCreate`, `UserLogin`, `UserResponse`, `Token`, `TokenPayload` (Pydantic v2, `EmailStr` via `email-validator`).
+- `backend/app/api/routes/auth.py`: `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`, `GET /api/v1/auth/me`.
+- `backend/app/api/dependencies.py`: `get_current_user` (valida Bearer JWT, carrega o usuário via SQLAlchemy) usado para proteger `/me` e `/refresh`.
+- `backend/app/main.py`: exception handler global padronizando erros da API no formato `{"error": {"code", "message"}}` (regra 72 do AGENTS.md), e registro do router de auth.
+- Testes: `backend/tests/test_security.py` (7 casos: hash/verify, criação/decodificação/expiração/tamper de JWT) e `backend/tests/test_auth.py` (11 casos de integração via `TestClient` + SQLite in-memory compartilhado em `backend/tests/conftest.py`).
+- `pyproject.toml`: dependências corrigidas para refletir o que é realmente importado (`pyjwt`, `bcrypt`, `email-validator`), removendo `passlib`/`python-jose` que nunca chegaram a ser usados; adicionada configuração mínima de `[tool.ruff]` (ignora `B008`, falso positivo para o padrão `Depends(...)` do FastAPI).
+- Validação: `pytest` 21/21 passed; `ruff check` limpo nos arquivos da wave; `black --check` limpo nos arquivos da wave.
+
+Definition of Done Wave 03: atendida — hashing seguro, JWT determinístico, endpoints de auth cobertos por testes de integração, rotas protegidas via `get_current_user`, sem regressão nos testes pré-existentes (health, models).
 
 ---
 
@@ -314,25 +326,24 @@ Status: ⚪ NOT_STARTED
 
 ## Current Task
 
-Wave: 03
-Task ID: W03-001
-Task Name: Hashing de senha e Tokens JWT
-Status: 🟡 IN_PROGRESS
+Wave: 04
+Task ID: W04-001
+Task Name: Endpoints CRUD de Carteiras e Ativos
+Status: ⚪ NOT_STARTED
 
 Completed:
 - Wave 00 (Foundation) concluída.
 - Wave 01 (Scaffold Backend & Frontend + Pytest + Docker Config) concluída.
 - Wave 02 (Database Schema & Migrations) concluída (13 tabelas criadas no SQLAlchemy 2.0 + Migration Alembic `001_initial_schema.py` + 3 testes passando).
+- Wave 03 (Authentication & Users) concluída (hashing bcrypt + JWT, endpoints register/login/refresh/me, `get_current_user`, 18 testes novos passando).
 
-Remaining:
-- Implementar `backend/app/core/security.py` (funções de hash com Passlib/Bcrypt, verificação e criação de Tokens JWT com `python-jose`).
-- Implementar schemas Pydantic de autenticação (`Token`, `TokenPayload`, `UserCreate`, `UserLogin`, `UserResponse`) em `backend/app/domain/users/schemas.py`.
-- Criar rotas `/api/v1/auth/register`, `/login`, `/me` em `backend/app/api/routes/auth.py`.
-- Adicionar middleware/dependency `get_current_user` em `backend/app/api/dependencies.py`.
-- Escrever testes unitários e de integração de autenticação (`backend/tests/test_auth.py`).
+Remaining (Wave 04):
+- Endpoints CRUD de carteiras (`/api/v1/portfolios`) e ativos, protegidos por `get_current_user`.
+- Registro de transações (BUY, SELL, DIVIDEND, DEPOSIT, WITHDRAWAL).
+- Motor de posições consolidadas (preço médio e saldo derivados das transações, conforme regra 16 do AGENTS.md).
 
 Next Action:
-Implementar o módulo de segurança `backend/app/core/security.py` e schemas de usuário da Wave 03.
+Planejar e implementar W04-001 (CRUD de carteiras e ativos) em `backend/app/api/routes/` + `backend/app/domain/portfolio/`.
 
 ---
 
@@ -349,11 +360,14 @@ Implementar o módulo de segurança `backend/app/core/security.py` e schemas de 
 - **W02-001**: Configuração SQLAlchemy 2.0 e Alembic (🟢 COMPLETED)
 - **W02-002**: Implementação dos Models das 13 tabelas (🟢 COMPLETED)
 - **W02-003**: Migration Inicial Alembic (`001_initial_schema.py`) (🟢 COMPLETED)
+- **W03-001**: Hashing de Senha (bcrypt) e Tokens JWT (🟢 COMPLETED)
+- **W03-002**: Endpoints de Cadastro, Login, Refresh Token e Me (🟢 COMPLETED)
+- **W03-003**: Dependencies de Autenticação e Proteção de Rotas (`get_current_user`) (🟢 COMPLETED)
 
 ---
 
 ## In Progress
-- **W03-001**: Hashing de Senha e Tokens JWT (Wave 03)
+Nenhuma tarefa em progresso no momento. Próxima: W04-001 (Wave 04 — Portfolio Management).
 
 ---
 
@@ -379,6 +393,21 @@ Nenhum problema conhecido no momento.
 - **Reason**: Cumprimento do Princípio Fundamental de `AGENTS.md` (evitar alucinações da IA em métricas quantitativas).
 - **Status**: 🟢 APPROVED
 
+### Decision — 2026-08-16
+- **Decision**: Usar `bcrypt` (hashing) e `PyJWT` (tokens) diretamente em `backend/app/core/security.py`, em vez de `passlib[bcrypt]`/`python-jose[cryptography]` originalmente declarados em `pyproject.toml`.
+- **Reason**: `passlib` está sem manutenção ativa e `python-jose` nunca chegou a ser importado pelo código; `bcrypt` e `PyJWT` são as libs mantidas e efetivamente usadas, evitando dependências fantasma (regra 92 do AGENTS.md).
+- **Status**: 🟢 APPROVED
+
+### Decision — 2026-08-16
+- **Decision**: Adotar um exception handler global em `backend/app/main.py` para todo `HTTPException`, padronizando o corpo de erro da API como `{"error": {"code", "message"}}`.
+- **Reason**: Regra 72 do AGENTS.md exige respostas de erro consistentes; sem o handler, FastAPI aninha `detail` e cada rota poderia divergir no formato.
+- **Status**: 🟢 APPROVED
+
+### Decision — 2026-08-16
+- **Decision**: Endpoint `/api/v1/auth/refresh` reemite um novo access token a partir de um token de acesso ainda válido (via `get_current_user`), sem refresh token dedicado/rotacionado.
+- **Reason**: Roadmap trata refresh token como "se necessário"; um fluxo simples de reemissão atende a Wave 03 sem introduzir complexidade de armazenamento/rotação de refresh tokens antes de haver necessidade real (regra 101 do AGENTS.md). Pode evoluir para refresh token dedicado em wave futura de segurança (W24) se necessário.
+- **Status**: 🟢 APPROVED
+
 ---
 
 ## Future Work
@@ -389,11 +418,11 @@ Nenhum problema conhecido no momento.
 ---
 
 ## Last Execution
-- **Timestamp**: 2026-08-09T15:39:30-03:00
-- **Action**: Conclusão da Wave 02 (Database Schema & Migrations) e Inicialização da Wave 03 (Authentication & Users).
-- **Result**: Sucesso. Models SQLAlchemy 2.0 criados e validados, migration 001_initial_schema gerada, 3/3 testes automatizados passando.
+- **Timestamp**: 2026-08-16T00:00:00-03:00
+- **Action**: Conclusão da Wave 03 (Authentication & Users) — hashing de senha, JWT, schemas Pydantic, endpoints register/login/refresh/me, dependency `get_current_user`, exception handler padronizado, e testes de segurança/integração.
+- **Result**: Sucesso. 21/21 testes automatizados passando (`pytest`), `ruff check` e `black --check` limpos nos arquivos alterados. Nenhuma regressão nos testes de health/models.
 
 ---
 
 ## Next Action
-Implementar o módulo de segurança `backend/app/core/security.py` e endpoints de autenticação JWT da Wave 03.
+Planejar e implementar a Wave 04 (Portfolio Management), começando por W04-001 (CRUD de carteiras e ativos), seguido de W04-002 (transações) e W04-003 (motor de posições consolidadas).
