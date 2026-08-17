@@ -6,7 +6,7 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 ---
 
 ## Current Phase
-- **Phase**: Wave 03 (Authentication & Users) -> Wave 04 (Portfolio Management)
+- **Phase**: Wave 04 (Portfolio Management)
 - **Status**: 🟡 IN_PROGRESS
 
 ---
@@ -14,8 +14,8 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 ## Overall Progress
 - **Total Waves**: 33 (W00 a W32)
 - **Completed Waves**: 4 (W00, W01, W02, W03)
-- **In Progress Waves**: 0
-- **Pending Waves**: 28
+- **In Progress Waves**: 1 (W04)
+- **Pending Waves**: 27
 
 ---
 
@@ -107,11 +107,20 @@ Definition of Done Wave 03: atendida — hashing seguro, JWT determinístico, en
 ---
 
 ### Wave 04 — Portfolio Management
-Status: ⚪ NOT_STARTED
+Status: 🟡 IN_PROGRESS
 
-- [ ] **W04-001**: Endpoints CRUD de Carteiras e Ativos ⚪ NOT_STARTED
+- [x] **W04-001**: Endpoints CRUD de Carteiras e Ativos 🟢 COMPLETED
 - [ ] **W04-002**: Registro de Transações (BUY, SELL, DIVIDEND, DEPOSIT, WITHDRAWAL) ⚪ NOT_STARTED
 - [ ] **W04-003**: Motor de Posições Consolidadas (Preço Médio e Saldo) ⚪ NOT_STARTED
+
+Detalhes W04-001:
+- `backend/app/domain/assets/schemas.py`: `AssetCreate` (normaliza ticker para maiúsculas), `AssetResponse`.
+- `backend/app/domain/portfolio/schemas.py`: `PortfolioCreate`, `PortfolioUpdate`, `PortfolioResponse` (schemas de transação/posições já definidos aqui, mas usados só a partir de W04-002/003).
+- `backend/app/api/routes/assets.py`: `POST/GET /api/v1/assets`, `GET /api/v1/assets/{ticker}` — cadastro de ativos apenas para acompanhamento (sem integração com corretora), protegido por `get_current_user`.
+- `backend/app/api/routes/portfolios.py`: CRUD completo de `/api/v1/portfolios` (`POST`, `GET` lista, `GET` por id, `PATCH`, `DELETE`), todos escopados ao usuário autenticado — acessar/alterar carteira de outro usuário retorna 404 (não 403), para não vazar quais IDs existem.
+- `backend/app/main.py`: registro dos routers `assets` e `portfolios`.
+- Testes: `backend/tests/test_assets.py` (6 casos) e `backend/tests/test_portfolios.py` (6 casos), incluindo isolamento entre usuários.
+- Validação: `pytest` 33/33 passed; `ruff check` e `black --check` limpos nos arquivos da task.
 
 ---
 
@@ -337,14 +346,15 @@ Completed:
 - Wave 01 (Scaffold Backend & Frontend + Pytest + Docker Config) concluída.
 - Wave 02 (Database Schema & Migrations) concluída (13 tabelas criadas no SQLAlchemy 2.0 + Migration Alembic `001_initial_schema.py` + 3 testes passando).
 - Wave 03 (Authentication & Users) concluída (hashing bcrypt + JWT, endpoints register/login/refresh/me, `get_current_user`, 18 testes novos passando).
+- Correção de precisão monetária pós-Wave 02 (`Float` -> `NUMERIC(18,6)`/`Decimal` em `transactions` e `asset_prices`, migration `002_numeric_money_columns.py`), decidida com o usuário.
+- W04-001 (CRUD de carteiras e ativos) concluída — 12 testes novos passando.
 
 Remaining (Wave 04):
-- Endpoints CRUD de carteiras (`/api/v1/portfolios`) e ativos, protegidos por `get_current_user`.
-- Registro de transações (BUY, SELL, DIVIDEND, DEPOSIT, WITHDRAWAL).
-- Motor de posições consolidadas (preço médio e saldo derivados das transações, conforme regra 16 do AGENTS.md).
+- W04-002: Registro de transações (BUY, SELL, DIVIDEND, DEPOSIT, WITHDRAWAL), com validação de saldo insuficiente em vendas.
+- W04-003: Endpoint de posições consolidadas (preço médio e saldo derivados das transações, conforme regra 16 do AGENTS.md) + testes unitários dedicados do motor de posições.
 
 Next Action:
-Planejar e implementar W04-001 (CRUD de carteiras e ativos) em `backend/app/api/routes/` + `backend/app/domain/portfolio/`.
+Implementar W04-002 (registro de transações) em `backend/app/api/routes/portfolios.py`, reaproveitando `backend/app/domain/portfolio/service.py` (motor de posições) para a validação de venda.
 
 ---
 
@@ -364,11 +374,12 @@ Planejar e implementar W04-001 (CRUD de carteiras e ativos) em `backend/app/api/
 - **W03-001**: Hashing de Senha (bcrypt) e Tokens JWT (🟢 COMPLETED)
 - **W03-002**: Endpoints de Cadastro, Login, Refresh Token e Me (🟢 COMPLETED)
 - **W03-003**: Dependencies de Autenticação e Proteção de Rotas (`get_current_user`) (🟢 COMPLETED)
+- **W04-001**: Endpoints CRUD de Carteiras e Ativos (🟢 COMPLETED)
 
 ---
 
 ## In Progress
-Nenhuma tarefa em progresso no momento. Próxima: W04-001 (Wave 04 — Portfolio Management).
+Nenhuma tarefa em progresso no momento. Próxima: W04-002 (Registro de Transações).
 
 ---
 
@@ -430,10 +441,10 @@ Nenhum problema conhecido no momento.
 
 ## Last Execution
 - **Timestamp**: 2026-08-16T00:00:00-03:00
-- **Action**: Conclusão da Wave 03 (Authentication & Users) — hashing de senha, JWT, schemas Pydantic, endpoints register/login/refresh/me, dependency `get_current_user`, exception handler padronizado, e testes de segurança/integração.
-- **Result**: Sucesso. 21/21 testes automatizados passando (`pytest`), `ruff check` e `black --check` limpos nos arquivos alterados. Nenhuma regressão nos testes de health/models.
+- **Action**: W04-001 (Wave 04) — CRUD de carteiras (`/api/v1/portfolios`) e ativos (`/api/v1/assets`), escopado por usuário autenticado.
+- **Result**: Sucesso. 33/33 testes automatizados passando (`pytest`), `ruff check` e `black --check` limpos nos arquivos alterados. Nenhuma regressão nos testes de auth/health/models/security.
 
 ---
 
 ## Next Action
-Planejar e implementar a Wave 04 (Portfolio Management), começando por W04-001 (CRUD de carteiras e ativos), seguido de W04-002 (transações) e W04-003 (motor de posições consolidadas).
+Implementar W04-002 (registro de transações BUY/SELL/DIVIDEND/DEPOSIT/WITHDRAWAL em `/api/v1/portfolios/{id}/transactions`), seguido de W04-003 (endpoint de posições consolidadas).

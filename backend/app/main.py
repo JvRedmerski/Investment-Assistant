@@ -3,7 +3,7 @@ from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import auth, health
+from app.api.routes import assets, auth, health, portfolios
 from app.core.config import settings
 from app.core.logging import setup_logging
 
@@ -45,6 +45,8 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 app.include_router(health.router, tags=["Health"])
 app.include_router(health.router, prefix=settings.API_V1_STR, tags=["Health"])
 app.include_router(auth.router, prefix=settings.API_V1_STR)
+app.include_router(assets.router, prefix=settings.API_V1_STR)
+app.include_router(portfolios.router, prefix=settings.API_V1_STR)
 
 
 @app.get("/")
