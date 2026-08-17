@@ -7,7 +7,7 @@ Legenda: 🟢 concluída · 🟡 em progresso · ⚪ não iniciada
 
 ## Estado geral
 
-**6 / 33 concluídas + Wave 06 em progresso (1 de 2 tasks).** Fronteira atual: **W06-002**.
+**6 / 33 concluídas + Wave 06 ⚠️ parcial.** Fronteira atual: **W06-003 ou Wave 07** (decisão pendente — ver [CURRENT_TASK](../memory/CURRENT_TASK.md)).
 
 ## MVP → V1
 
@@ -30,10 +30,10 @@ Legenda: 🟢 concluída · 🟡 em progresso · ⚪ não iniciada
 
 | Wave | Objetivo | Status | Depende de | Spec |
 |---|---|---|---|---|
-| **W06** | **Fundamental Data** — W06-001 ingestão de demonstrativos 🟢 · W06-002 indicadores derivados ⚪ | 🟡 **atual** | W05 | §18 |
-| W07 | Quant Engine — `returns.py`, `risk.py` (CAGR, vol, beta, drawdown, Sharpe, Sortino) | ⚪ | W05 | §19 |
+| **W06** | **Fundamental Data** — W06-001 ingestão 🟢 · W06-002 indicadores 🟢 · W06-003 insumos faltantes ⚪ | ⚠️ **parcial** | W05 | §18 |
+| **W07** | **Quant Engine** — `returns.py`, `risk.py` (CAGR, vol, beta, drawdown, Sharpe, Sortino) | ⚪ **próxima recomendada** | W05 | §19 |
 | W08 | Benchmark Engine — séries de CDI/IBOV/IPCA e comparativo | ⚪ | W07 | §20 |
-| W09 | Recommendation Engine — sub-scores e alocação do aporte mensal | ⚪ | W06, W07 | §21 |
+| W09 | Recommendation Engine — sub-scores e alocação do aporte mensal | ⚪ | W06 (**incl. W06-003**), W07 | §21 |
 | W10 | Rebalanceamento — target weights, weight gaps, restrições conservadoras | ⚪ | W09 | §22 |
 | W11 | Dashboard — patrimônio, rentabilidade, benchmarks, tela de ativo | ⚪ | W07, W08 | §23 |
 

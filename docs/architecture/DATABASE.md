@@ -57,7 +57,7 @@ Agrupadas por domínio; `id` serial PK e `created_at` são universais e foram om
 | Tabela | Campos-chave | Usada? |
 |---|---|---|
 | `fundamentals` | `asset_id`, `reference_date`, `revenue`, `ebitda`, `net_income`, `equity`, `debt`, `cash`, `free_cash_flow` (todos nullable, `NUMERIC(24,4)`) | ✅ W06-001 — só demonstrativos **anuais** |
-| `financial_indicators` | `asset_id`, `reference_date`, `pe`, `pb`, `roe`, `roic`, `dy`, `debt_ebitda`, `net_margin`, `ebitda_margin`, `revenue_growth`, `profit_growth` (`Float`, deliberado — são razões, não moeda) | ❌ alvo da W06-002 |
+| `financial_indicators` | `asset_id`, `reference_date`, `pe`, `pb`, `roe`, `roic`, `dy`, `debt_ebitda`, `net_margin`, `ebitda_margin`, `revenue_growth`, `profit_growth` (`Float`, deliberado — são razões, não moeda) | ✅ W06-002 — 4 dos 10 populados; os demais `NULL` por falta de insumo |
 
 ### Recomendações e Day Trade
 | Tabela | Campos-chave | Usada? |
@@ -86,7 +86,7 @@ daytrade_setups 1─1 daytrade_results (CASCADE)
 ## Convenções
 
 - **Dinheiro**: constante `MONEY = Numeric(18, 6)`, duplicada em `models/portfolio.py` e `models/assets.py`. 18 dígitos, 6 decimais — comporta quantidade fracionária e preço em BRL sem drift. `volume` fica `Float` (não é dinheiro). Em `models/fundamentals.py`, `STATEMENT_MONEY = Numeric(24, 4)`: agregados de companhia inteira precisam de mais dígitos inteiros e menos decimais. ([ADR-003](../decisions/ADR-003-decimal-money.md))
-- **`NULL` ≠ zero**: em `fundamentals`, um item de linha nulo significa "não reportado". Nunca leia como zero nem substitua por default.
+- **`NULL` ≠ zero**: em `fundamentals`, um item de linha nulo significa "não reportado"; em `financial_indicators`, significa "não computável". Nunca leia como zero nem substitua por default ([ADR-014](../decisions/ADR-014-indicator-missing-data-policy.md)).
 - **Timestamps**: `DateTime` sem timezone no banco, sempre preenchido com `utc_now()` (UTC explícito). Conversão para horário local é responsabilidade da apresentação (AGENTS.md §18).
 - **Unicidade e índices**: `uq_asset_price_date (asset_id, date)`, `uq_intraday_timestamp_timeframe (asset_id, timestamp, timeframe)`, `idx_transactions_portfolio_asset`, `idx_fundamentals_asset_refdate`, `idx_indicators_asset_refdate`, `idx_snapshot_portfolio_date`.
 - **Enums**: `TransactionTypeEnum` e `RiskProfileEnum` são `str, enum.Enum` do Python mapeados com `SQLEnum` — o valor persistido é o nome em maiúsculas.

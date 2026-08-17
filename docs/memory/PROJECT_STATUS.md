@@ -6,18 +6,18 @@
 
 ## Current Phase
 
-**Wave 06 (Fundamental Data) em progresso — W06-001 concluída, W06-002 pendente.**
-6 de 33 waves concluídas (W00–W05); a W06 é a sétima, parcialmente entregue.
+**Wave 06 (Fundamental Data): as duas tasks planejadas estão concluídas, mas o resultado é ⚠️ parcial** — 6 dos 10 indicadores são estruturalmente `None` por falta de insumo. Criada a W06-003 para fechar a lacuna.
+6 de 33 waves concluídas (W00–W05) + W06 parcial.
 
 ## Overall Status
 
 | | |
 |---|---|
 | **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data |
-| **In Progress** | W06 Fundamental Data — 1 de 2 tasks |
-| **Blocked** | — nenhuma |
+| **Needs review** | W06 Fundamental Data — W06-001 ✅ · W06-002 ✅ · W06-003 ⚪ (insumos faltantes) |
+| **Blocked** | W06-003 — precisa de acesso de rede para confirmar o mapeamento de campos da Brapi |
 
-Baseline atual: `pytest` → **140 passed** (backend/.venv).
+Baseline atual: `pytest` → **184 passed** (backend/.venv).
 
 ## Completed Work (nível wave)
 
@@ -29,15 +29,17 @@ Baseline atual: `pytest` → **140 passed** (backend/.venv).
 
 - **W06-001** — `FundamentalsProvider` + `BrapiFundamentalsProvider` + factory; `sync_annual_statements` idempotente; `validate_financial_statements`; endpoints de sync/leitura; migration `003` (`fundamentals` em `NUMERIC(24,4)`). Extraiu também o transporte HTTP compartilhado (`RetryingJsonClient`), agora usado pelas duas integrações.
 
+- **W06-002** — `compute_indicators`: função pura com as **10 fórmulas** implementadas e testadas; `compute_and_store_indicators` idempotente; seleção de preço sem look-ahead (`_price_on_or_before`); endpoints `POST /indicators/compute` (não chama provedor externo) e `GET /indicators`. Política de dado faltante em [ADR-014](../decisions/ADR-014-indicator-missing-data-policy.md).
+
 Detalhe por task: [../history/COMPLETED_TASKS.md](../history/COMPLETED_TASKS.md).
 
 ## Current Work
 
-Wave 06 aberta com W06-001 entregue. Nada em execução no momento.
+Nada em execução. Aguardando escolha entre W06-003 e Wave 07.
 
 ## Next Recommended Step
 
-**W06-002 — Cálculo e normalização de indicadores fundamentalistas** (tabela `financial_indicators`). Ver [CURRENT_TASK.md](CURRENT_TASK.md).
+**Wave 07 — Quant Engine** (`returns.py`, `risk.py`), que não depende dos indicadores faltantes; ou **W06-003** se houver como validar o mapeamento contra a API real. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ## Known Issues
 
@@ -51,9 +53,10 @@ Problemas reais, verificados no código (2026-08-17):
 6. **Lint pré-existente sujo no backend.** `ruff check` acusa findings em arquivos não tocados desde a Wave 02 (`data/models/users.py`, `daytrade.py`, `recommendations.py`, `core/logging.py`, `data/database.py`, `api/routes/health.py`, `tests/test_health.py`) — import-sorting e `Optional[X]`/`List[X]` → `X | None`/`list[X]`. Deliberadamente fora de escopo até uma task dedicada de cleanup. (`data/models/fundamentals.py` saiu da lista: foi reescrito e está limpo.)
 7. **Colunas monetárias ainda em `Float`** (dívida conhecida, conversão adiada para a wave que as usar): `intraday_prices` OHLC (W15), `portfolio_snapshots.total_value/cash_value` (W11), `investor_profiles.monthly_contribution` (W09).
 8. **`PriceSyncRequest` documenta que `end` não pode ser futura, mas o validador não verifica isso** — apenas `start <= end`.
-9. **`ebitda` e `free_cash_flow` chegam sempre `NULL`** do provedor de fundamentals — decisão deliberada, não bug ([ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md)). A W06-002 precisa tratar isso explicitamente em `debt_ebitda` e `ebitda_margin`.
-10. **Reexpressões (restatements) de exercícios anteriores são invisíveis**: o primeiro valor gravado para um `reference_date` nunca é substituído. Corrigir exige schema versionado por período.
+9. **6 dos 10 indicadores fundamentalistas são estruturalmente `None`**: `pe`, `pb`, `dy` (falta `shares_outstanding` e histórico de proventos — não existem no schema), `roic` (falta EBIT + alíquota), `debt_ebitda`, `ebitda_margin` (falta EBITDA, [ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md)). As fórmulas estão prontas e testadas; só falta o insumo. **Limita a Wave 09.** Endereçado pela W06-003.
+10. **Reexpressões (restatements) de exercícios anteriores são invisíveis**: o primeiro valor gravado para um `reference_date` nunca é substituído. Vale também para `financial_indicators` — período já computado não é recomputado. Corrigir exige schema versionado por período.
 11. **Demonstrativos trimestrais não são ingeridos** — `fundamentals` não tem coluna de período para distingui-los de um exercício anual com a mesma data-fim ([ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md)).
+12. **Throttle de requisições desligado por padrão.** `MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS` e `FUNDAMENTALS_MIN_REQUEST_INTERVAL_SECONDS` têm default `0.0` — nenhum espaçamento entre chamadas. A Brapi tem **cota mensal limitada** no plano gratuito. Definir um intervalo no `.env` antes de qualquer ingestão em lote.
 
 ## Inconsistências documentação × código
 

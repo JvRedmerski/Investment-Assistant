@@ -10,14 +10,19 @@ from app.api.dependencies import (
 )
 from app.data.database import get_db
 from app.data.models.assets import Asset, AssetPrice
-from app.data.models.fundamentals import Fundamental
+from app.data.models.fundamentals import FinancialIndicator, Fundamental
 from app.data.models.users import User
 from app.domain.assets.schemas import AssetCreate, AssetResponse
 from app.domain.fundamentals.schemas import (
+    FinancialIndicatorResponse,
     FundamentalResponse,
     FundamentalsSyncResponse,
+    IndicatorsComputeResponse,
 )
-from app.domain.fundamentals.service import sync_annual_statements
+from app.domain.fundamentals.service import (
+    compute_and_store_indicators,
+    sync_annual_statements,
+)
 from app.domain.market_data.schemas import (
     AssetPriceResponse,
     PriceSyncRequest,
@@ -277,3 +282,50 @@ def list_asset_fundamentals(
         query = query.filter(Fundamental.reference_date <= end)
 
     return query.order_by(Fundamental.reference_date).all()
+
+
+@router.post("/{ticker}/indicators/compute", response_model=IndicatorsComputeResponse)
+def compute_asset_indicators(
+    ticker: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> IndicatorsComputeResponse:
+    """Derive fundamental indicators from data already stored.
+
+    Unlike the `*/sync` endpoints, this **never contacts an external
+    provider** — it only transforms stored statements and prices. Periods
+    already computed are left untouched (ADR-013).
+    """
+    asset = _get_asset_by_ticker(db, ticker)
+    result = compute_and_store_indicators(db, asset)
+
+    return IndicatorsComputeResponse(
+        ticker=result.ticker,
+        periods=result.periods,
+        computed=result.computed,
+        skipped_existing=result.skipped_existing,
+    )
+
+
+@router.get("/{ticker}/indicators", response_model=list[FinancialIndicatorResponse])
+def list_asset_indicators(
+    ticker: str,
+    start: date | None = None,
+    end: date | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[FinancialIndicator]:
+    """Read stored indicators for an asset, oldest first.
+
+    `start`/`end` filter on `reference_date`. A `null` indicator means it
+    was not computable from the available data, never zero.
+    """
+    asset = _get_asset_by_ticker(db, ticker)
+
+    query = db.query(FinancialIndicator).filter(FinancialIndicator.asset_id == asset.id)
+    if start is not None:
+        query = query.filter(FinancialIndicator.reference_date >= start)
+    if end is not None:
+        query = query.filter(FinancialIndicator.reference_date <= end)
+
+    return query.order_by(FinancialIndicator.reference_date).all()

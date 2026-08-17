@@ -62,7 +62,17 @@
 - Política point-in-time definida: só anual, restatement não sobrescreve, nada de TTM ([ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md))
 - +45 testes (total 140)
 
-**W06-002 — Indicadores Fundamentalistas** ⚪ — próxima. Ver [../memory/CURRENT_TASK.md](../memory/CURRENT_TASK.md).
+**W06-002 — Indicadores Fundamentalistas** 🟢
+- `compute_indicators`: função pura e determinística com as 10 fórmulas (pe, pb, roe, roic, dy, debt_ebitda, net_margin, ebitda_margin, revenue_growth, profit_growth)
+- Seleção de preço sem look-ahead: fechamento na data de referência ou anterior mais próxima
+- Persistência idempotente; período pulado ainda serve de base para o crescimento seguinte
+- `POST /assets/{ticker}/indicators/compute` (sem chamada externa) e `GET /assets/{ticker}/indicators`
+- Política de dado faltante: `None` = não computável, nunca zero ([ADR-014](../decisions/ADR-014-indicator-missing-data-policy.md))
+- +44 testes (total 184)
+
+**Resultado da wave: ⚠️ parcial.** Só 4 indicadores produzem valor (`roe`, `net_margin`, `revenue_growth`, `profit_growth`); os outros 6 carecem de insumo não ingerido.
+
+**W06-003 — Captação dos insumos faltantes** ⚪ — criada nesta wave, não prevista no roadmap original. Ver [../memory/CURRENT_TASK.md](../memory/CURRENT_TASK.md).
 
 ---
 

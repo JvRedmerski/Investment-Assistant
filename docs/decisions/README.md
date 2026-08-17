@@ -21,6 +21,7 @@ Um ADR existe aqui porque a decisão (a) teve alternativas reais, (b) afeta arqu
 | [011](ADR-011-no-repository-layer.md) | Sem camada de repositório; rotas usam `Session` direto | Accepted | acesso a dados |
 | [012](ADR-012-shared-http-transport.md) | Transporte HTTP (retry/throttle) compartilhado entre integrações | Accepted | qualquer provedor externo novo |
 | [013](ADR-013-fundamentals-point-in-time.md) | Fundamentals: só anual, restatement não sobrescreve, nada de TTM | Accepted | fundamentos, indicadores, backtesting |
+| [014](ADR-014-indicator-missing-data-policy.md) | Indicadores: `None` = não-computável, nunca zero | Accepted | indicadores, scoring (W09), quant |
 
 ## Template
 

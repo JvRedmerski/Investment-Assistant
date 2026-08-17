@@ -2,79 +2,102 @@
 
 ## Task
 
-**W06-002 — Cálculo e Normalização de Indicadores Fundamentalistas** (Wave 06 — Fundamental Data)
+**Decisão pendente do usuário** entre duas frentes. As duas tasks planejadas da Wave 06 estão concluídas.
+
+| Opção | Task | Bloqueio |
+|---|---|---|
+| **A** | **W06-003** — captar `shares_outstanding`, `ebit` e proventos, destravando `pe`, `pb`, `dy`, `roic` | Precisa de acesso de rede para confirmar o mapeamento de campos da Brapi |
+| **B** | **Wave 07 — Quant Engine** (`returns.py`, `risk.py`) | Nenhum — consome `asset_prices`, já disponível |
+
+**Recomendação: B.** A Wave 07 não depende dos indicadores faltantes e é a próxima na ordem obrigatória do roadmap. Quem depende de verdade dos 6 indicadores inertes é a Wave 09 (Recommendation Engine) — há duas waves de folga para resolver a W06-003 quando houver como validá-la.
 
 ## Status
 
-⚪ Not Started
+⚪ Not Started (aguardando escolha)
 
-## Objective
+---
 
-Derivar indicadores fundamentalistas a partir dos demonstrativos já ingeridos (`fundamentals`) e dos preços já armazenados (`asset_prices`), e persisti-los em `financial_indicators` por `reference_date`.
+## Opção A — W06-003: Captação dos insumos faltantes
 
-Indicadores previstos pela tabela: `pe` (P/L), `pb` (P/VP), `roe`, `roic`, `dy`, `debt_ebitda`, `net_margin`, `ebitda_margin`, `revenue_growth`, `profit_growth`.
+### Objective
 
-## Context
+Ingerir os três insumos que hoje impedem 4 dos 10 indicadores de produzir valor, e mapear `ebitda` se for possível obtê-lo por período.
 
-W06-001 entregou a ingestão de demonstrativos anuais. Esses números crus não são utilizáveis por um motor de decisão: a Wave 09 (Recommendation Engine) consome **scores** de Quality/Valuation/Growth, que se apoiam nestes indicadores normalizados.
+| Insumo | Destrava | Origem provável |
+|---|---|---|
+| `shares_outstanding` | `pe`, `pb` | módulo `defaultKeyStatistics` |
+| `ebit` (+ alíquota efetiva) | `roic` | já vem em `incomeStatementHistory` — apenas não mapeado |
+| proventos por ação | `dy` | módulo à parte, forma desconhecida |
 
-Esta é a primeira task do projeto que produz números derivados a partir de dados de duas fontes (demonstrativo + preço). Ela estabelece o precedente de como cálculo financeiro determinístico é escrito aqui, então vale seguir de perto `app/domain/portfolio/service.py` (função pura, `Decimal`, testada com valores conhecidos).
+### Context
 
-## Relevant Areas
+W06-002 implementou e testou as 10 fórmulas; elas retornam `None` só por falta de insumo. Assim que os campos chegarem, os indicadores passam a produzir valor sem alteração no módulo de cálculo — há teste provando isso para cada um.
 
-- Backend — Domain (novo módulo de cálculo)
-- Database (escrita em `financial_indicators`)
-- Backend — API (endpoint de leitura)
+### Custo em requisições à Brapi
 
-## Relevant Files
+**Zero adicional.** Módulos extras entram no mesmo `GET /quote` que a sync de fundamentals já faz; só o payload cresce. O plano gratuito tem cota mensal limitada, então isso importa.
 
-**Insumos já existentes:**
-- `backend/app/data/models/fundamentals.py` — `Fundamental` (fonte) e `FinancialIndicator` (destino)
-- `backend/app/data/models/assets.py` — `AssetPrice`, para os indicadores que dependem de preço (P/L, P/VP, DY)
-- `backend/app/domain/fundamentals/service.py` — padrão de idempotência a replicar
+### Requirements
 
-**Padrão de cálculo a seguir:**
-- `backend/app/domain/portfolio/service.py` — função pura, sem I/O, `Decimal`, determinística
-- `backend/tests/test_portfolio_service.py` — teste com valores conhecidos
+1. Estender `BrapiFundamentalsProvider` com os módulos novos, mantendo o parsing defensivo.
+2. Migration `004` para as colunas novas em `fundamentals` (`NUMERIC(24,4)` para valores monetários; `shares_outstanding` também é `NUMERIC`, não é moeda mas exige precisão inteira grande).
+3. Popular `IndicatorInputs.shares_outstanding` / `.ebit` / `.dividends_per_share` em `_inputs_from`.
+4. **Decidir e documentar a origem da alíquota efetiva** para o ROIC — ADR-014 proíbe presumir 34% (ver `_nopat`).
+5. Recomputar indicadores exige apagar as linhas antigas ou uma política de recomputação — hoje `compute_and_store_indicators` pula período já gravado (ADR-013). **Decidir isso explicitamente**, não contornar.
 
-**A criar/modificar:**
-- `backend/app/domain/fundamentals/indicators.py` (cálculo puro) e extensão de `service.py` (persistência)
-- `backend/app/api/routes/assets.py` (leitura de indicadores)
-- `backend/tests/test_fundamental_indicators.py`
+### Constraints
 
-**Decisões que restringem esta task:**
-- [ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md) — **leia antes de começar**
-- [ADR-003](../decisions/ADR-003-decimal-money.md) — `financial_indicators` é `Float` de propósito
+- Não confirmar o mapeamento contra resposta real = repetir o débito do W05-001/W06-001. Se não houver rede, **considere fazer a opção B antes**.
+- Não presumir alíquota, não derivar EBITDA com convenção de sinal não verificada (ADR-013).
 
-## Requirements
+---
 
-1. Cálculo em função **pura**, sem I/O, determinística, separada da persistência.
-2. Cada indicador com fórmula documentada (AGENTS.md §128) — definição, periodicidade e tratamento de dado faltante.
-3. **Dado ausente propaga como `None`, nunca como zero.** `ebitda` e `free_cash_flow` chegam sempre `NULL` do provedor atual (ADR-013), portanto `debt_ebitda` e `ebitda_margin` serão `None` na prática — isso é correto e deve ser testado como tal.
-4. Divisão por zero ou por `None` produz `None`, nunca exceção e nunca infinito.
-5. Indicadores que dependem de preço (P/L, P/VP, DY) devem usar o preço **na data de referência ou anterior mais próxima** — nunca um preço posterior (AGENTS.md §108: sem look-ahead).
-6. Persistência idempotente por `(asset_id, reference_date)`, sem sobrescrever o já gravado (mesma política do ADR-013).
-7. Endpoint de leitura autenticado, lendo só do banco.
-8. Crescimento (`revenue_growth`, `profit_growth`) exige o período anterior; se não houver, `None`.
+## Opção B — Wave 07: Quant Engine (Returns & Risk)
 
-## Constraints
+### Objective
 
-- **Não** implementar scoring nem recomendação — isso é Wave 09.
-- **Não** buscar dados novos no provedor externo; esta task só transforma o que já está armazenado.
-- **Não** alterar o schema: `financial_indicators` já existe e permanece `Float`.
-- **Não** inventar um indicador quando faltar insumo (AGENTS.md §44).
-- Um indicador isolado nunca define recomendação (AGENTS.md §29) — este módulo só calcula, não julga.
+`app/quant/returns.py` e `app/quant/risk.py`: os cálculos financeiros centrais do produto, sobre as séries de `asset_prices` já armazenadas.
 
-## Definition of Done
+- **returns.py** — retorno diário, semanal, mensal, trimestral, YTD, anual, CAGR.
+- **risk.py** — volatilidade, beta, maximum drawdown, Sharpe, Sortino.
 
-- [ ] Função pura de cálculo, com cada fórmula documentada
-- [ ] Dado faltante e divisão por zero tratados, retornando `None`
-- [ ] Preço selecionado sem look-ahead
-- [ ] Persistência idempotente
-- [ ] Endpoint de leitura autenticado
-- [ ] Testes unitários com valores conhecidos, incluindo edge cases (`None`, zero, período anterior ausente)
-- [ ] Testes de integração HTTP
-- [ ] `pytest` verde (baseline 140 + novos), sem regressão
+### Context
+
+Primeiro módulo em `app/quant/`, que o AGENTS.md §24 define como o lugar de **todo** cálculo financeiro. Estabelece o padrão para benchmark (W08), recomendação (W09) e backtesting (W13).
+
+`app/quant/` ainda não existe. `compute_indicators` (W06-002) e `compute_positions` (W04) são os moldes de função pura a seguir.
+
+### Relevant Files
+
+- `backend/app/domain/fundamentals/indicators.py` — molde mais recente de cálculo puro com política de dado faltante
+- `backend/app/domain/portfolio/service.py` — molde de replay determinístico em `Decimal`
+- `backend/app/data/models/assets.py` — `AssetPrice`, a fonte das séries
+- `docs/roadmap.md` §19 — especificação da Wave 7
+- `AGENTS.md` §24–§27 (quant, retornos, retorno de carteira, risco) e §128 (DoD quant)
+
+### Requirements
+
+1. Funções puras, sem I/O, em `app/quant/`, separadas da persistência.
+2. **Cada métrica com fórmula, periodicidade e metodologia documentadas** (AGENTS.md §25/§27/§128).
+3. Distinguir retorno do ativo, retorno da carteira e variação patrimonial (§26) — com aportes intermediários, `(atual − inicial)/inicial` **não** é rentabilidade.
+4. Anualização explícita (252 pregões? 365 dias?) — documentar a convenção escolhida.
+5. Dado faltante e série curta demais tratados explicitamente; seguir a política do ADR-014.
+6. Testes com casos conhecidos: entrada conhecida → resultado esperado conhecido, não apenas "não quebra" (§68).
+
+### Constraints
+
+- **Não** implementar benchmark (W08), scoring (W09) nem backtesting (W13).
+- Nenhuma chamada externa; consome só o que está no banco.
+- Decidir onde `float` passa a ser aceitável na fronteira com numpy/pandas e **documentar** (AGENTS.md §17, ADR-003).
+
+---
+
+## Definition of Done (vale para a opção escolhida)
+
+- [ ] Cálculo puro, determinístico, com cada fórmula documentada
+- [ ] Dado faltante tratado conforme [ADR-014](../decisions/ADR-014-indicator-missing-data-policy.md)
+- [ ] Testes com valores conhecidos + edge cases
+- [ ] `pytest` verde (baseline 184 + novos), sem regressão
 - [ ] `ruff check` e `black --check` limpos nos arquivos alterados
 - [ ] `docs/PROJECT_STATUS.md` e a memória atualizados
-- [ ] Commit: `feat: add fundamental indicator calculation (W06-002)`
+- [ ] Commit convencional em inglês com o ID da task

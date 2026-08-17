@@ -21,11 +21,17 @@ restatements as explicit future work.
 
 import logging
 from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from app.data.models.assets import Asset
-from app.data.models.fundamentals import Fundamental
+from app.data.models.assets import Asset, AssetPrice
+from app.data.models.fundamentals import FinancialIndicator, Fundamental
+from app.domain.fundamentals.indicators import (
+    IndicatorInputs,
+    compute_indicators,
+)
 from app.integrations.fundamentals.base import FundamentalsProvider
 from app.integrations.fundamentals.data_quality import validate_financial_statements
 
@@ -110,3 +116,120 @@ def sync_annual_statements(
         skipped_existing=skipped,
         rejected=report.rejected_count,
     )
+
+
+@dataclass
+class IndicatorsComputeResult:
+    ticker: str
+    periods: int
+    computed: int
+    skipped_existing: int
+
+
+def compute_and_store_indicators(db: Session, asset: Asset) -> IndicatorsComputeResult:
+    """Derive `financial_indicators` rows from stored statements and prices.
+
+    Purely a transformation of data already held: this never calls an
+    external provider. Periods already present in `financial_indicators`
+    are left untouched, for the same reason a stored statement is never
+    overwritten (ADR-013) — a recomputation must not silently rewrite an
+    indicator a past analysis may have relied on.
+
+    Growth indicators use the immediately preceding stored statement.
+    Because statements are replayed in chronological order, the "previous
+    period" is always genuinely earlier, never a later one.
+    """
+    statements = (
+        db.query(Fundamental)
+        .filter(Fundamental.asset_id == asset.id)
+        .order_by(Fundamental.reference_date)
+        .all()
+    )
+
+    existing_dates = {
+        row.reference_date
+        for row in db.query(FinancialIndicator.reference_date).filter(
+            FinancialIndicator.asset_id == asset.id
+        )
+    }
+
+    computed = 0
+    skipped = 0
+    previous_inputs: IndicatorInputs | None = None
+
+    for statement in statements:
+        inputs = _inputs_from(db, asset, statement)
+
+        if statement.reference_date in existing_dates:
+            skipped += 1
+            # Still carry this period forward: the next period's growth
+            # must compare against it even though it was not recomputed.
+            previous_inputs = inputs
+            continue
+
+        indicators = compute_indicators(inputs, previous_inputs)
+        db.add(
+            FinancialIndicator(
+                asset_id=asset.id,
+                reference_date=statement.reference_date,
+                pe=indicators.pe,
+                pb=indicators.pb,
+                roe=indicators.roe,
+                roic=indicators.roic,
+                dy=indicators.dy,
+                debt_ebitda=indicators.debt_ebitda,
+                net_margin=indicators.net_margin,
+                ebitda_margin=indicators.ebitda_margin,
+                revenue_growth=indicators.revenue_growth,
+                profit_growth=indicators.profit_growth,
+            )
+        )
+        existing_dates.add(statement.reference_date)
+        computed += 1
+        previous_inputs = inputs
+
+    db.commit()
+
+    return IndicatorsComputeResult(
+        ticker=asset.ticker,
+        periods=len(statements),
+        computed=computed,
+        skipped_existing=skipped,
+    )
+
+
+def _inputs_from(db: Session, asset: Asset, statement: Fundamental) -> IndicatorInputs:
+    return IndicatorInputs(
+        reference_date=statement.reference_date,
+        revenue=statement.revenue,
+        ebitda=statement.ebitda,
+        net_income=statement.net_income,
+        equity=statement.equity,
+        debt=statement.debt,
+        cash=statement.cash,
+        free_cash_flow=statement.free_cash_flow,
+        price=_price_on_or_before(db, asset.id, statement.reference_date),
+    )
+
+
+def _price_on_or_before(
+    db: Session, asset_id: int, reference_date: date
+) -> Decimal | None:
+    """The latest stored close at or before `reference_date`.
+
+    Selecting the *nearest earlier* close rather than the nearest close
+    outright is the whole point: a price from after the reference date
+    was not knowable then, and using it would leak future information
+    into any indicator derived from it (AGENTS.md rule 108). Returns
+    `None` when no price at or before that date is stored.
+    """
+    row = (
+        db.query(AssetPrice.close)
+        .filter(
+            AssetPrice.asset_id == asset_id,
+            AssetPrice.date <= reference_date,
+        )
+        .order_by(AssetPrice.date.desc())
+        .first()
+    )
+    return row.close if row is not None else None

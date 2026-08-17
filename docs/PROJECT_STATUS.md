@@ -182,10 +182,11 @@ Definition of Done Wave 05: atendida — provider abstraído e testável sem red
 ---
 
 ### Wave 06 — Fundamental Data
-Status: 🟡 IN_PROGRESS
+Status: ⚠️ NEEDS_REVIEW — as duas tasks planejadas estão concluídas, mas o resultado é parcial: 6 dos 10 indicadores são estruturalmente `None` por falta de insumo. Ver W06-003.
 
 - [x] **W06-001**: Ingestão de Demonstrativos Financeiros 🟢 COMPLETED
-- [ ] **W06-002**: Cálculo e Normalização de Indicadores Fundamentalistas ⚪ NOT_STARTED
+- [x] **W06-002**: Cálculo e Normalização de Indicadores Fundamentalistas 🟢 COMPLETED
+- [ ] **W06-003**: Captação dos insumos faltantes (shares outstanding, EBIT, proventos) ⚪ NOT_STARTED — task criada nesta wave, não prevista no roadmap original
 
 Detalhes W06-001:
 - `backend/app/integrations/http.py` (novo): `RetryingJsonClient` — transporte HTTP compartilhado com timeout, retry limitado com backoff exponencial só em falha transitória (timeout/conexão/429/5xx), falha imediata em 4xx e throttle de rate limit. As classes de exceção são injetadas, então cada integração mantém seu próprio vocabulário de erro. Extraído do `BrapiProvider` (regra 8 do AGENTS.md — não reimplementar o que já existe) em vez de copiar o loop de retry para o segundo provedor; ver Technical Decisions.
@@ -200,6 +201,20 @@ Detalhes W06-001:
 - Testes (+45): `test_brapi_fundamentals_provider.py` (17), `test_fundamentals_data_quality.py` (12), `test_fundamentals_service.py` (8), `test_fundamentals_routes.py` (8, incluindo um `ExplodingProvider` que falha se o read-path chamar o provedor).
 - Validação: `pytest` 140/140 passed; `ruff check` e `black --check` limpos em todos os arquivos da task. `alembic heads`/`history` resolvem `003` corretamente.
 - **Caveat**: como no W05-001, o parser foi escrito a partir da documentação pública da Brapi e exercitado só contra `httpx.MockTransport` — sem rede neste ambiente. Nomes de módulo (`incomeStatementHistory`, `balanceSheetHistory`), aninhamento e nomes de campo **não** foram confirmados contra resposta real.
+
+Detalhes W06-002:
+- **Conferência de insumos antes de implementar** revelou que o escopo original da task era inviável como escrito: `pe`/`pb` precisam de `shares_outstanding` e `dy` precisa de histórico de proventos — nada disso existe no schema; `roic` precisa de EBIT e alíquota; `debt_ebitda`/`ebitda_margin` precisam de EBITDA (bloqueado pelo ADR-013). Levado ao usuário; escolhida a opção de manter o escopo original (zero requisições à Brapi) e abrir W06-003 para os insumos.
+- `backend/app/domain/fundamentals/indicators.py`: `IndicatorInputs` / `IndicatorSet` / `compute_indicators` — função pura, determinística, sem I/O, cálculo em `Decimal` convertido para `float` só na fronteira (a coluna é `Float` por decisão, ADR-003). As **10 fórmulas estão implementadas e testadas**; as que dependem de insumo ausente retornam `None` e passam a produzir valor assim que o insumo chegar (há teste provando isso para cada uma).
+- Política de dado faltante: `None` = não computável, nunca zero; denominador zero → `None`, nunca exceção nem infinito; crescimento sobre base negativa ou zero → `None`; ROIC não presume alíquota. Registrado como ADR-014.
+- `backend/app/domain/fundamentals/service.py`: `compute_and_store_indicators` — idempotente por `(asset_id, reference_date)`, não recomputa período já gravado; um período pulado ainda serve de base para o crescimento do período seguinte. `_price_on_or_before` seleciona o fechamento **na data de referência ou anterior mais próxima**, nunca posterior (regra 108) — quatro testes cobrem essa invariante, inclusive escopo por ativo.
+- `backend/app/api/routes/assets.py`: `POST /api/v1/assets/{ticker}/indicators/compute` (**não** chama provedor externo — só transforma dado armazenado) e `GET /api/v1/assets/{ticker}/indicators`.
+- Testes (+44): `test_fundamental_indicators.py` (25 casos com valores conhecidos), `test_indicators_service.py` (12), `test_indicators_routes.py` (7).
+- Validação: `pytest` 184/184 passed; `ruff check` e `black --check` limpos nos arquivos da task. **Zero requisições à API da Brapi nesta task.**
+
+Detalhes W06-003 (a fazer):
+- Captar `shares_outstanding` (módulo `defaultKeyStatistics`), `ebit` (já vem em `incomeStatementHistory`, apenas não mapeado) e histórico de proventos. Módulos extras entram no **mesmo** `GET /quote`, então não aumentam a contagem de requisições — só o tamanho do payload.
+- Exige migration `004` (colunas novas em `fundamentals`) e alteração do `BrapiFundamentalsProvider`.
+- Deliberadamente adiada até haver como validar contra a API real: hoje nenhum mapeamento de campo da Brapi foi confirmado, e empilhar mais campos especulativos aumenta a superfície não verificada.
 
 ---
 
@@ -399,9 +414,9 @@ Status: ⚪ NOT_STARTED
 ## Current Task
 
 Wave: 06
-Task ID: W06-002
-Task Name: Cálculo e Normalização de Indicadores Fundamentalistas
-Status: ⚪ NOT_STARTED
+Task ID: W06-003
+Task Name: Captação dos insumos faltantes para indicadores (shares outstanding, EBIT, proventos)
+Status: ⚪ NOT_STARTED — bloqueada por falta de acesso de rede para validar o mapeamento de campos
 
 Completed:
 - Wave 00 (Foundation) concluída.
@@ -412,12 +427,17 @@ Completed:
 - Wave 04 (Portfolio Management) concluída — CRUD de carteiras/ativos, transações, motor de posições. 36 testes novos passando.
 - Wave 05 (Market Data Integration) concluída — `MarketDataProvider`/`BrapiProvider`, ingestão diária com caching, Data Quality Validator. 39 testes novos passando.
 - W06-001 (Ingestão de Demonstrativos Financeiros) concluída — `FundamentalsProvider`/`BrapiFundamentalsProvider`, transporte HTTP compartilhado, ingestão anual idempotente, data quality de demonstrativos, migration `003`. 45 testes novos passando.
+- W06-002 (Indicadores Fundamentalistas) concluída — `compute_indicators` puro com as 10 fórmulas, seleção de preço sem look-ahead, persistência idempotente, endpoints de compute/leitura. 44 testes novos passando.
 
 Remaining (Wave 06 — Fundamental Data):
-- W06-002: Cálculo e normalização de indicadores fundamentalistas (tabela `financial_indicators`), respeitando data de referência (não sobrescrever histórico — regra 109 do AGENTS.md).
+- W06-003: captar `shares_outstanding`, `ebit` e histórico de proventos, para destravar `pe`, `pb`, `dy` e `roic`. Bloqueada por falta de acesso de rede para confirmar o mapeamento de campos.
 
 Next Action:
-Ler `docs/roadmap.md` (seção 18 — Wave 6) e `AGENTS.md` (regras 29, 30 e 109) e planejar W06-002. Atenção: `ebitda` e `free_cash_flow` chegam sempre como `NULL` do provedor atual, então qualquer indicador que dependa deles (`debt_ebitda`, `ebitda_margin`) precisa tratar ausência de dado explicitamente em vez de assumir zero.
+Duas opções, a critério do usuário:
+1. **W06-003**, se houver como validar o mapeamento de campos contra a API real da Brapi (o custo em requisições é zero — módulos extras vão no mesmo `GET /quote`).
+2. **Wave 07 (Quant Engine)**, que não depende dos indicadores faltantes: `returns.py` e `risk.py` consomem `asset_prices`, já ingerido e disponível.
+
+A Wave 09 (Recommendation Engine) é que depende de verdade dos 6 indicadores inertes — até lá há caminho livre.
 
 ---
 
@@ -444,6 +464,7 @@ Ler `docs/roadmap.md` (seção 18 — Wave 6) e `AGENTS.md` (regras 29, 30 e 109
 - **W05-002**: Ingestão de Cotações Diárias e Caching (🟢 COMPLETED)
 - **W05-003**: Data Quality Validator (validação de outliers/nulos) (🟢 COMPLETED)
 - **W06-001**: Ingestão de Demonstrativos Financeiros (🟢 COMPLETED)
+- **W06-002**: Cálculo e Normalização de Indicadores Fundamentalistas (🟢 COMPLETED)
 
 ---
 
@@ -458,7 +479,8 @@ Nenhuma tarefa bloqueada no momento.
 ---
 
 ## Known Issues
-Nenhum problema conhecido no momento.
+- **6 dos 10 indicadores fundamentalistas são estruturalmente `None`** (`pe`, `pb`, `dy`, `roic`, `debt_ebitda`, `ebitda_margin`) por falta de insumo. Comportamento correto e testado, mas limita a Wave 09. Endereçado pela W06-003.
+- **Throttle de requisições desligado por padrão**: `MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS` e `FUNDAMENTALS_MIN_REQUEST_INTERVAL_SECONDS` têm default `0.0`, ou seja, sem espaçamento entre chamadas. A Brapi tem cota mensal limitada no plano gratuito. Definir um intervalo no `.env` antes de qualquer ingestão em lote.
 
 ---
 
@@ -533,10 +555,10 @@ Nenhum problema conhecido no momento.
 
 ## Last Execution
 - **Timestamp**: 2026-08-17T00:00:00-03:00
-- **Action**: W06-001 (Wave 06) — ingestão de demonstrativos financeiros anuais: `FundamentalsProvider` + `BrapiFundamentalsProvider` + factory + data quality, `sync_annual_statements` idempotente, endpoints de sync/leitura, migration `003` (`NUMERIC(24,4)`), e extração do transporte HTTP compartilhado (`RetryingJsonClient`) reaproveitado pelo `BrapiProvider`.
-- **Result**: Sucesso. 140/140 testes passando (`pytest`), `ruff check` e `black --check` limpos em todos os arquivos da task. Nenhuma regressão: os 95 testes anteriores continuam passando, incluindo os 15 do `BrapiProvider` após a extração do transporte.
+- **Action**: W06-002 (Wave 06) — cálculo de indicadores fundamentalistas: `compute_indicators` (função pura com as 10 fórmulas), `compute_and_store_indicators` idempotente, `_price_on_or_before` sem look-ahead, endpoints `POST /indicators/compute` e `GET /indicators`. Escopo confirmado com o usuário após a descoberta de que 6 indicadores carecem de insumo; criada a task W06-003.
+- **Result**: Sucesso. 184/184 testes passando (`pytest`), `ruff check` e `black --check` limpos nos arquivos da task. Nenhuma regressão. **Zero requisições à API da Brapi.**
 
 ---
 
 ## Next Action
-Ler `docs/roadmap.md` (Wave 6 — Fundamental Data) e `AGENTS.md` (regras 29, 30, 109) e planejar W06-002 (cálculo e normalização de indicadores fundamentalistas).
+Decidir entre W06-003 (destravar os 6 indicadores, requer validação do mapeamento de campos contra a API real) e Wave 07 — Quant Engine (`returns.py`/`risk.py`, sem dependência dos indicadores faltantes). Ver `docs/memory/CURRENT_TASK.md`.

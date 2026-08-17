@@ -70,8 +70,12 @@ Códigos em uso: `INVALID_CREDENTIALS`, `ASSET_NOT_FOUND`, `ASSET_ALREADY_EXISTS
 | GET | `/{ticker}/prices` | lê **só** do banco; query `start`/`end` opcionais |
 | POST | `/{ticker}/fundamentals/sync` | chama a API externa; sem body; ingere demonstrativos **anuais**; mesma resposta de contagens |
 | GET | `/{ticker}/fundamentals` | lê **só** do banco; query `start`/`end` filtram `reference_date`; itens de linha não reportados vêm `null` |
+| POST | `/{ticker}/indicators/compute` | **não** chama API externa — só transforma dado armazenado; devolve `periods/computed/skipped_existing` |
+| GET | `/{ticker}/indicators` | lê **só** do banco; `start`/`end` filtram `reference_date`; `null` = não computável, nunca zero |
 
-Os dois endpoints `*/sync` são as únicas rotas que chamam provedores externos.
+Os dois endpoints `*/sync` são as únicas rotas que chamam provedores externos. `indicators/compute` escreve no banco mas não faz I/O de rede.
+
+Unidades dos indicadores: margens, crescimento, ROE, ROIC e DY são **frações** (0.15 = 15%); `pe`, `pb` e `debt_ebitda` são múltiplos adimensionais.
 
 ### Portfolios — `/api/v1/portfolios` (todos autenticados, escopados ao dono)
 | Método | Rota | Nota |
