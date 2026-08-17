@@ -54,3 +54,17 @@ line-length = 100
 # `Depends(...)` dependency-injection pattern, which is meant to be used
 # exactly that way throughout app/api/.
 ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+# SQLAlchemy 2.0 `Mapped[...]` relationships reference sibling model classes
+# by quoted name (e.g. `Mapped["Asset"]`, `relationship("Asset")`) resolved
+# at runtime through the declarative registry, not through Python imports —
+# importing them directly would create circular imports between model
+# modules. F821 cannot see that resolution, so it is a false positive here.
+"app/data/models/*.py" = ["F821"]
+
+# Alembic's own script.py.mako template (used to generate every migration
+# file, see backend/migrations/script.py.mako) emits `Union[...]` headers,
+# not `X | Y`. Keeping generated migrations byte-for-byte close to the
+# template avoids needless diffs on every future `alembic revision`.
+"migrations/versions/*.py" = ["UP007", "UP035"]

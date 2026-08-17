@@ -1,13 +1,19 @@
 from datetime import date
+from decimal import Decimal
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
 from app.data.database import Base, utc_now
 from app.data.models import (
-    User, InvestorProfile, RiskProfileEnum,
-    Asset, AssetPrice, IntradayPrice,
-    Portfolio, Transaction, PortfolioSnapshot, TransactionTypeEnum,
-    Fundamental, FinancialIndicator,
-    Recommendation, DayTradeSetup, DayTradeResult
+    Asset,
+    AssetPrice,
+    InvestorProfile,
+    Portfolio,
+    RiskProfileEnum,
+    Transaction,
+    TransactionTypeEnum,
+    User,
 )
 
 
@@ -27,7 +33,7 @@ def test_models_creation_in_memory():
     profile = InvestorProfile(
         user_id=user.id,
         risk_profile=RiskProfileEnum.CONSERVATIVE,
-        monthly_contribution=1000.0
+        monthly_contribution=1000.0,
     )
     db.add(profile)
     db.commit()
@@ -37,7 +43,7 @@ def test_models_creation_in_memory():
         ticker="PETR4",
         name="Petróleo Brasileiro S.A.",
         asset_type="STOCK",
-        sector="Oil & Gas"
+        sector="Oil & Gas",
     )
     db.add(asset)
     db.commit()
@@ -51,7 +57,7 @@ def test_models_creation_in_memory():
         low=38.10,
         close=39.00,
         adjusted_close=39.00,
-        volume=1500000.0
+        volume=1500000.0,
     )
     db.add(price)
     db.commit()
@@ -69,7 +75,7 @@ def test_models_creation_in_memory():
         quantity=100.0,
         price=38.50,
         fees=5.0,
-        transaction_date=utc_now()
+        transaction_date=utc_now(),
     )
     db.add(tx)
     db.commit()
@@ -80,5 +86,12 @@ def test_models_creation_in_memory():
     assert asset.ticker == "PETR4"
     assert len(portfolio.transactions) == 1
     assert portfolio.transactions[0].quantity == 100.0
+
+    # Monetary/quantity columns must round-trip as Decimal, not float
+    # (AGENTS.md rule 17: never use float indiscriminately for critical
+    # monetary values).
+    assert isinstance(portfolio.transactions[0].quantity, Decimal)
+    assert isinstance(portfolio.transactions[0].price, Decimal)
+    assert isinstance(price.close, Decimal)
 
     db.close()

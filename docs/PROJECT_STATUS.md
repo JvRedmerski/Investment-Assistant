@@ -81,6 +81,7 @@ Status: 🟢 COMPLETED
 - [x] **W02-001**: Configuração SQLAlchemy 2.0 e Alembic no Backend (`backend/app/data/database.py`, `alembic.ini`) 🟢 COMPLETED
 - [x] **W02-002**: Implementação dos Models das 13 tabelas essenciais (`users`, `investor_profiles`, `portfolios`, `assets`, `asset_prices`, `intraday_prices`, `fundamentals`, `financial_indicators`, `transactions`, `portfolio_snapshots`, `recommendations`, `daytrade_setups`, `daytrade_results`) 🟢 COMPLETED
 - [x] **W02-003**: Migration Inicial Alembic (`001_initial_schema.py`) e testes de schema SQLAlchemy (`3 passed`) 🟢 COMPLETED
+- [x] **W02-004** (correção pós-conclusão, 2026-08-16): Migration `002_numeric_money_columns.py` convertendo `transactions.quantity/price/fees` e `asset_prices.open/high/low/close/adjusted_close` de `FLOAT` para `NUMERIC(18,6)`, e os models SQLAlchemy correspondentes para `Decimal`. Ver Technical Decisions — "Monetary precision" abaixo. 🟢 COMPLETED
 
 ---
 
@@ -408,12 +409,22 @@ Nenhum problema conhecido no momento.
 - **Reason**: Roadmap trata refresh token como "se necessário"; um fluxo simples de reemissão atende a Wave 03 sem introduzir complexidade de armazenamento/rotação de refresh tokens antes de haver necessidade real (regra 101 do AGENTS.md). Pode evoluir para refresh token dedicado em wave futura de segurança (W24) se necessário.
 - **Status**: 🟢 APPROVED
 
+### Decision — 2026-08-16 — Monetary precision
+- **Decision**: Ao iniciar a Wave 04, identificado que `transactions.quantity/price/fees` e `asset_prices.open/high/low/close/adjusted_close` usavam `Float` no SQLAlchemy, violando a regra 17 do AGENTS.md. Consultado o usuário (decisão arquitetural sobre schema já commitado da Wave 02, não inferida automaticamente); optou-se por migrar agora para `NUMERIC(18,6)`/`Decimal` em vez de aceitar como débito técnico.
+- **Implementation**: `backend/migrations/versions/002_numeric_money_columns.py` (Alembic, revises `001_initial_schema`) + models atualizados (`app/data/models/portfolio.py`, `app/data/models/assets.py`, constante `MONEY = Numeric(18, 6)`). `volume` permanece `Float` (não é valor monetário). Teste de regressão em `backend/tests/test_models.py` garante que os valores retornam como `Decimal`, não `float`.
+- **Escopo explicitamente fora desta correção (Future Work)**: `intraday_prices` OHLC (pertence à Wave 15), `portfolio_snapshots.total_value/cash_value` e `investor_profiles.monthly_contribution` continuam `Float` — serão convertidos quando as waves que os utilizam (11 e 09) forem implementadas.
+- **Caveat de validação**: a migration foi escrita manualmente (mesmo padrão de `001_initial_schema.py`) e validada apenas estruturalmente (`alembic heads`/`history` resolvem corretamente; suíte de testes passa contra SQLite in-memory). **Não foi aplicada contra um PostgreSQL real** — o Docker Desktop não estava em execução neste ambiente. É obrigatório rodar `alembic upgrade head` contra Postgres (via `docker compose up`) antes de considerar esta migration definitivamente validada em produção/dev real, conforme regra 14 do AGENTS.md ("autogenerate/migration não é infalível, deve ser revisada").
+- **Status**: 🟢 APPROVED (implementação); ⚠️ aplicação em Postgres real ainda pendente de verificação.
+
 ---
 
 ## Future Work
 - Cache com Redis para cotações em tempo real.
 - Suporte a WebSocket para streamings intraday.
 - Modelos avançados de otimização de portfólio (Markowitz / Black-Litterman).
+- Verificar/aplicar `alembic upgrade head` (migration `002_numeric_money_columns`) contra um PostgreSQL real assim que o Docker/`docker compose up` estiver disponível — não foi possível validar neste ambiente (Docker Desktop parado).
+- Converter `intraday_prices` OHLC para `NUMERIC` na Wave 15; `portfolio_snapshots.total_value/cash_value` na Wave 11; `investor_profiles.monthly_contribution` na Wave 09 (mesma motivação da regra 17 do AGENTS.md, deliberadamente fora do escopo da correção de 2026-08-16).
+- Lint: `ruff check` aponta ~30 findings pré-existentes (anteriores a esta sessão) em arquivos não tocados nas Waves 03/04 (`app/data/models/fundamentals.py`, `users.py`, `daytrade.py`, `recommendations.py`, `app/core/config.py`, `app/core/logging.py`, `app/data/database.py`, `app/api/routes/health.py`, `tests/test_health.py`, `app/domain/__init__.py`, `app/domain/users/__init__.py`) — majoritariamente import-sorting e `Optional`/`List` → `X | None`/`list`. Não corrigido agora por estar fora do escopo das tasks em andamento (regra 134 do AGENTS.md); considerar uma task dedicada de lint cleanup.
 
 ---
 

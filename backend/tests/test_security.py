@@ -41,5 +41,11 @@ def test_decode_access_token_rejects_expired_token():
 
 def test_decode_access_token_rejects_tampered_signature():
     token = security.create_access_token({"sub": "1"})
-    tampered = token[:-1] + ("A" if token[-1] != "A" else "B")
+    header, payload, signature = token.split(".")
+    # Mutate the *first* character of the signature, not the last: base64url
+    # can leave "don't care" padding bits in the final character for some
+    # byte-length remainders, so flipping only the last character is not
+    # guaranteed to change the decoded signature bytes (flaky test).
+    mutated_char = "a" if signature[0] != "a" else "b"
+    tampered = f"{header}.{payload}.{mutated_char}{signature[1:]}"
     assert security.decode_access_token(tampered) is None
