@@ -45,6 +45,7 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 - **Backend**: FastAPI + Python 3.11/3.14 + Pydantic v2 + Uvicorn (`backend/`) 🟢 COMPLETED
 - **Quant Engine**: NumPy + Pandas + SciPy (Wave 07) ⚪ NOT_STARTED
 - **Portfolio Engine**: CRUD de carteiras/ativos, ledger de transações, motor de posições (custo médio/saldo) determinístico (`backend/app/domain/portfolio`) 🟢 COMPLETED (Wave 04)
+- **Market Data Integration**: Abstração `MarketDataProvider` + `BrapiProvider` (`backend/app/integrations/market_data`) 🟡 IN_PROGRESS (Wave 05 — provider pronto, ingestão/caching/data quality pendentes)
 - **Database**: PostgreSQL 16 + SQLAlchemy 2.0 Models + Alembic (001 + 002 `NUMERIC` money columns) (`backend/app/data/models`) 🟢 COMPLETED
 - **AI Integration**: Abstração `AIProvider` (Gemini / Ollama) (Wave 12) ⚪ NOT_STARTED
 
@@ -141,11 +142,21 @@ Definition of Done Wave 04: atendida — CRUD de carteiras/ativos, ledger de tra
 ---
 
 ### Wave 05 — Market Data Integration
-Status: ⚪ NOT_STARTED
+Status: 🟡 IN_PROGRESS
 
-- [ ] **W05-001**: Abstração `MarketDataProvider` e integração Brapi ⚪ NOT_STARTED
+- [x] **W05-001**: Abstração `MarketDataProvider` e integração Brapi 🟢 COMPLETED
 - [ ] **W05-002**: Ingestão de Cotizações Diárias e Caching ⚪ NOT_STARTED
 - [ ] **W05-003**: Data Quality Validator (validação de outliers/nulos) ⚪ NOT_STARTED
+
+Detalhes W05-001:
+- `backend/app/integrations/market_data/base.py`: interface abstrata `MarketDataProvider` (`get_quote`, `get_daily_history`) — domínio depende só desta abstração, nunca de um SDK/HTTP client concreto (regra 21 do AGENTS.md).
+- `backend/app/integrations/market_data/schemas.py`: DTOs `DailyBar`/`Quote` (Pydantic — validação automática de tipos/campos obrigatórios de dados externos não confiáveis, regra 19).
+- `backend/app/integrations/market_data/exceptions.py`: `TickerNotFoundError`, `MarketDataUnavailableError`, `InvalidMarketDataResponseError`.
+- `backend/app/integrations/market_data/brapi.py`: `BrapiProvider`, implementação concreta via `httpx`. Timeout configurável, retry limitado com backoff exponencial só para falhas transitórias (timeout/erro de conexão/HTTP 429/500/502/503/504 — nunca retry infinito), 404 falha imediatamente, throttle opcional entre requisições (`MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS`) para respeitar rate limit do provedor gratuito.
+- `backend/app/core/config.py`: `BRAPI_BASE_URL`, `MARKET_DATA_TIMEOUT_SECONDS`, `MARKET_DATA_MAX_RETRIES`, `MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS`.
+- **Caveat importante**: o parser foi escrito com base na documentação pública da Brapi (`results[0].regularMarketPrice`, `results[0].historicalDataPrice[]`), mas só foi exercitado contra respostas HTTP mockadas (`httpx.MockTransport`) — não há acesso de rede de saída neste ambiente. Precisa ser validado contra uma resposta real da Brapi antes de ser usado em ingestão de produção (mesma ressalva já registrada para a migration `002_numeric_money_columns`).
+- Testes: `backend/tests/test_brapi_provider.py` (15 casos): parsing de quote/histórico com sucesso, 404 -> `TickerNotFoundError`, campo obrigatório ausente/nulo -> `InvalidMarketDataResponseError`, JSON inválido, filtro de datas, `adjustedClose` ausente cai para `close`, retry em erro 5xx/timeout transitório com sucesso subsequente, falha definitiva após esgotar tentativas, erro não-retryable (4xx) falha imediatamente sem retry, e throttle de intervalo mínimo entre requisições.
+- Validação: `pytest` 71/71 passed; `ruff check` e `black --check` limpos nos arquivos da task (exceto os `__init__.py` vazios, que replicam um padrão de estilo pré-existente no repositório — já registrado em Future Work).
 
 ---
 
@@ -352,9 +363,9 @@ Status: ⚪ NOT_STARTED
 
 ## Current Task
 
-Wave: 04
-Task ID: W04-001
-Task Name: Endpoints CRUD de Carteiras e Ativos
+Wave: 05
+Task ID: W05-002
+Task Name: Ingestão de Cotações Diárias e Caching
 Status: ⚪ NOT_STARTED
 
 Completed:
@@ -363,17 +374,15 @@ Completed:
 - Wave 02 (Database Schema & Migrations) concluída (13 tabelas criadas no SQLAlchemy 2.0 + Migration Alembic `001_initial_schema.py` + 3 testes passando).
 - Wave 03 (Authentication & Users) concluída (hashing bcrypt + JWT, endpoints register/login/refresh/me, `get_current_user`, 18 testes novos passando).
 - Correção de precisão monetária pós-Wave 02 (`Float` -> `NUMERIC(18,6)`/`Decimal` em `transactions` e `asset_prices`, migration `002_numeric_money_columns.py`), decidida com o usuário.
-- W04-001 (CRUD de carteiras e ativos) concluída — 12 testes novos passando.
-- W04-002 (registro de transações + guarda de venda insuficiente) concluída — 9 testes novos passando.
-- W04-003 (endpoint de posições consolidadas + testes unitários do motor) concluída — 15 testes novos passando. **Wave 04 completa.**
+- Wave 04 (Portfolio Management) concluída — CRUD de carteiras/ativos, transações, motor de posições. 36 testes novos passando.
+- W05-001 (abstração `MarketDataProvider` + `BrapiProvider`) concluída — 15 testes novos passando.
 
-Remaining (Wave 05 — Market Data Integration):
-- W05-001: Abstração `MarketDataProvider` e integração Brapi.
-- W05-002: Ingestão de cotações diárias e caching.
-- W05-003: Data Quality Validator (outliers/nulos/OHLC inválido).
+Remaining (Wave 05):
+- W05-002: Ingestão de cotações diárias (`asset_prices`) via `BrapiProvider`, com caching (não reconsultar datas já armazenadas).
+- W05-003: Data Quality Validator (outliers/nulos/OHLC inválido/datas duplicadas) integrado à ingestão.
 
 Next Action:
-Ler `docs/roadmap.md` (Wave 5) e planejar W05-001 (`MarketDataProvider` + `BrapiProvider`) em `backend/app/integrations/market_data/`.
+Implementar W05-002: serviço de sincronização de histórico diário em `backend/app/domain/market_data/` (ou local equivalente) + endpoints `POST /api/v1/assets/{ticker}/prices/sync` (aciona `BrapiProvider`) e `GET /api/v1/assets/{ticker}/prices` (lê do banco, sem tocar a API externa — regra 23 do AGENTS.md).
 
 ---
 
@@ -396,11 +405,12 @@ Ler `docs/roadmap.md` (Wave 5) e planejar W05-001 (`MarketDataProvider` + `Brapi
 - **W04-001**: Endpoints CRUD de Carteiras e Ativos (🟢 COMPLETED)
 - **W04-002**: Registro de Transações (BUY, SELL, DIVIDEND, DEPOSIT, WITHDRAWAL) (🟢 COMPLETED)
 - **W04-003**: Motor de Posições Consolidadas (Preço Médio e Saldo) (🟢 COMPLETED)
+- **W05-001**: Abstração `MarketDataProvider` e integração Brapi (🟢 COMPLETED)
 
 ---
 
 ## In Progress
-Nenhuma tarefa em progresso no momento. Wave 04 concluída. Próxima: W05-001 (Wave 05 — Market Data Integration).
+Nenhuma tarefa em progresso no momento. Próxima: W05-002 (Ingestão de Cotações Diárias e Caching).
 
 ---
 
@@ -448,6 +458,11 @@ Nenhum problema conhecido no momento.
 - **Caveat de validação**: a migration foi escrita manualmente (mesmo padrão de `001_initial_schema.py`) e validada apenas estruturalmente (`alembic heads`/`history` resolvem corretamente; suíte de testes passa contra SQLite in-memory). **Não foi aplicada contra um PostgreSQL real** — o Docker Desktop não estava em execução neste ambiente. É obrigatório rodar `alembic upgrade head` contra Postgres (via `docker compose up`) antes de considerar esta migration definitivamente validada em produção/dev real, conforme regra 14 do AGENTS.md ("autogenerate/migration não é infalível, deve ser revisada").
 - **Status**: 🟢 APPROVED (implementação); ⚠️ aplicação em Postgres real ainda pendente de verificação.
 
+### Decision — 2026-08-17 — Brapi parser not yet verified live
+- **Decision**: Implementar `BrapiProvider` (W05-001) com base na documentação pública da Brapi, testado exclusivamente contra respostas HTTP mockadas (`httpx.MockTransport`), sem acesso de rede de saída neste ambiente.
+- **Reason**: Regra 124 do AGENTS.md ("quando não souber, explicar a incerteza") — não há como validar contra a API real sem rede; a alternativa (não implementar) bloquearia toda a Wave 05. Preferi implementar de forma defensiva (nunca assumir campo presente, regra 19) e documentar claramente a lacuna, em vez de fingir que foi validado.
+- **Status**: 🟢 APPROVED (implementação); ⚠️ verificação contra resposta real da Brapi ainda pendente antes de uso em ingestão de produção.
+
 ---
 
 ## Future Work
@@ -456,16 +471,17 @@ Nenhum problema conhecido no momento.
 - Modelos avançados de otimização de portfólio (Markowitz / Black-Litterman).
 - Verificar/aplicar `alembic upgrade head` (migration `002_numeric_money_columns`) contra um PostgreSQL real assim que o Docker/`docker compose up` estiver disponível — não foi possível validar neste ambiente (Docker Desktop parado).
 - Converter `intraday_prices` OHLC para `NUMERIC` na Wave 15; `portfolio_snapshots.total_value/cash_value` na Wave 11; `investor_profiles.monthly_contribution` na Wave 09 (mesma motivação da regra 17 do AGENTS.md, deliberadamente fora do escopo da correção de 2026-08-16).
-- Lint: `ruff check` aponta ~30 findings pré-existentes (anteriores a esta sessão) em arquivos não tocados nas Waves 03/04 (`app/data/models/fundamentals.py`, `users.py`, `daytrade.py`, `recommendations.py`, `app/core/config.py`, `app/core/logging.py`, `app/data/database.py`, `app/api/routes/health.py`, `tests/test_health.py`, `app/domain/__init__.py`, `app/domain/users/__init__.py`) — majoritariamente import-sorting e `Optional`/`List` → `X | None`/`list`. Não corrigido agora por estar fora do escopo das tasks em andamento (regra 134 do AGENTS.md); considerar uma task dedicada de lint cleanup.
+- Validar `BrapiProvider` (`backend/app/integrations/market_data/brapi.py`) contra uma resposta real da API assim que houver acesso de rede — os nomes de campo (`regularMarketPrice`, `historicalDataPrice`, etc.) foram inferidos da documentação pública, não de uma chamada real.
+- Lint: `ruff check` aponta findings pré-existentes (anteriores a esta sessão) em arquivos não tocados nas Waves 03/04/05 (`app/data/models/fundamentals.py`, `users.py`, `daytrade.py`, `recommendations.py`, `app/core/logging.py`, `app/data/database.py`, `app/api/routes/health.py`, `tests/test_health.py`) — majoritariamente import-sorting e `Optional`/`List` → `X | None`/`list`. Além disso, os `__init__.py` vazios do projeto (`app/domain/__init__.py`, `app/domain/users/__init__.py`, e agora `app/integrations/__init__.py`, `app/integrations/market_data/__init__.py`) usam `""` como conteúdo, o que dispara `D419`/reformatação do `black` — padrão pré-existente replicado por consistência. Não corrigido agora por estar fora do escopo das tasks em andamento (regra 134 do AGENTS.md); considerar uma task dedicada de lint cleanup.
 
 ---
 
 ## Last Execution
 - **Timestamp**: 2026-08-16T00:00:00-03:00
-- **Action**: W04-003 (Wave 04) — `GET /api/v1/portfolios/{id}/positions`, expondo o motor de posições (`compute_positions`/`compute_net_contributions`) com testes unitários dedicados (casos conhecidos: preço médio ponderado, venda parcial/total, dividendos, aportes/retiradas, ordem cronológica). **Wave 04 concluída.**
-- **Result**: Sucesso. 56/56 testes automatizados passando (`pytest`), `ruff check` e `black --check` limpos nos arquivos alterados. Nenhuma regressão nas waves anteriores.
+- **Action**: W05-001 (Wave 05) — abstração `MarketDataProvider` e implementação `BrapiProvider` (`backend/app/integrations/market_data/`), com timeout, retry limitado com backoff, tratamento de erros e throttle opcional.
+- **Result**: Sucesso. 71/71 testes automatizados passando (`pytest`), `ruff check` e `black --check` limpos nos arquivos alterados (exceto débito de estilo pré-existente nos `__init__.py` vazios). Nenhuma regressão nas waves anteriores. **Caveat**: parser não validado contra resposta real da Brapi (sem acesso de rede neste ambiente) — ver Technical Decisions.
 
 ---
 
 ## Next Action
-Ler `docs/roadmap.md` (Wave 5 — Market Data) e `AGENTS.md` (seções 19, 21, 22, 23) e planejar W05-001 (`MarketDataProvider` + `BrapiProvider`) em `backend/app/integrations/market_data/`, seguido de W05-002 (ingestão/caching) e W05-003 (data quality validator).
+Implementar W05-002 (ingestão de cotações diárias + caching) e W05-003 (Data Quality Validator), completando a Wave 05.
