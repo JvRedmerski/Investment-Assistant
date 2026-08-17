@@ -182,10 +182,24 @@ Definition of Done Wave 05: atendida — provider abstraído e testável sem red
 ---
 
 ### Wave 06 — Fundamental Data
-Status: ⚪ NOT_STARTED
+Status: 🟡 IN_PROGRESS
 
-- [ ] **W06-001**: Ingestão de Demonstrativos Financeiros ⚪ NOT_STARTED
+- [x] **W06-001**: Ingestão de Demonstrativos Financeiros 🟢 COMPLETED
 - [ ] **W06-002**: Cálculo e Normalização de Indicadores Fundamentalistas ⚪ NOT_STARTED
+
+Detalhes W06-001:
+- `backend/app/integrations/http.py` (novo): `RetryingJsonClient` — transporte HTTP compartilhado com timeout, retry limitado com backoff exponencial só em falha transitória (timeout/conexão/429/5xx), falha imediata em 4xx e throttle de rate limit. As classes de exceção são injetadas, então cada integração mantém seu próprio vocabulário de erro. Extraído do `BrapiProvider` (regra 8 do AGENTS.md — não reimplementar o que já existe) em vez de copiar o loop de retry para o segundo provedor; ver Technical Decisions.
+- `backend/app/integrations/market_data/brapi.py`: migrado para o transporte compartilhado. Mudança puramente mecânica — nenhuma alteração de comportamento; os 15 testes pré-existentes do `BrapiProvider` continuam passando (4 deles tiveram apenas o alvo do `patch` de `time.sleep`/`time.monotonic` repontado de `...market_data.brapi.time` para `...integrations.http.time`, já que é lá que o `sleep` passou a morar; nenhuma asserção foi alterada ou enfraquecida).
+- `backend/app/integrations/fundamentals/`: `base.py` (`FundamentalsProvider`, ABC), `schemas.py` (`FinancialStatement`, todos os itens de linha opcionais), `exceptions.py`, `brapi.py` (`BrapiFundamentalsProvider`), `factory.py`, `data_quality.py`.
+- `backend/app/domain/fundamentals/`: `schemas.py` + `service.py` (`sync_annual_statements`) — mesma forma de `sync_daily_history`: busca → valida → insere só o que ainda não existe → retorna `fetched/inserted/skipped_existing/rejected`.
+- `backend/app/api/dependencies.py`: `get_fundamentals_provider`.
+- `backend/app/api/routes/assets.py`: `POST /api/v1/assets/{ticker}/fundamentals/sync` (único endpoint que chama o provedor; mapeia `FundamentalsNotFoundError`→404, `FundamentalsUnavailableError`→503, `InvalidFundamentalsResponseError`→502) e `GET /api/v1/assets/{ticker}/fundamentals` (lê só do banco, filtro `start`/`end` sobre `reference_date`).
+- `backend/app/core/config.py`: `FUNDAMENTALS_PROVIDER`, `FUNDAMENTALS_TIMEOUT_SECONDS` (15s — demonstrativos são payloads maiores), `FUNDAMENTALS_MAX_RETRIES`, `FUNDAMENTALS_MIN_REQUEST_INTERVAL_SECONDS`.
+- `backend/app/data/models/fundamentals.py` + `backend/migrations/versions/003_numeric_fundamentals_columns.py`: colunas monetárias de `fundamentals` convertidas de `Float` para `NUMERIC(24,4)`/`Decimal`. Ver Technical Decisions.
+- Data quality (`validate_financial_statements`, função pura e determinística, `today` injetável): rejeita `DUPLICATE_REFERENCE_DATE` (ambas as ocorrências), `FUTURE_REFERENCE_DATE`, `EMPTY_STATEMENT` (nenhum valor reportado) e `NEGATIVE_VALUE` em `revenue`/`debt`/`cash`. **Não** rejeita lucro líquido, patrimônio líquido ou FCF negativos — são resultados reais e informativos. Avisa `INCOMPLETE_STATEMENT` sem bloquear.
+- Testes (+45): `test_brapi_fundamentals_provider.py` (17), `test_fundamentals_data_quality.py` (12), `test_fundamentals_service.py` (8), `test_fundamentals_routes.py` (8, incluindo um `ExplodingProvider` que falha se o read-path chamar o provedor).
+- Validação: `pytest` 140/140 passed; `ruff check` e `black --check` limpos em todos os arquivos da task. `alembic heads`/`history` resolvem `003` corretamente.
+- **Caveat**: como no W05-001, o parser foi escrito a partir da documentação pública da Brapi e exercitado só contra `httpx.MockTransport` — sem rede neste ambiente. Nomes de módulo (`incomeStatementHistory`, `balanceSheetHistory`), aninhamento e nomes de campo **não** foram confirmados contra resposta real.
 
 ---
 
@@ -385,8 +399,8 @@ Status: ⚪ NOT_STARTED
 ## Current Task
 
 Wave: 06
-Task ID: W06-001
-Task Name: Ingestão de Demonstrativos Financeiros
+Task ID: W06-002
+Task Name: Cálculo e Normalização de Indicadores Fundamentalistas
 Status: ⚪ NOT_STARTED
 
 Completed:
@@ -397,13 +411,13 @@ Completed:
 - Correção de precisão monetária pós-Wave 02 (`Float` -> `NUMERIC(18,6)`/`Decimal` em `transactions` e `asset_prices`, migration `002_numeric_money_columns.py`), decidida com o usuário.
 - Wave 04 (Portfolio Management) concluída — CRUD de carteiras/ativos, transações, motor de posições. 36 testes novos passando.
 - Wave 05 (Market Data Integration) concluída — `MarketDataProvider`/`BrapiProvider`, ingestão diária com caching, Data Quality Validator. 39 testes novos passando.
+- W06-001 (Ingestão de Demonstrativos Financeiros) concluída — `FundamentalsProvider`/`BrapiFundamentalsProvider`, transporte HTTP compartilhado, ingestão anual idempotente, data quality de demonstrativos, migration `003`. 45 testes novos passando.
 
 Remaining (Wave 06 — Fundamental Data):
-- W06-001: Ingestão de demonstrativos financeiros (tabela `fundamentals`).
 - W06-002: Cálculo e normalização de indicadores fundamentalistas (tabela `financial_indicators`), respeitando data de referência (não sobrescrever histórico — regra 109 do AGENTS.md).
 
 Next Action:
-Ler `docs/roadmap.md` (seção 18 — Wave 6) e `AGENTS.md` (regras 29 e 109) e planejar W06-001.
+Ler `docs/roadmap.md` (seção 18 — Wave 6) e `AGENTS.md` (regras 29, 30 e 109) e planejar W06-002. Atenção: `ebitda` e `free_cash_flow` chegam sempre como `NULL` do provedor atual, então qualquer indicador que dependa deles (`debt_ebitda`, `ebitda_margin`) precisa tratar ausência de dado explicitamente em vez de assumir zero.
 
 ---
 
@@ -429,6 +443,7 @@ Ler `docs/roadmap.md` (seção 18 — Wave 6) e `AGENTS.md` (regras 29 e 109) e 
 - **W05-001**: Abstração `MarketDataProvider` e integração Brapi (🟢 COMPLETED)
 - **W05-002**: Ingestão de Cotações Diárias e Caching (🟢 COMPLETED)
 - **W05-003**: Data Quality Validator (validação de outliers/nulos) (🟢 COMPLETED)
+- **W06-001**: Ingestão de Demonstrativos Financeiros (🟢 COMPLETED)
 
 ---
 
@@ -481,6 +496,23 @@ Nenhum problema conhecido no momento.
 - **Caveat de validação**: a migration foi escrita manualmente (mesmo padrão de `001_initial_schema.py`) e validada apenas estruturalmente (`alembic heads`/`history` resolvem corretamente; suíte de testes passa contra SQLite in-memory). **Não foi aplicada contra um PostgreSQL real** — o Docker Desktop não estava em execução neste ambiente. É obrigatório rodar `alembic upgrade head` contra Postgres (via `docker compose up`) antes de considerar esta migration definitivamente validada em produção/dev real, conforme regra 14 do AGENTS.md ("autogenerate/migration não é infalível, deve ser revisada").
 - **Status**: 🟢 APPROVED (implementação); ⚠️ aplicação em Postgres real ainda pendente de verificação.
 
+### Decision — 2026-08-17 — Fundamentals monetary precision: `NUMERIC(24,4)`
+- **Decision**: Converter as colunas monetárias de `fundamentals` (`revenue`, `ebitda`, `net_income`, `equity`, `debt`, `cash`, `free_cash_flow`) de `Float` para `NUMERIC(24,4)`/`Decimal` (migration `003_numeric_fundamentals_columns`). `financial_indicators` permanece `Float`.
+- **Reason**: Mesma motivação da regra 17 do AGENTS.md que originou a migration `002`. Consultado o usuário (mesma classe de decisão arquitetural que foi escalada em 2026-08-16, não inferida automaticamente); optou-se por converter agora, com a tabela ainda vazia, em vez de acumular dívida. Precisão diferente da constante `MONEY` (18,6) porque os valores são agregados de companhia inteira na casa das centenas de bilhões de BRL, o que consumiria quase todos os 12 dígitos inteiros de `NUMERIC(18,6)`; `NUMERIC(24,4)` deixa folga ampla e 4 casas decimais excedem o que qualquer demonstrativo reporta. `financial_indicators` guarda razões e taxas de crescimento (P/L, ROE, margens), não moeda — a regra 17 permite float onde adequado desde que a decisão seja registrada, e está registrada aqui e em `app/data/models/fundamentals.py`.
+- **Caveat de validação**: mesma ressalva da `002` — migration escrita manualmente, validada estruturalmente (`alembic heads`/`history`) e contra SQLite in-memory. **Não aplicada contra PostgreSQL real.**
+- **Status**: 🟢 APPROVED (implementação); ⚠️ aplicação em Postgres real ainda pendente.
+
+### Decision — 2026-08-17 — Transporte HTTP compartilhado entre integrações
+- **Decision**: Extrair o loop de timeout/retry/backoff/throttle do `BrapiProvider` para `app/integrations/http.py` (`RetryingJsonClient`), parametrizado pelas classes de exceção de cada integração, e usá-lo tanto no market data quanto no fundamentals.
+- **Reason**: Regra 8 do AGENTS.md (não reimplementar o que já existe). A alternativa era copiar ~60 linhas de lógica de resiliência para o segundo provedor — e depois para intraday (W15) e IA (W12), chegando a quatro cópias. A extração é mecânica e os 15 testes pré-existentes do `BrapiProvider` funcionaram como rede de segurança (continuam passando sem alteração de asserção).
+- **Escopo**: mudança de estrutura, não de comportamento. Nenhum parâmetro, código HTTP ou exceção mudou de semântica.
+- **Status**: 🟢 APPROVED. Registrado como `docs/decisions/ADR-012`.
+
+### Decision — 2026-08-17 — Fundamentals: só anual, e restatement não sobrescreve
+- **Decision**: (a) Ingerir apenas demonstrativos **anuais**; (b) nunca sobrescrever um `reference_date` já armazenado, mesmo que o provedor passe a servir um valor reexpresso; (c) não preencher `ebitda`/`free_cash_flow` a partir do módulo `financialData` da Brapi.
+- **Reason**: (a) `fundamentals` identifica a linha por `(asset_id, reference_date)` e não tem coluna de período — um exercício anual encerrado em 31/12 e o 4º trimestre reportam a mesma data-fim e virariam duas linhas indistinguíveis. (b) Substituir o valor armazenado reescreveria o que o sistema "sabia" à época e corromperia qualquer análise point-in-time (regras 108/109); tratar reexpressão corretamente exige schema que comporte múltiplas versões do mesmo período. (c) `financialData` é um snapshot TTM sem data-fim de período; atribuí-lo a um `reference_date` histórico seria exatamente o look-ahead que a regra 109 proíbe, e derivar EBITDA/FCF depende de convenções de sinal não verificáveis sem resposta real — um número silenciosamente errado é pior que um `NULL` honesto (regra 44).
+- **Status**: 🟢 APPROVED. Registrado como `docs/decisions/ADR-013`.
+
 ### Decision — 2026-08-17 — Brapi parser not yet verified live
 - **Decision**: Implementar `BrapiProvider` (W05-001) com base na documentação pública da Brapi, testado exclusivamente contra respostas HTTP mockadas (`httpx.MockTransport`), sem acesso de rede de saída neste ambiente.
 - **Reason**: Regra 124 do AGENTS.md ("quando não souber, explicar a incerteza") — não há como validar contra a API real sem rede; a alternativa (não implementar) bloquearia toda a Wave 05. Preferi implementar de forma defensiva (nunca assumir campo presente, regra 19) e documentar claramente a lacuna, em vez de fingir que foi validado.
@@ -500,11 +532,11 @@ Nenhum problema conhecido no momento.
 ---
 
 ## Last Execution
-- **Timestamp**: 2026-08-16T00:00:00-03:00
-- **Action**: W05-003 (Wave 05) — Data Quality Validator (`validate_daily_bars`) integrado a `sync_daily_history`, rejeitando barras inválidas (preço não-positivo, volume negativo, OHLC inconsistente, datas duplicadas) e sinalizando avisos (fora de ordem, variação diária absurda) sem bloquear a ingestão. **Wave 05 concluída.**
-- **Result**: Sucesso. 95/95 testes automatizados passando (`pytest`), `ruff check` e `black --check` limpos nos arquivos alterados. Nenhuma regressão nas waves anteriores.
+- **Timestamp**: 2026-08-17T00:00:00-03:00
+- **Action**: W06-001 (Wave 06) — ingestão de demonstrativos financeiros anuais: `FundamentalsProvider` + `BrapiFundamentalsProvider` + factory + data quality, `sync_annual_statements` idempotente, endpoints de sync/leitura, migration `003` (`NUMERIC(24,4)`), e extração do transporte HTTP compartilhado (`RetryingJsonClient`) reaproveitado pelo `BrapiProvider`.
+- **Result**: Sucesso. 140/140 testes passando (`pytest`), `ruff check` e `black --check` limpos em todos os arquivos da task. Nenhuma regressão: os 95 testes anteriores continuam passando, incluindo os 15 do `BrapiProvider` após a extração do transporte.
 
 ---
 
 ## Next Action
-Ler `docs/roadmap.md` (Wave 6 — Fundamental Data) e planejar W06-001 (ingestão de demonstrativos financeiros).
+Ler `docs/roadmap.md` (Wave 6 — Fundamental Data) e `AGENTS.md` (regras 29, 30, 109) e planejar W06-002 (cálculo e normalização de indicadores fundamentalistas).

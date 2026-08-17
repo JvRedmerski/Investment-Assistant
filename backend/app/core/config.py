@@ -34,6 +34,14 @@ class Settings(BaseSettings):
     # 0 disables throttling (default: local/dev usage).
     MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS: float = 0.0
 
+    # Fundamentals ingestion is far lower-frequency than price ingestion
+    # (statements change quarterly, not daily), but it shares the same
+    # provider and therefore the same rate limit — hence its own knobs.
+    FUNDAMENTALS_PROVIDER: str = "brapi"
+    FUNDAMENTALS_TIMEOUT_SECONDS: float = 15.0
+    FUNDAMENTALS_MAX_RETRIES: int = 3
+    FUNDAMENTALS_MIN_REQUEST_INTERVAL_SECONDS: float = 0.0
+
     AI_PROVIDER: str = "gemini"
     GEMINI_API_KEY: str = ""
 

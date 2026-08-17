@@ -60,7 +60,7 @@ Nunca: `LER TUDO → ENTENDER TUDO → COMEÇAR`.
 
 ```powershell
 cd backend
-.venv\Scripts\python.exe -m pytest -q          # baseline atual: 95 passed
+.venv\Scripts\python.exe -m pytest -q          # baseline atual: 140 passed
 .venv\Scripts\python.exe -m ruff check <arquivos alterados>
 .venv\Scripts\python.exe -m black --check <arquivos alterados>
 ```

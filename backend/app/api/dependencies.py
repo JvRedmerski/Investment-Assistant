@@ -8,6 +8,8 @@ from app.core.config import settings
 from app.core.security import decode_access_token
 from app.data.database import get_db
 from app.data.models.users import User
+from app.integrations.fundamentals.base import FundamentalsProvider
+from app.integrations.fundamentals.factory import build_fundamentals_provider
 from app.integrations.market_data.base import MarketDataProvider
 from app.integrations.market_data.factory import build_market_data_provider
 
@@ -66,6 +68,20 @@ def get_market_data_provider() -> Generator[MarketDataProvider, None, None]:
     fake provider instead of hitting the network.
     """
     provider = build_market_data_provider()
+    try:
+        yield provider
+    finally:
+        provider.close()
+
+
+def get_fundamentals_provider() -> Generator[FundamentalsProvider, None, None]:
+    """Provide a `FundamentalsProvider` instance for a single request.
+
+    Same contract as `get_market_data_provider`: routes depend only on
+    the abstract type, and tests override this dependency with a fake
+    instead of hitting the network.
+    """
+    provider = build_fundamentals_provider()
     try:
         yield provider
     finally:

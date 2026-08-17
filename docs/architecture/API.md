@@ -41,7 +41,7 @@ raise HTTPException(status_code=404, detail={"error": {"code": "...", "message":
 
 Sem `detail` estruturado, o handler emite `code: "HTTP_ERROR"`. Erros de validação do Pydantic (422) seguem o formato padrão do FastAPI — **não** passam pelo handler.
 
-Códigos em uso: `INVALID_CREDENTIALS`, `ASSET_NOT_FOUND`, `ASSET_ALREADY_EXISTS`, `PORTFOLIO_NOT_FOUND`, `INSUFFICIENT_POSITION`, `MARKET_DATA_TICKER_NOT_FOUND`, `MARKET_DATA_UNAVAILABLE`, `MARKET_DATA_INVALID_RESPONSE`.
+Códigos em uso: `INVALID_CREDENTIALS`, `ASSET_NOT_FOUND`, `ASSET_ALREADY_EXISTS`, `PORTFOLIO_NOT_FOUND`, `INSUFFICIENT_POSITION`, `MARKET_DATA_TICKER_NOT_FOUND`, `MARKET_DATA_UNAVAILABLE`, `MARKET_DATA_INVALID_RESPONSE`, `FUNDAMENTALS_NOT_FOUND`, `FUNDAMENTALS_UNAVAILABLE`, `FUNDAMENTALS_INVALID_RESPONSE`.
 
 ## Endpoints implementados
 
@@ -66,8 +66,12 @@ Códigos em uso: `INVALID_CREDENTIALS`, `ASSET_NOT_FOUND`, `ASSET_ALREADY_EXISTS
 | POST | `""` | cadastro watch-only; ticker duplicado → 409 |
 | GET | `""` | lista global, ordenada por ticker (assets não são escopados por usuário) |
 | GET | `/{ticker}` | 404 se não cadastrado |
-| POST | `/{ticker}/prices/sync` | **única rota que chama a API externa**; body `{start?, end?}`, default últimos 30 dias até hoje (UTC); resposta traz `fetched/inserted/skipped_existing/rejected` |
+| POST | `/{ticker}/prices/sync` | chama a API externa; body `{start?, end?}`, default últimos 30 dias até hoje (UTC); resposta traz `fetched/inserted/skipped_existing/rejected` |
 | GET | `/{ticker}/prices` | lê **só** do banco; query `start`/`end` opcionais |
+| POST | `/{ticker}/fundamentals/sync` | chama a API externa; sem body; ingere demonstrativos **anuais**; mesma resposta de contagens |
+| GET | `/{ticker}/fundamentals` | lê **só** do banco; query `start`/`end` filtram `reference_date`; itens de linha não reportados vêm `null` |
+
+Os dois endpoints `*/sync` são as únicas rotas que chamam provedores externos.
 
 ### Portfolios — `/api/v1/portfolios` (todos autenticados, escopados ao dono)
 | Método | Rota | Nota |

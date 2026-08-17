@@ -39,5 +39,13 @@ Convertidos na migration `002_numeric_money_columns`: `transactions.{quantity,pr
 - ✅ Precisão preservada de ponta a ponta (banco → ORM → schema → JSON).
 - ⚠️ `Decimal` serializa como **string** no JSON. O frontend precisa tratar isso ao consumir valores monetários.
 - ⚠️ Nunca misture `Decimal` com `float` em uma expressão — Python levanta `TypeError`. Ao integrar numpy/pandas no Quant Engine (Wave 07), converta explicitamente na fronteira e documente onde `float` passa a ser aceitável (AGENTS.md §17 permite para estatística, exigindo que a decisão seja registrada).
-- ⚠️ Dívida remanescente, adiada de propósito: `intraday_prices` (W15), `portfolio_snapshots` (W11), `investor_profiles.monthly_contribution` (W09), `fundamentals`/`financial_indicators` (decidir na W06).
+- ⚠️ Dívida remanescente, adiada de propósito: `intraday_prices` (W15), `portfolio_snapshots` (W11), `investor_profiles.monthly_contribution` (W09).
+
+## Extensão — 2026-08-17 (W06-001): `fundamentals` em `NUMERIC(24,4)`
+
+Migration `003_numeric_fundamentals_columns` estendeu esta decisão às colunas monetárias de `fundamentals`, com **precisão diferente** e por um motivo concreto: são agregados de companhia inteira na casa das centenas de bilhões de BRL. A receita anual da Petrobras (~R$ 5,1 × 10¹¹) consome 12 dos 12 dígitos inteiros que `NUMERIC(18,6)` permite. `STATEMENT_MONEY = Numeric(24, 4)` deixa 20 dígitos inteiros de folga, e 4 casas decimais excedem o que qualquer demonstrativo reporta.
+
+`financial_indicators` permanece `Float` deliberadamente: guarda razões e taxas de crescimento (P/L, ROE, margens), não moeda. A regra 17 permite float onde for adequado desde que a decisão seja registrada — está registrada aqui e na constante `INDICATOR` em `app/data/models/fundamentals.py`.
+
+Decisão escalada ao usuário, como foi a de 2026-08-16. Mesma ressalva: a migration não foi aplicada contra PostgreSQL real.
 - ⚠️ A migration ainda não foi aplicada contra PostgreSQL real.

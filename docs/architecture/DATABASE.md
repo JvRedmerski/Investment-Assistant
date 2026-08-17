@@ -16,7 +16,8 @@
 - Migrations existentes:
   - `001_initial_schema` — as 13 tabelas.
   - `002_numeric_money_columns` — converte `transactions.{quantity,price,fees}` e `asset_prices.{open,high,low,close,adjusted_close}` de `FLOAT` para `NUMERIC(18,6)`.
-- Ambas foram **escritas manualmente**, não por autogenerate.
+  - `003_numeric_fundamentals_columns` — converte as sete colunas monetárias de `fundamentals` de `FLOAT` para `NUMERIC(24,4)`.
+- Todas foram **escritas manualmente**, não por autogenerate.
 
 ```powershell
 cd backend
@@ -26,7 +27,7 @@ alembic revision --autogenerate -m "descrição"   # sempre revisar o resultado 
 
 Regras invioláveis (AGENTS.md §14/§15): nunca alterar tabela fora de migration; nunca editar migration já aplicada; nunca recriar histórico; toda migration precisa de `upgrade` e, quando possível, `downgrade`.
 
-⚠️ **`002_numeric_money_columns` nunca foi aplicada contra um PostgreSQL real** — só validada estruturalmente e contra SQLite. Rodar `alembic upgrade head` com Postgres de pé é pendência aberta.
+⚠️ **`002` e `003` nunca foram aplicadas contra um PostgreSQL real** — só validadas estruturalmente e contra SQLite. Rodar `alembic upgrade head` com Postgres de pé é pendência aberta.
 
 ## Entidades (13 tabelas)
 
@@ -55,8 +56,8 @@ Agrupadas por domínio; `id` serial PK e `created_at` são universais e foram om
 ### Fundamentos
 | Tabela | Campos-chave | Usada? |
 |---|---|---|
-| `fundamentals` | `asset_id`, `reference_date`, `revenue`, `ebitda`, `net_income`, `equity`, `debt`, `cash`, `free_cash_flow` (todos nullable, `Float`) | ❌ **alvo da Wave 06** |
-| `financial_indicators` | `asset_id`, `reference_date`, `pe`, `pb`, `roe`, `roic`, `dy`, `debt_ebitda`, `net_margin`, `ebitda_margin`, `revenue_growth`, `profit_growth` | ❌ Wave 06 |
+| `fundamentals` | `asset_id`, `reference_date`, `revenue`, `ebitda`, `net_income`, `equity`, `debt`, `cash`, `free_cash_flow` (todos nullable, `NUMERIC(24,4)`) | ✅ W06-001 — só demonstrativos **anuais** |
+| `financial_indicators` | `asset_id`, `reference_date`, `pe`, `pb`, `roe`, `roic`, `dy`, `debt_ebitda`, `net_margin`, `ebitda_margin`, `revenue_growth`, `profit_growth` (`Float`, deliberado — são razões, não moeda) | ❌ alvo da W06-002 |
 
 ### Recomendações e Day Trade
 | Tabela | Campos-chave | Usada? |
@@ -84,7 +85,8 @@ daytrade_setups 1─1 daytrade_results (CASCADE)
 
 ## Convenções
 
-- **Dinheiro**: constante `MONEY = Numeric(18, 6)`, duplicada em `models/portfolio.py` e `models/assets.py`. 18 dígitos, 6 decimais — comporta quantidade fracionária e preço em BRL sem drift. `volume` fica `Float` (não é dinheiro). ([ADR-003](../decisions/ADR-003-decimal-money.md))
+- **Dinheiro**: constante `MONEY = Numeric(18, 6)`, duplicada em `models/portfolio.py` e `models/assets.py`. 18 dígitos, 6 decimais — comporta quantidade fracionária e preço em BRL sem drift. `volume` fica `Float` (não é dinheiro). Em `models/fundamentals.py`, `STATEMENT_MONEY = Numeric(24, 4)`: agregados de companhia inteira precisam de mais dígitos inteiros e menos decimais. ([ADR-003](../decisions/ADR-003-decimal-money.md))
+- **`NULL` ≠ zero**: em `fundamentals`, um item de linha nulo significa "não reportado". Nunca leia como zero nem substitua por default.
 - **Timestamps**: `DateTime` sem timezone no banco, sempre preenchido com `utc_now()` (UTC explícito). Conversão para horário local é responsabilidade da apresentação (AGENTS.md §18).
 - **Unicidade e índices**: `uq_asset_price_date (asset_id, date)`, `uq_intraday_timestamp_timeframe (asset_id, timestamp, timeframe)`, `idx_transactions_portfolio_asset`, `idx_fundamentals_asset_refdate`, `idx_indicators_asset_refdate`, `idx_snapshot_portfolio_date`.
 - **Enums**: `TransactionTypeEnum` e `RiskProfileEnum` são `str, enum.Enum` do Python mapeados com `SQLEnum` — o valor persistido é o nome em maiúsculas.
@@ -99,4 +101,5 @@ Conversão deliberadamente adiada para a wave que for usar cada tabela:
 | `intraday_prices` OHLC | W15 |
 | `portfolio_snapshots.total_value`, `.cash_value` | W11 |
 | `investor_profiles.monthly_contribution` | W09 |
-| `fundamentals.*`, `financial_indicators.*` | decidir na W06 |
+
+(`fundamentals` foi convertida na W06-001; `financial_indicators` permanece `Float` por decisão, não por dívida.)

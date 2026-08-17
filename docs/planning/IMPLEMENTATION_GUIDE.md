@@ -34,7 +34,7 @@
 
 | Precisa de… | Copie o padrão de |
 |---|---|
-| Integração externa nova | `app/integrations/market_data/` (base + schemas + exceptions + vendor + factory) |
+| Integração externa nova | `app/integrations/fundamentals/` (base + schemas + exceptions + vendor + factory), delegando resiliência a `app/integrations/http.py` |
 | Serviço de ingestão | `app/domain/market_data/service.py` (`sync_daily_history`) |
 | Validador de qualidade | `app/integrations/market_data/data_quality.py` (função pura, report com errors/warnings) |
 | Cálculo financeiro | `app/domain/portfolio/service.py` (`compute_positions`: puro, `Decimal`, sem I/O) |

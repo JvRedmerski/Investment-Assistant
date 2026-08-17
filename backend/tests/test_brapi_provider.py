@@ -188,7 +188,7 @@ def test_retries_on_transient_server_error_then_succeeds():
         return httpx.Response(200, json=_quote_payload())
 
     provider = _provider(handler, max_retries=3)
-    with patch("app.integrations.market_data.brapi.time.sleep"):
+    with patch("app.integrations.http.time.sleep"):
         quote = provider.get_quote("PETR4")
 
     assert calls["count"] == 2
@@ -201,7 +201,7 @@ def test_raises_market_data_unavailable_after_exhausting_retries():
 
     provider = _provider(handler, max_retries=3)
     with (
-        patch("app.integrations.market_data.brapi.time.sleep"),
+        patch("app.integrations.http.time.sleep"),
         pytest.raises(MarketDataUnavailableError),
     ):
         provider.get_quote("PETR4")
@@ -231,7 +231,7 @@ def test_retries_on_timeout_then_succeeds():
         return httpx.Response(200, json=_quote_payload())
 
     provider = _provider(handler, max_retries=3)
-    with patch("app.integrations.market_data.brapi.time.sleep"):
+    with patch("app.integrations.http.time.sleep"):
         quote = provider.get_quote("PETR4")
 
     assert calls["count"] == 2
@@ -245,9 +245,9 @@ def test_min_request_interval_throttles_consecutive_requests():
     provider = _provider(handler, min_request_interval=2.0)
 
     with (
-        patch("app.integrations.market_data.brapi.time.sleep") as mock_sleep,
+        patch("app.integrations.http.time.sleep") as mock_sleep,
         patch(
-            "app.integrations.market_data.brapi.time.monotonic",
+            "app.integrations.http.time.monotonic",
             side_effect=[100.0, 100.5, 100.5],
         ),
     ):

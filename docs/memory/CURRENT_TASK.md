@@ -2,7 +2,7 @@
 
 ## Task
 
-**W06-001 — Ingestão de Demonstrativos Financeiros** (Wave 06 — Fundamental Data)
+**W06-002 — Cálculo e Normalização de Indicadores Fundamentalistas** (Wave 06 — Fundamental Data)
 
 ## Status
 
@@ -10,80 +10,71 @@
 
 ## Objective
 
-Popular a tabela `fundamentals` com demonstrativos financeiros por ativo e por data de referência, seguindo exatamente o mesmo padrão arquitetural já estabelecido na Wave 05 para market data: provedor externo atrás de uma interface abstrata, ingestão idempotente que nunca sobrescreve histórico, e leitura servida do banco.
+Derivar indicadores fundamentalistas a partir dos demonstrativos já ingeridos (`fundamentals`) e dos preços já armazenados (`asset_prices`), e persisti-los em `financial_indicators` por `reference_date`.
+
+Indicadores previstos pela tabela: `pe` (P/L), `pb` (P/VP), `roe`, `roic`, `dy`, `debt_ebitda`, `net_margin`, `ebitda_margin`, `revenue_growth`, `profit_growth`.
 
 ## Context
 
-A Wave 05 entregou preços diários. Os motores das waves seguintes dependem de fundamentos:
-- W06-002 calcula indicadores derivados (`financial_indicators`: P/L, P/VP, ROE, ROIC, DY…).
-- W09 (Recommendation Engine) usa esses indicadores como sub-scores de Quality/Valuation/Growth.
+W06-001 entregou a ingestão de demonstrativos anuais. Esses números crus não são utilizáveis por um motor de decisão: a Wave 09 (Recommendation Engine) consome **scores** de Quality/Valuation/Growth, que se apoiam nestes indicadores normalizados.
 
-A tabela `fundamentals` já existe no schema desde a Wave 02 (`001_initial_schema`) — nenhum código a escreve ou lê ainda.
-
-Restrição crítica de domínio (AGENTS.md §109, §108): um indicador fundamentalista só pode ser usado em backtest a partir da data em que estava **disponível ao mercado**. Por isso `reference_date` é parte da identidade do registro, e valores históricos nunca podem ser sobrescritos silenciosamente.
+Esta é a primeira task do projeto que produz números derivados a partir de dados de duas fontes (demonstrativo + preço). Ela estabelece o precedente de como cálculo financeiro determinístico é escrito aqui, então vale seguir de perto `app/domain/portfolio/service.py` (função pura, `Decimal`, testada com valores conhecidos).
 
 ## Relevant Areas
 
-- Backend — Integrations (novo provedor externo)
-- Backend — Domain (novo serviço de ingestão)
-- Backend — API (endpoints de sync/leitura)
-- Database (possível migration, ver Requirements)
+- Backend — Domain (novo módulo de cálculo)
+- Database (escrita em `financial_indicators`)
+- Backend — API (endpoint de leitura)
 
 ## Relevant Files
 
-**Padrão a replicar** (leia estes antes de escrever qualquer coisa):
-- `backend/app/integrations/market_data/base.py` — como se declara a interface abstrata
-- `backend/app/integrations/market_data/brapi.py` — timeout, retry limitado, throttle, parsing defensivo
-- `backend/app/integrations/market_data/factory.py` — seleção por `settings.<X>_PROVIDER`
-- `backend/app/integrations/market_data/schemas.py` — DTOs Pydantic para dado externo não confiável
-- `backend/app/integrations/market_data/data_quality.py` — validador puro e determinístico
-- `backend/app/domain/market_data/service.py` — `sync_daily_history`: valida → filtra o que já existe → insere → retorna contagens
-- `backend/app/api/routes/assets.py` — mapeamento de exceções do provider para HTTP (404/502/503)
-- `backend/app/api/dependencies.py` — `get_market_data_provider` como dependency por request
+**Insumos já existentes:**
+- `backend/app/data/models/fundamentals.py` — `Fundamental` (fonte) e `FinancialIndicator` (destino)
+- `backend/app/data/models/assets.py` — `AssetPrice`, para os indicadores que dependem de preço (P/L, P/VP, DY)
+- `backend/app/domain/fundamentals/service.py` — padrão de idempotência a replicar
 
-**A modificar/criar:**
-- `backend/app/integrations/fundamentals/` (novo pacote)
-- `backend/app/domain/fundamentals/` (novo pacote)
-- `backend/app/api/routes/assets.py` (novos endpoints sob `/assets/{ticker}/fundamentals`)
-- `backend/app/core/config.py` (settings do novo provedor)
-- `backend/app/data/models/fundamentals.py` (só se a decisão de precisão exigir — ver Requirements)
-- `backend/tests/test_fundamentals_*.py`
+**Padrão de cálculo a seguir:**
+- `backend/app/domain/portfolio/service.py` — função pura, sem I/O, `Decimal`, determinística
+- `backend/tests/test_portfolio_service.py` — teste com valores conhecidos
 
-**Referência de domínio:**
-- `docs/roadmap.md` §18 (Wave 6) e §9 (schema `fundamentals`)
-- `AGENTS.md` §19 (dado externo não confiável), §20 (data quality), §21 (abstrair fornecedor), §22 (falha de API), §29 (quais fundamentos), §109 (data de disponibilidade)
+**A criar/modificar:**
+- `backend/app/domain/fundamentals/indicators.py` (cálculo puro) e extensão de `service.py` (persistência)
+- `backend/app/api/routes/assets.py` (leitura de indicadores)
+- `backend/tests/test_fundamental_indicators.py`
+
+**Decisões que restringem esta task:**
+- [ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md) — **leia antes de começar**
+- [ADR-003](../decisions/ADR-003-decimal-money.md) — `financial_indicators` é `Float` de propósito
 
 ## Requirements
 
-1. Interface abstrata `FundamentalsProvider` em `app/integrations/fundamentals/base.py`; nenhum código de domínio importa a implementação concreta.
-2. Implementação concreta via `httpx` com timeout, retry **limitado** (nunca infinito) e distinção entre erro transitório e permanente — espelhando `BrapiProvider`.
-3. DTOs Pydantic para a resposta externa; nunca assumir que um campo existe (`revenue`, `ebitda`, `net_income`, `equity`, `debt`, `cash`, `free_cash_flow` são todos nullable no model).
-4. Serviço de ingestão idempotente: `(asset_id, reference_date)` já armazenado **não** é sobrescrito; retorna contagens de fetched/inserted/skipped/rejected.
-5. Endpoint de sync (único que chama o provedor) + endpoint de leitura que **nunca** chama o provedor.
-6. Exceções do provider mapeadas para HTTP com o envelope `{"error":{"code","message"}}`.
-7. **Decidir e documentar** se as colunas de `fundamentals` (hoje `Float`) devem ir para `NUMERIC` — são valores monetários de balanço (AGENTS.md §17). Se sim, criar migration Alembic `003_*` e atualizar o model. Se não, justificar (ex.: agregados de balanço em escala de milhões onde precisão decimal não é crítica) e registrar como decisão.
+1. Cálculo em função **pura**, sem I/O, determinística, separada da persistência.
+2. Cada indicador com fórmula documentada (AGENTS.md §128) — definição, periodicidade e tratamento de dado faltante.
+3. **Dado ausente propaga como `None`, nunca como zero.** `ebitda` e `free_cash_flow` chegam sempre `NULL` do provedor atual (ADR-013), portanto `debt_ebitda` e `ebitda_margin` serão `None` na prática — isso é correto e deve ser testado como tal.
+4. Divisão por zero ou por `None` produz `None`, nunca exceção e nunca infinito.
+5. Indicadores que dependem de preço (P/L, P/VP, DY) devem usar o preço **na data de referência ou anterior mais próxima** — nunca um preço posterior (AGENTS.md §108: sem look-ahead).
+6. Persistência idempotente por `(asset_id, reference_date)`, sem sobrescrever o já gravado (mesma política do ADR-013).
+7. Endpoint de leitura autenticado, lendo só do banco.
+8. Crescimento (`revenue_growth`, `profit_growth`) exige o período anterior; se não houver, `None`.
 
 ## Constraints
 
-- **Não implementar W06-002** (cálculo de indicadores derivados) nesta task.
-- **Não** tocar em Quant Engine, Recommendation Engine ou frontend.
-- **Não** criar tabela nova — `fundamentals` já existe no schema.
-- **Não** alterar migrations já aplicadas; se schema mudar, nova migration (AGENTS.md §14/§15).
-- Manter o envelope de erro padrão e a autenticação via `get_current_user` em todos os endpoints novos.
-- Timezone: qualquer "hoje" calculado explicitamente em UTC (AGENTS.md §18).
-- **Bloqueio conhecido**: pode não haver acesso de rede para validar o parser contra a API real. Se for o caso, implementar defensivamente, testar com `httpx.MockTransport` e **documentar a lacuna explicitamente** — mesmo tratamento dado ao `BrapiProvider` (ADR-004). Nunca afirmar que foi validado.
+- **Não** implementar scoring nem recomendação — isso é Wave 09.
+- **Não** buscar dados novos no provedor externo; esta task só transforma o que já está armazenado.
+- **Não** alterar o schema: `financial_indicators` já existe e permanece `Float`.
+- **Não** inventar um indicador quando faltar insumo (AGENTS.md §44).
+- Um indicador isolado nunca define recomendação (AGENTS.md §29) — este módulo só calcula, não julga.
 
 ## Definition of Done
 
-- [ ] `FundamentalsProvider` abstrato + implementação concreta + factory
-- [ ] DTOs Pydantic validando a resposta externa
-- [ ] Serviço de ingestão idempotente (não sobrescreve `reference_date` existente)
-- [ ] Endpoints de sync e leitura, autenticados, com erros mapeados
-- [ ] Decisão sobre precisão numérica tomada e registrada (+ migration se aplicável)
-- [ ] Testes unitários do parser (incluindo campos ausentes/nulos e erros do provedor) e do serviço de ingestão
-- [ ] Testes de integração HTTP com provider fake via `dependency_overrides` (nenhum teste toca rede)
-- [ ] `pytest` verde (baseline 95 + novos), sem regressão
+- [ ] Função pura de cálculo, com cada fórmula documentada
+- [ ] Dado faltante e divisão por zero tratados, retornando `None`
+- [ ] Preço selecionado sem look-ahead
+- [ ] Persistência idempotente
+- [ ] Endpoint de leitura autenticado
+- [ ] Testes unitários com valores conhecidos, incluindo edge cases (`None`, zero, período anterior ausente)
+- [ ] Testes de integração HTTP
+- [ ] `pytest` verde (baseline 140 + novos), sem regressão
 - [ ] `ruff check` e `black --check` limpos nos arquivos alterados
-- [ ] `docs/PROJECT_STATUS.md` atualizado (task + notas + validação)
-- [ ] `docs/memory/PROJECT_STATUS.md`, `CURRENT_TASK.md` e `SESSION_HANDOFF.md` atualizados
-- [ ] Commit: `feat: add fundamental data ingestion (W06-001)`
+- [ ] `docs/PROJECT_STATUS.md` e a memória atualizados
+- [ ] Commit: `feat: add fundamental indicator calculation (W06-002)`

@@ -6,18 +6,18 @@
 
 ## Current Phase
 
-**Wave 05 concluída → Wave 06 (Fundamental Data) não iniciada.**
-6 de 33 waves concluídas (W00–W05). Nenhuma wave em progresso.
+**Wave 06 (Fundamental Data) em progresso — W06-001 concluída, W06-002 pendente.**
+6 de 33 waves concluídas (W00–W05); a W06 é a sétima, parcialmente entregue.
 
 ## Overall Status
 
 | | |
 |---|---|
 | **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data |
-| **In Progress** | — nenhuma |
+| **In Progress** | W06 Fundamental Data — 1 de 2 tasks |
 | **Blocked** | — nenhuma |
 
-Baseline verificado nesta análise: `pytest` → **95 passed** (backend/.venv).
+Baseline atual: `pytest` → **140 passed** (backend/.venv).
 
 ## Completed Work (nível wave)
 
@@ -27,28 +27,33 @@ Baseline verificado nesta análise: `pytest` → **95 passed** (backend/.venv).
 - **W04** — CRUD de assets e portfolios; ledger de transações com guarda `INSUFFICIENT_POSITION`; motor de posições determinístico (custo médio móvel) derivado 100% do ledger; endpoint `/positions`.
 - **W05** — `MarketDataProvider` (abstrato) + `BrapiProvider` (httpx, timeout/retry limitado/throttle) + factory; `sync_daily_history` idempotente (nunca sobrescreve data já armazenada); `validate_daily_bars` (rejeita preço não-positivo, volume negativo, OHLC inconsistente, data duplicada; avisa sobre fora de ordem e variação >50%); read-path lê só do banco.
 
+- **W06-001** — `FundamentalsProvider` + `BrapiFundamentalsProvider` + factory; `sync_annual_statements` idempotente; `validate_financial_statements`; endpoints de sync/leitura; migration `003` (`fundamentals` em `NUMERIC(24,4)`). Extraiu também o transporte HTTP compartilhado (`RetryingJsonClient`), agora usado pelas duas integrações.
+
 Detalhe por task: [../history/COMPLETED_TASKS.md](../history/COMPLETED_TASKS.md).
 
 ## Current Work
 
-Nenhum trabalho em andamento. O último commit (`97eb29b`) fecha a Wave 05 com árvore limpa.
+Wave 06 aberta com W06-001 entregue. Nada em execução no momento.
 
 ## Next Recommended Step
 
-**W06-001 — Ingestão de demonstrativos financeiros** (tabela `fundamentals`). Ver [CURRENT_TASK.md](CURRENT_TASK.md).
+**W06-002 — Cálculo e normalização de indicadores fundamentalistas** (tabela `financial_indicators`). Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ## Known Issues
 
 Problemas reais, verificados no código (2026-08-17):
 
-1. **Parser da Brapi nunca validado contra resposta real.** `BrapiProvider` foi escrito a partir da documentação pública e testado só com `httpx.MockTransport` (sem rede no ambiente). Os nomes de campo (`regularMarketPrice`, `historicalDataPrice`) podem estar errados. **Bloqueia uso em ingestão real.**
-2. **Migration `002_numeric_money_columns` nunca aplicada em PostgreSQL real.** Validada apenas estruturalmente e contra SQLite in-memory (Docker Desktop parado no ambiente). `alembic upgrade head` contra Postgres é obrigatório antes de confiar nela.
+1. **Parsers da Brapi nunca validados contra resposta real.** Vale para os **dois** provedores: `BrapiProvider` (`regularMarketPrice`, `historicalDataPrice`) e `BrapiFundamentalsProvider` (módulos `incomeStatementHistory`/`balanceSheetHistory`, seu aninhamento e nomes de campo). Ambos foram escritos a partir da documentação pública e exercitados só com `httpx.MockTransport` (sem rede no ambiente). **Bloqueia uso em ingestão real.**
+2. **Migrations `002` e `003` nunca aplicadas em PostgreSQL real.** Validadas apenas estruturalmente (`alembic heads`/`history`) e contra SQLite in-memory (Docker Desktop parado). `alembic upgrade head` contra Postgres é obrigatório antes de confiar nelas.
 3. **`get_quote()` implementado mas não exposto.** Existe no provider e é testado, mas nenhum endpoint o consome — cotação atual não chega ao usuário.
 4. **Ingestão de dividendos (proventos) não implementada**, embora o roadmap a liste como entregável da Wave 5 (`docs/roadmap.md` §17). A Wave 05 foi marcada como concluída sem ela.
 5. **`npm run lint` quebrado no frontend.** O script chama `eslint` mas não há `eslint` nas `devDependencies` nem arquivo de config.
-6. **Lint pré-existente sujo no backend.** `ruff check` acusa findings em arquivos não tocados desde a Wave 02 (`data/models/fundamentals.py`, `users.py`, `daytrade.py`, `recommendations.py`, `core/logging.py`, `data/database.py`, `api/routes/health.py`, `tests/test_health.py`) — import-sorting e `Optional[X]`/`List[X]` → `X | None`/`list[X]`. Deliberadamente fora de escopo até uma task dedicada de cleanup.
+6. **Lint pré-existente sujo no backend.** `ruff check` acusa findings em arquivos não tocados desde a Wave 02 (`data/models/users.py`, `daytrade.py`, `recommendations.py`, `core/logging.py`, `data/database.py`, `api/routes/health.py`, `tests/test_health.py`) — import-sorting e `Optional[X]`/`List[X]` → `X | None`/`list[X]`. Deliberadamente fora de escopo até uma task dedicada de cleanup. (`data/models/fundamentals.py` saiu da lista: foi reescrito e está limpo.)
 7. **Colunas monetárias ainda em `Float`** (dívida conhecida, conversão adiada para a wave que as usar): `intraday_prices` OHLC (W15), `portfolio_snapshots.total_value/cash_value` (W11), `investor_profiles.monthly_contribution` (W09).
 8. **`PriceSyncRequest` documenta que `end` não pode ser futura, mas o validador não verifica isso** — apenas `start <= end`.
+9. **`ebitda` e `free_cash_flow` chegam sempre `NULL`** do provedor de fundamentals — decisão deliberada, não bug ([ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md)). A W06-002 precisa tratar isso explicitamente em `debt_ebitda` e `ebitda_margin`.
+10. **Reexpressões (restatements) de exercícios anteriores são invisíveis**: o primeiro valor gravado para um `reference_date` nunca é substituído. Corrigir exige schema versionado por período.
+11. **Demonstrativos trimestrais não são ingeridos** — `fundamentals` não tem coluna de período para distingui-los de um exercício anual com a mesma data-fim ([ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md)).
 
 ## Inconsistências documentação × código
 

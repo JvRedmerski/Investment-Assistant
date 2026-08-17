@@ -7,7 +7,7 @@ Legenda: 🟢 concluída · 🟡 em progresso · ⚪ não iniciada
 
 ## Estado geral
 
-**6 / 33 concluídas.** Fronteira atual: **Wave 06**.
+**6 / 33 concluídas + Wave 06 em progresso (1 de 2 tasks).** Fronteira atual: **W06-002**.
 
 ## MVP → V1
 
@@ -30,7 +30,7 @@ Legenda: 🟢 concluída · 🟡 em progresso · ⚪ não iniciada
 
 | Wave | Objetivo | Status | Depende de | Spec |
 |---|---|---|---|---|
-| **W06** | **Fundamental Data** — ingestão de demonstrativos + indicadores derivados | ⚪ **próxima** | W05 | §18 |
+| **W06** | **Fundamental Data** — W06-001 ingestão de demonstrativos 🟢 · W06-002 indicadores derivados ⚪ | 🟡 **atual** | W05 | §18 |
 | W07 | Quant Engine — `returns.py`, `risk.py` (CAGR, vol, beta, drawdown, Sharpe, Sortino) | ⚪ | W05 | §19 |
 | W08 | Benchmark Engine — séries de CDI/IBOV/IPCA e comparativo | ⚪ | W07 | §20 |
 | W09 | Recommendation Engine — sub-scores e alocação do aporte mensal | ⚪ | W06, W07 | §21 |
@@ -91,8 +91,9 @@ Não pule para IA ou Day Trade (AGENTS.md §96). Uma wave por vez (§133) — ex
 
 Não bloqueiam a W06, mas precisam ser resolvidas antes de produção:
 
-- Aplicar `alembic upgrade head` contra PostgreSQL real (`002_numeric_money_columns` nunca rodou lá).
-- Validar o parser da Brapi contra a API real.
+- Aplicar `alembic upgrade head` contra PostgreSQL real (`002` e `003` nunca rodaram lá).
+- Validar os **dois** parsers da Brapi (market data e fundamentals) contra a API real.
+- Suportar demonstrativos trimestrais e reexpressões: exige coluna de período / versionamento em `fundamentals` ([ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md)).
 - Task dedicada de lint cleanup no backend (findings pré-existentes da W02).
 - Consertar `npm run lint` no frontend (falta `eslint`).
 - Expor `get_quote()` e implementar ingestão de proventos — entregáveis da W05 (roadmap §17) que ficaram de fora.

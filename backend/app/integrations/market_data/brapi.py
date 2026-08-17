@@ -11,21 +11,16 @@ tested against a live response before being relied on for real ingestion,
 exactly like the `002_numeric_money_columns` migration was flagged as
 "authored and structurally validated, but not yet verified live."
 
-Resilience choices (AGENTS.md rule 22 — every external integration must
-consider timeout/retry/rate limit/HTTP errors/invalid or incomplete
-responses/unavailability, and retries must never be infinite):
-
-- bounded retries with exponential backoff, only for transient failures
-  (timeouts, connection errors, HTTP 429/500/502/503/504);
-- a 404 (ticker not found) or any other 4xx fails immediately, since
-  retrying will not change the outcome;
-- an optional minimum delay between requests (`MARKET_DATA_MIN_REQUEST_
-  INTERVAL_SECONDS`) throttles our own call rate to respect the
-  provider's free-tier limits.
+Resilience (AGENTS.md rule 22 — timeout, bounded retry, rate limit, HTTP
+errors, invalid responses, unavailability) is delegated to the shared
+`app.integrations.http.RetryingJsonClient`, configured here with this
+integration's own exception types and with
+`MARKET_DATA_TIMEOUT_SECONDS` / `MARKET_DATA_MAX_RETRIES` /
+`MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS`. This module is therefore
+only responsible for Brapi's URL shape and response parsing.
 """
 
 import logging
-import time
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Self
@@ -33,6 +28,7 @@ from typing import Any, Self
 import httpx
 
 from app.core.config import settings
+from app.integrations.http import RetryingJsonClient
 from app.integrations.market_data.base import MarketDataProvider
 from app.integrations.market_data.exceptions import (
     InvalidMarketDataResponseError,
@@ -42,8 +38,6 @@ from app.integrations.market_data.exceptions import (
 from app.integrations.market_data.schemas import DailyBar, Quote
 
 logger = logging.getLogger("investment_assistant.market_data.brapi")
-
-_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
 class BrapiProvider(MarketDataProvider):
@@ -58,29 +52,32 @@ class BrapiProvider(MarketDataProvider):
         min_request_interval: float | None = None,
         client: httpx.Client | None = None,
     ) -> None:
-        self._base_url = (base_url or settings.BRAPI_BASE_URL).rstrip("/")
-        self._token = token if token is not None else settings.BRAPI_TOKEN
-        self._timeout = (
-            timeout if timeout is not None else settings.MARKET_DATA_TIMEOUT_SECONDS
+        token = token if token is not None else settings.BRAPI_TOKEN
+        self._http = RetryingJsonClient(
+            base_url=base_url or settings.BRAPI_BASE_URL,
+            timeout=(
+                timeout if timeout is not None else settings.MARKET_DATA_TIMEOUT_SECONDS
+            ),
+            max_retries=(
+                max_retries
+                if max_retries is not None
+                else settings.MARKET_DATA_MAX_RETRIES
+            ),
+            min_request_interval=(
+                min_request_interval
+                if min_request_interval is not None
+                else settings.MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS
+            ),
+            not_found_error=TickerNotFoundError,
+            unavailable_error=MarketDataUnavailableError,
+            invalid_response_error=InvalidMarketDataResponseError,
+            logger=logger,
+            default_params={"token": token} if token else None,
+            client=client,
         )
-        self._max_retries = (
-            max_retries if max_retries is not None else settings.MARKET_DATA_MAX_RETRIES
-        )
-        self._min_request_interval = (
-            min_request_interval
-            if min_request_interval is not None
-            else settings.MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS
-        )
-        self._last_request_at: float | None = None
-        # A caller-supplied client makes this provider trivially testable
-        # (httpx.Client(transport=httpx.MockTransport(...))) without any
-        # real network access.
-        self._client = client or httpx.Client(timeout=self._timeout)
-        self._owns_client = client is None
 
     def close(self) -> None:
-        if self._owns_client:
-            self._client.close()
+        self._http.close()
 
     def __enter__(self) -> Self:
         return self
@@ -89,7 +86,7 @@ class BrapiProvider(MarketDataProvider):
         self.close()
 
     def get_quote(self, ticker: str) -> Quote:
-        payload = self._request(f"/quote/{ticker}")
+        payload = self._http.get_json(f"/quote/{ticker}")
         result = self._extract_result(payload, ticker)
         return self._parse_quote(result, ticker)
 
@@ -98,7 +95,7 @@ class BrapiProvider(MarketDataProvider):
             raise ValueError("start date must not be after end date")
 
         params = {"range": _brapi_range_for(start, end), "interval": "1d"}
-        payload = self._request(f"/quote/{ticker}", params=params)
+        payload = self._http.get_json(f"/quote/{ticker}", params=params)
         result = self._extract_result(payload, ticker)
 
         raw_bars = result.get("historicalDataPrice")
@@ -111,78 +108,6 @@ class BrapiProvider(MarketDataProvider):
         return [bar for bar in bars if start <= bar.date <= end]
 
     # -- internals ---------------------------------------------------
-
-    def _throttle(self) -> None:
-        if self._min_request_interval <= 0 or self._last_request_at is None:
-            return
-        elapsed = time.monotonic() - self._last_request_at
-        remaining = self._min_request_interval - elapsed
-        if remaining > 0:
-            time.sleep(remaining)
-
-    def _request(
-        self, path: str, params: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
-        query = dict(params or {})
-        if self._token:
-            query["token"] = self._token
-
-        last_error: Exception | None = None
-        for attempt in range(1, self._max_retries + 1):
-            self._throttle()
-            self._last_request_at = time.monotonic()
-            try:
-                response = self._client.get(f"{self._base_url}{path}", params=query)
-            except httpx.TimeoutException as exc:
-                last_error = exc
-                logger.warning(
-                    "Brapi request timed out (attempt %s/%s): %s",
-                    attempt,
-                    self._max_retries,
-                    path,
-                )
-            except httpx.HTTPError as exc:
-                last_error = exc
-                logger.warning(
-                    "Brapi request failed (attempt %s/%s): %s: %s",
-                    attempt,
-                    self._max_retries,
-                    path,
-                    exc,
-                )
-            else:
-                if response.status_code == 404:
-                    raise TickerNotFoundError(f"Ticker not found: {path}")
-                if response.status_code in _RETRYABLE_STATUS_CODES:
-                    last_error = MarketDataUnavailableError(
-                        f"Brapi returned HTTP {response.status_code} for {path}"
-                    )
-                    logger.warning(
-                        "Brapi returned retryable status %s (attempt %s/%s): %s",
-                        response.status_code,
-                        attempt,
-                        self._max_retries,
-                        path,
-                    )
-                elif response.status_code >= 400:
-                    raise MarketDataUnavailableError(
-                        f"Brapi returned HTTP {response.status_code} for {path}: "
-                        f"{response.text[:200]}"
-                    )
-                else:
-                    try:
-                        return response.json()
-                    except ValueError as exc:
-                        raise InvalidMarketDataResponseError(
-                            f"Brapi response for {path} was not valid JSON."
-                        ) from exc
-
-            if attempt < self._max_retries:
-                time.sleep(_backoff_seconds(attempt))
-
-        raise MarketDataUnavailableError(
-            f"Brapi request to {path} failed after {self._max_retries} attempt(s)."
-        ) from last_error
 
     @staticmethod
     def _extract_result(payload: dict[str, Any], ticker: str) -> dict[str, Any]:
@@ -262,10 +187,6 @@ def _parse_timestamp(value: Any) -> datetime:
     raise InvalidMarketDataResponseError(
         f"Unrecognized timestamp type: {type(value)!r}"
     )
-
-
-def _backoff_seconds(attempt: int) -> float:
-    return min(2 ** (attempt - 1) * 0.5, 5.0)
 
 
 def _brapi_range_for(start: date, end: date) -> str:

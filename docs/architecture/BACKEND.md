@@ -16,10 +16,12 @@ backend/
 │   │   ├── config.py           Settings (pydantic-settings, lê .env) → singleton `settings`
 │   │   ├── security.py         hash/verify de senha (bcrypt) · create/decode de JWT (PyJWT)
 │   │   └── logging.py          setup_logging()
-│   ├── domain/                 users · portfolio · assets · market_data
+│   ├── domain/                 users · portfolio · assets · market_data · fundamentals
 │   │   └── <área>/             schemas.py (Pydantic) + service.py (regra de negócio)
 │   ├── integrations/
-│   │   └── market_data/        base · schemas · exceptions · brapi · factory · data_quality
+│   │   ├── http.py             RetryingJsonClient — transporte compartilhado (retry/throttle)
+│   │   ├── market_data/        base · schemas · exceptions · brapi · factory · data_quality
+│   │   └── fundamentals/       mesma estrutura de cinco peças
 │   └── data/
 │       ├── database.py         engine · SessionLocal · Base · get_db · utc_now
 │       └── models/             users · assets · portfolio · fundamentals · recommendations · daytrade
@@ -29,7 +31,7 @@ backend/
 └── alembic.ini
 ```
 
-**Ainda não existem** (previstos no AGENTS.md §6, waves futuras): `app/quant/`, `app/workers/`, `app/domain/recommendations/`, `app/domain/daytrade/`, `app/integrations/{fundamentals,intraday,ai}/`, `app/data/repositories/`.
+**Ainda não existem** (previstos no AGENTS.md §6, waves futuras): `app/quant/`, `app/workers/`, `app/domain/recommendations/`, `app/domain/daytrade/`, `app/integrations/{intraday,ai}/`, `app/data/repositories/`.
 
 ## Fluxo de uma requisição
 
@@ -51,6 +53,8 @@ HTTP → CORSMiddleware
 ### 1. Toda integração externa atrás de uma interface abstrata
 `integrations/<área>/base.py` define a ABC; `factory.py` escolhe a implementação a partir de `settings.<X>_PROVIDER`; `dependencies.py` expõe como `Depends`. Domínio e rotas **só** conhecem o tipo abstrato. Testes substituem via `app.dependency_overrides` — nunca mockam `httpx`. (AGENTS.md §21, [ADR-004](../decisions/ADR-004-market-data-provider-abstraction.md))
 
+A resiliência HTTP não é reescrita por provedor: `integrations/http.py` (`RetryingJsonClient`) concentra timeout, retry limitado, backoff e throttle, recebendo as classes de exceção de cada integração. Um provedor concreto escreve apenas URL e parsing. ([ADR-012](../decisions/ADR-012-shared-http-transport.md))
+
 ### 2. Dado externo validado duas vezes
 DTO Pydantic na fronteira (tipos/obrigatoriedade) **e** validador de qualidade de domínio (regras de negócio: OHLC coerente, preço positivo, duplicidade). O validador é uma função pura, sem I/O, testada com valores conhecidos. (AGENTS.md §19/§20)
 
@@ -62,6 +66,9 @@ DTO Pydantic na fronteira (tipos/obrigatoriedade) **e** validador de qualidade d
 | `TickerNotFoundError` | 404 | `MARKET_DATA_TICKER_NOT_FOUND` |
 | `MarketDataUnavailableError` | 503 | `MARKET_DATA_UNAVAILABLE` |
 | `InvalidMarketDataResponseError` | 502 | `MARKET_DATA_INVALID_RESPONSE` |
+| `FundamentalsNotFoundError` | 404 | `FUNDAMENTALS_NOT_FOUND` |
+| `FundamentalsUnavailableError` | 503 | `FUNDAMENTALS_UNAVAILABLE` |
+| `InvalidFundamentalsResponseError` | 502 | `FUNDAMENTALS_INVALID_RESPONSE` |
 
 Retry é **limitado** e só para falhas transitórias (timeout, erro de conexão, HTTP 429/5xx) com backoff exponencial; 4xx falha imediatamente. Nunca retry infinito. (AGENTS.md §22)
 
@@ -86,14 +93,15 @@ Rejeições de qualidade de dados são logadas (`logger.warning`) e contabilizad
 
 Tudo em `core/config.py` (`pydantic-settings`, `env_file=".env"`, `case_sensitive=True`, `extra="ignore"`), exposto como singleton `settings`. Nunca leia `os.environ` diretamente; nunca hardcode secret.
 
-Grupos: app (`APP_NAME`, `APP_ENV`, `API_V1_STR`, `SECRET_KEY`, `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`) · banco (`DATABASE_URL`, `POSTGRES_*`) · CORS · market data (`MARKET_DATA_PROVIDER`, `BRAPI_TOKEN`, `BRAPI_BASE_URL`, `MARKET_DATA_TIMEOUT_SECONDS`, `MARKET_DATA_MAX_RETRIES`, `MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS`) · IA (`AI_PROVIDER`, `GEMINI_API_KEY`, ainda não usados).
+Grupos: app (`APP_NAME`, `APP_ENV`, `API_V1_STR`, `SECRET_KEY`, `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`) · banco (`DATABASE_URL`, `POSTGRES_*`) · CORS · market data (`MARKET_DATA_PROVIDER`, `BRAPI_TOKEN`, `BRAPI_BASE_URL`, `MARKET_DATA_TIMEOUT_SECONDS`, `MARKET_DATA_MAX_RETRIES`, `MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS`) · fundamentals (`FUNDAMENTALS_PROVIDER`, `FUNDAMENTALS_TIMEOUT_SECONDS`, `FUNDAMENTALS_MAX_RETRIES`, `FUNDAMENTALS_MIN_REQUEST_INTERVAL_SECONDS` — knobs próprios porque a cadência é diferente, ainda que o fornecedor e o rate limit sejam os mesmos) · IA (`AI_PROVIDER`, `GEMINI_API_KEY`, ainda não usados).
 
 ## Testes
 
 - `tests/conftest.py`: engine SQLite in-memory único (`StaticPool`), compartilhado pela sessão; `app.dependency_overrides[get_db]`; fixture autouse cria e derruba o schema a cada teste; fixture `client` = `TestClient`.
 - Integração externa é substituída por fake via `dependency_overrides` — **nenhum teste toca a rede**. O teste de read-path chega a injetar um provider que lança `AssertionError` se chamado, provando que a leitura não consulta a API.
 - Testes de cálculo financeiro usam valores conhecidos, não apenas "não explode" (AGENTS.md §68).
-- Baseline: **95 passed**.
+- Para interceptar `time.sleep`/`time.monotonic` do laço de retry, faça patch em `app.integrations.http.time` (não no módulo do provedor).
+- Baseline: **140 passed**.
 
 ```powershell
 cd backend

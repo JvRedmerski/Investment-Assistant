@@ -51,9 +51,18 @@
 
 **Entregues com ressalva**: parser da Brapi nunca validado contra a API real (sem rede no ambiente); `get_quote()` implementado mas não exposto; ingestão de proventos, listada no roadmap §17, não implementada.
 
-## Wave 06 — Fundamental Data ⚪
+## Wave 06 — Fundamental Data 🟡
 
-Próxima. Ver [../memory/CURRENT_TASK.md](../memory/CURRENT_TASK.md).
+**W06-001 — Ingestão de Demonstrativos Financeiros** 🟢
+- `FundamentalsProvider` abstrato + `BrapiFundamentalsProvider` + factory + DTOs + exceções tipadas
+- `sync_annual_statements` idempotente; leitura servida só do banco
+- `validate_financial_statements`: rejeita data de referência duplicada, data futura, demonstrativo vazio e valor negativo em receita/dívida/caixa; avisa sobre demonstrativo incompleto
+- Migration `003_numeric_fundamentals_columns` — `fundamentals` em `NUMERIC(24,4)` ([ADR-003](../decisions/ADR-003-decimal-money.md))
+- Transporte HTTP compartilhado extraído para `app/integrations/http.py`, reaproveitado pelo market data ([ADR-012](../decisions/ADR-012-shared-http-transport.md))
+- Política point-in-time definida: só anual, restatement não sobrescreve, nada de TTM ([ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md))
+- +45 testes (total 140)
+
+**W06-002 — Indicadores Fundamentalistas** ⚪ — próxima. Ver [../memory/CURRENT_TASK.md](../memory/CURRENT_TASK.md).
 
 ---
 

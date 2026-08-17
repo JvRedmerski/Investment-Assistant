@@ -19,6 +19,8 @@ Um ADR existe aqui porque a decisão (a) teve alternativas reais, (b) afeta arqu
 | [009](ADR-009-quant-deterministic-ai-explains.md) | Quant determinístico no backend; IA só explica | Accepted | qualquer cálculo financeiro ou uso de IA |
 | [010](ADR-010-404-over-403.md) | 404 em vez de 403 para recurso de outro usuário | Accepted | rotas escopadas por usuário |
 | [011](ADR-011-no-repository-layer.md) | Sem camada de repositório; rotas usam `Session` direto | Accepted | acesso a dados |
+| [012](ADR-012-shared-http-transport.md) | Transporte HTTP (retry/throttle) compartilhado entre integrações | Accepted | qualquer provedor externo novo |
+| [013](ADR-013-fundamentals-point-in-time.md) | Fundamentals: só anual, restatement não sobrescreve, nada de TTM | Accepted | fundamentos, indicadores, backtesting |
 
 ## Template
 

@@ -3,17 +3,33 @@ from datetime import UTC, date, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_current_user, get_market_data_provider
+from app.api.dependencies import (
+    get_current_user,
+    get_fundamentals_provider,
+    get_market_data_provider,
+)
 from app.data.database import get_db
 from app.data.models.assets import Asset, AssetPrice
+from app.data.models.fundamentals import Fundamental
 from app.data.models.users import User
 from app.domain.assets.schemas import AssetCreate, AssetResponse
+from app.domain.fundamentals.schemas import (
+    FundamentalResponse,
+    FundamentalsSyncResponse,
+)
+from app.domain.fundamentals.service import sync_annual_statements
 from app.domain.market_data.schemas import (
     AssetPriceResponse,
     PriceSyncRequest,
     PriceSyncResponse,
 )
 from app.domain.market_data.service import sync_daily_history
+from app.integrations.fundamentals.base import FundamentalsProvider
+from app.integrations.fundamentals.exceptions import (
+    FundamentalsNotFoundError,
+    FundamentalsUnavailableError,
+    InvalidFundamentalsResponseError,
+)
 from app.integrations.market_data.base import MarketDataProvider
 from app.integrations.market_data.exceptions import (
     InvalidMarketDataResponseError,
@@ -175,3 +191,89 @@ def list_asset_prices(
         query = query.filter(AssetPrice.date <= end)
 
     return query.order_by(AssetPrice.date).all()
+
+
+@router.post("/{ticker}/fundamentals/sync", response_model=FundamentalsSyncResponse)
+def sync_asset_fundamentals(
+    ticker: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    provider: FundamentalsProvider = Depends(get_fundamentals_provider),
+) -> FundamentalsSyncResponse:
+    """Fetch annual financial statements from the fundamentals provider
+    and store the ones not already held.
+
+    Like the price sync, this is the only endpoint that calls the
+    external provider; reading fundamentals never does (AGENTS.md rule
+    23). Already-stored reference dates are kept as-is, never
+    overwritten — see `app.domain.fundamentals.service`.
+    """
+    asset = _get_asset_by_ticker(db, ticker)
+
+    try:
+        result = sync_annual_statements(db, provider, asset)
+    except FundamentalsNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": {
+                    "code": "FUNDAMENTALS_NOT_FOUND",
+                    "message": f"Provider has no fundamental data for {asset.ticker}.",
+                }
+            },
+        ) from exc
+    except FundamentalsUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": {
+                    "code": "FUNDAMENTALS_UNAVAILABLE",
+                    "message": "Fundamentals provider is currently unavailable.",
+                }
+            },
+        ) from exc
+    except InvalidFundamentalsResponseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error": {
+                    "code": "FUNDAMENTALS_INVALID_RESPONSE",
+                    "message": (
+                        "Fundamentals provider returned an unparseable response."
+                    ),
+                }
+            },
+        ) from exc
+
+    return FundamentalsSyncResponse(
+        ticker=result.ticker,
+        fetched=result.fetched,
+        inserted=result.inserted,
+        skipped_existing=result.skipped_existing,
+        rejected=result.rejected,
+    )
+
+
+@router.get("/{ticker}/fundamentals", response_model=list[FundamentalResponse])
+def list_asset_fundamentals(
+    ticker: str,
+    start: date | None = None,
+    end: date | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[Fundamental]:
+    """Read stored annual statements for an asset, oldest first. Never
+    queries the external provider (AGENTS.md rule 23) — use
+    `POST /{ticker}/fundamentals/sync` first.
+
+    `start`/`end` filter on `reference_date`.
+    """
+    asset = _get_asset_by_ticker(db, ticker)
+
+    query = db.query(Fundamental).filter(Fundamental.asset_id == asset.id)
+    if start is not None:
+        query = query.filter(Fundamental.reference_date >= start)
+    if end is not None:
+        query = query.filter(Fundamental.reference_date <= end)
+
+    return query.order_by(Fundamental.reference_date).all()
