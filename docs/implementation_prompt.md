@@ -293,4 +293,4 @@ These rules always apply:
 12. Always leave the project in a resumable state.
 13. When safe to continue, continue automatically.
 14. Do not ask for permission to perform the next clearly defined task.
-15. After each implementation, commit the changes to github using a proper commit message in english
+15. After each task completion, commit the changes to github using a proper commit message in english
