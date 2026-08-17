@@ -6,16 +6,16 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 ---
 
 ## Current Phase
-- **Phase**: Wave 04 (Portfolio Management) -> Wave 05 (Market Data Integration)
+- **Phase**: Wave 05 (Market Data Integration) -> Wave 06 (Fundamental Data)
 - **Status**: 🟡 IN_PROGRESS
 
 ---
 
 ## Overall Progress
 - **Total Waves**: 33 (W00 a W32)
-- **Completed Waves**: 5 (W00, W01, W02, W03, W04)
+- **Completed Waves**: 6 (W00, W01, W02, W03, W04, W05)
 - **In Progress Waves**: 0
-- **Pending Waves**: 28
+- **Pending Waves**: 27
 
 ---
 
@@ -45,7 +45,7 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 - **Backend**: FastAPI + Python 3.11/3.14 + Pydantic v2 + Uvicorn (`backend/`) 🟢 COMPLETED
 - **Quant Engine**: NumPy + Pandas + SciPy (Wave 07) ⚪ NOT_STARTED
 - **Portfolio Engine**: CRUD de carteiras/ativos, ledger de transações, motor de posições (custo médio/saldo) determinístico (`backend/app/domain/portfolio`) 🟢 COMPLETED (Wave 04)
-- **Market Data Integration**: Abstração `MarketDataProvider` + `BrapiProvider` (`backend/app/integrations/market_data`) 🟡 IN_PROGRESS (Wave 05 — provider pronto, ingestão/caching/data quality pendentes)
+- **Market Data Integration**: `MarketDataProvider`/`BrapiProvider`, ingestão diária com caching e Data Quality Validator (`backend/app/integrations/market_data`, `backend/app/domain/market_data`) 🟢 COMPLETED (Wave 05)
 - **Database**: PostgreSQL 16 + SQLAlchemy 2.0 Models + Alembic (001 + 002 `NUMERIC` money columns) (`backend/app/data/models`) 🟢 COMPLETED
 - **AI Integration**: Abstração `AIProvider` (Gemini / Ollama) (Wave 12) ⚪ NOT_STARTED
 
@@ -142,11 +142,11 @@ Definition of Done Wave 04: atendida — CRUD de carteiras/ativos, ledger de tra
 ---
 
 ### Wave 05 — Market Data Integration
-Status: 🟡 IN_PROGRESS
+Status: 🟢 COMPLETED
 
 - [x] **W05-001**: Abstração `MarketDataProvider` e integração Brapi 🟢 COMPLETED
 - [x] **W05-002**: Ingestão de Cotizações Diárias e Caching 🟢 COMPLETED
-- [ ] **W05-003**: Data Quality Validator (validação de outliers/nulos) ⚪ NOT_STARTED
+- [x] **W05-003**: Data Quality Validator (validação de outliers/nulos) 🟢 COMPLETED
 
 Detalhes W05-001:
 - `backend/app/integrations/market_data/base.py`: interface abstrata `MarketDataProvider` (`get_quote`, `get_daily_history`) — domínio depende só desta abstração, nunca de um SDK/HTTP client concreto (regra 21 do AGENTS.md).
@@ -166,6 +166,14 @@ Detalhes W05-002:
 - `backend/app/api/routes/assets.py`: `POST /api/v1/assets/{ticker}/prices/sync` (único endpoint que chama o provedor externo; mapeia `TickerNotFoundError`->404, `MarketDataUnavailableError`->503, `InvalidMarketDataResponseError`->502) e `GET /api/v1/assets/{ticker}/prices` (lê exclusivamente do banco — nunca consulta a API externa, regra 23 do AGENTS.md; suporta filtro `start`/`end`). Data "hoje" default calculada em UTC explícito (regra 18).
 - Testes: `backend/tests/test_market_data_service.py` (4 casos unitários com SQLite in-memory: insere tudo quando vazio, ignora datas já armazenadas sem sobrescrever, idempotência ao rodar duas vezes, respeita a janela solicitada) e `backend/tests/test_market_data_routes.py` (9 casos de integração via HTTP com provider fake: auth obrigatória, 404 para ativo não cadastrado, sync + leitura comprovando que o read-path nunca chama o provider — inclusive com um provider que lançaria `AssertionError` se fosse chamado —, idempotência via API, mapeamento de cada erro do provider para o código HTTP correto, filtro de datas na leitura).
 - Validação: `pytest` 84/84 passed; `ruff check` e `black --check` limpos nos arquivos da task (mesma ressalva de estilo pré-existente nos `__init__.py` vazios).
+
+Detalhes W05-003:
+- `backend/app/integrations/market_data/data_quality.py`: `validate_daily_bars(bars) -> DataQualityReport` — função pura e determinística, sem I/O. Rejeita (`errors`): preço não-positivo (`NON_POSITIVE_PRICE`), volume negativo (`INVALID_VOLUME`, defesa em profundidade — o schema `DailyBar` já impede isso na construção normal), OHLC inconsistente (`INVALID_OHLC`, exatamente o exemplo da regra 20: `low<=open`, `low<=close`, `high>=open`, `high>=close`, `low<=high`) e datas duplicadas no lote (`DUPLICATE_DATE`, ambas as ocorrências rejeitadas). Sinaliza como aviso, sem rejeitar (`warnings`): lote fora de ordem cronológica (`OUT_OF_ORDER`) e variação diária absurda >50% (`ABSURD_MOVE`, heurística documentada — splits/eventos legítimos podem mover preço assim).
+- `backend/app/domain/market_data/service.py`: `sync_daily_history` agora roda `validate_daily_bars` antes de inserir; barras rejeitadas nunca chegam ao banco e populam `PriceSyncResult.rejected`; erros/avisos são logados (nunca silenciados — regra 122 do AGENTS.md).
+- Testes: `backend/tests/test_data_quality.py` (10 casos unitários com valores conhecidos) e um caso adicional em `backend/tests/test_market_data_service.py` comprovando que uma barra inválida misturada com uma válida é rejeitada e não é persistida.
+- Validação: `pytest` 95/95 passed; `ruff check` e `black --check` limpos nos arquivos da task.
+
+Definition of Done Wave 05: atendida — provider abstraído e testável sem rede real, ingestão idempotente com cache real (leitura nunca chama a API externa), validação de qualidade de dados determinística e testada com casos conhecidos, erros do provedor mapeados para códigos HTTP corretos, sem regressão nas waves anteriores. Pendência conhecida e documentada: parser da Brapi não verificado contra resposta real (sem rede neste ambiente).
 
 ---
 
@@ -372,9 +380,9 @@ Status: ⚪ NOT_STARTED
 
 ## Current Task
 
-Wave: 05
-Task ID: W05-003
-Task Name: Data Quality Validator
+Wave: 06
+Task ID: W06-001
+Task Name: Ingestão de Demonstrativos Financeiros
 Status: ⚪ NOT_STARTED
 
 Completed:
@@ -384,14 +392,14 @@ Completed:
 - Wave 03 (Authentication & Users) concluída (hashing bcrypt + JWT, endpoints register/login/refresh/me, `get_current_user`, 18 testes novos passando).
 - Correção de precisão monetária pós-Wave 02 (`Float` -> `NUMERIC(18,6)`/`Decimal` em `transactions` e `asset_prices`, migration `002_numeric_money_columns.py`), decidida com o usuário.
 - Wave 04 (Portfolio Management) concluída — CRUD de carteiras/ativos, transações, motor de posições. 36 testes novos passando.
-- W05-001 (abstração `MarketDataProvider` + `BrapiProvider`) concluída — 15 testes novos passando.
-- W05-002 (ingestão de cotações diárias + caching) concluída — 13 testes novos passando.
+- Wave 05 (Market Data Integration) concluída — `MarketDataProvider`/`BrapiProvider`, ingestão diária com caching, Data Quality Validator. 39 testes novos passando.
 
-Remaining (Wave 05):
-- W05-003: Data Quality Validator (nulos/preços negativos/OHLC inválido/volume inválido/datas duplicadas/fora de ordem/valores absurdos — regra 20 do AGENTS.md), integrado a `sync_daily_history` para rejeitar barras inválidas em vez de armazená-las cegamente.
+Remaining (Wave 06 — Fundamental Data):
+- W06-001: Ingestão de demonstrativos financeiros (tabela `fundamentals`).
+- W06-002: Cálculo e normalização de indicadores fundamentalistas (tabela `financial_indicators`), respeitando data de referência (não sobrescrever histórico — regra 109 do AGENTS.md).
 
 Next Action:
-Implementar W05-003: `backend/app/integrations/market_data/data_quality.py` (ou local equivalente) com validador determinístico e testável, populando o campo `rejected` já reservado em `PriceSyncResult`/`PriceSyncResponse`.
+Ler `docs/roadmap.md` (seção 18 — Wave 6) e `AGENTS.md` (regras 29 e 109) e planejar W06-001.
 
 ---
 
@@ -416,11 +424,12 @@ Implementar W05-003: `backend/app/integrations/market_data/data_quality.py` (ou 
 - **W04-003**: Motor de Posições Consolidadas (Preço Médio e Saldo) (🟢 COMPLETED)
 - **W05-001**: Abstração `MarketDataProvider` e integração Brapi (🟢 COMPLETED)
 - **W05-002**: Ingestão de Cotações Diárias e Caching (🟢 COMPLETED)
+- **W05-003**: Data Quality Validator (validação de outliers/nulos) (🟢 COMPLETED)
 
 ---
 
 ## In Progress
-Nenhuma tarefa em progresso no momento. Próxima: W05-003 (Data Quality Validator).
+Nenhuma tarefa em progresso no momento. Wave 05 concluída. Próxima: W06-001 (Wave 06 — Fundamental Data).
 
 ---
 
@@ -488,10 +497,10 @@ Nenhum problema conhecido no momento.
 
 ## Last Execution
 - **Timestamp**: 2026-08-16T00:00:00-03:00
-- **Action**: W05-002 (Wave 05) — ingestão de cotações diárias (`sync_daily_history`) e endpoints `POST /assets/{ticker}/prices/sync` / `GET /assets/{ticker}/prices`, com caching real (read path nunca chama o provedor externo).
-- **Result**: Sucesso. 84/84 testes automatizados passando (`pytest`), `ruff check` e `black --check` limpos nos arquivos alterados. Nenhuma regressão nas waves anteriores.
+- **Action**: W05-003 (Wave 05) — Data Quality Validator (`validate_daily_bars`) integrado a `sync_daily_history`, rejeitando barras inválidas (preço não-positivo, volume negativo, OHLC inconsistente, datas duplicadas) e sinalizando avisos (fora de ordem, variação diária absurda) sem bloquear a ingestão. **Wave 05 concluída.**
+- **Result**: Sucesso. 95/95 testes automatizados passando (`pytest`), `ruff check` e `black --check` limpos nos arquivos alterados. Nenhuma regressão nas waves anteriores.
 
 ---
 
 ## Next Action
-Implementar W05-003 (Data Quality Validator), completando a Wave 05.
+Ler `docs/roadmap.md` (Wave 6 — Fundamental Data) e planejar W06-001 (ingestão de demonstrativos financeiros).

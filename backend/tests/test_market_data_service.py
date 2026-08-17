@@ -129,3 +129,30 @@ def test_sync_only_considers_bars_within_requested_window(db_session, asset):
 
     assert result.fetched == 1
     assert result.inserted == 1
+
+
+def test_sync_rejects_bars_that_fail_data_quality_and_does_not_store_them(
+    db_session, asset
+):
+    good_bar = _bar(2)
+    bad_bar = DailyBar(
+        date=date(2026, 1, 3),
+        open=Decimal(10),
+        high=Decimal(11),
+        low=Decimal(-5),  # non-positive price -> rejected
+        close=Decimal("10.5"),
+        adjusted_close=Decimal("10.5"),
+        volume=Decimal(1000),
+    )
+    provider = FakeProvider([good_bar, bad_bar])
+
+    result = sync_daily_history(
+        db_session, provider, asset, date(2026, 1, 1), date(2026, 1, 5)
+    )
+
+    assert result.fetched == 2
+    assert result.inserted == 1
+    assert result.rejected == 1
+    stored = db_session.query(AssetPrice).filter(AssetPrice.asset_id == asset.id).all()
+    assert len(stored) == 1
+    assert stored[0].date == date(2026, 1, 2)
