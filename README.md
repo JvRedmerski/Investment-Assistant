@@ -118,7 +118,11 @@ pytest -v
 
 ## 📄 Documentação e Acompanhamento
 
-- **[PROJECT_STATUS.md](file:///C:/Users/joao/Investment-Assistant/docs/PROJECT_STATUS.md)** — Fonte oficial do progresso das tarefas e estado operacional do projeto.
+- **[CLAUDE.md](CLAUDE.md)** — Protocolo de sessão para agentes de IA. Ponto de entrada da memória do projeto.
+- **[docs/memory/](docs/memory/)** — Memória persistente: contexto, estado atual, tarefa atual e handoff de sessão.
+- **[docs/architecture/](docs/architecture/)** — Documentação técnica por área (system overview, backend, frontend, database, API).
+- **[docs/decisions/](docs/decisions/)** — Architecture Decision Records.
+- **[PROJECT_STATUS.md](file:///C:/Users/joao/Investment-Assistant/docs/PROJECT_STATUS.md)** — Ledger detalhado do progresso task-a-task.
 - **[roadmap.md](file:///C:/Users/joao/Investment-Assistant/docs/roadmap.md)** — Visão completa do ciclo de vida do projeto dividido em 33 Waves (W00 a W32).
 - **[AGENTS.md](file:///C:/Users/joao/Investment-Assistant/AGENTS.md)** — Regras técnicas, decisões arquiteturais e contrato dos agentes.
 

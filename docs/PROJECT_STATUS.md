@@ -1,5 +1,9 @@
 # Project Status — Investment Assistant
 
+> **Este é o ledger detalhado task-a-task** (exigido pelo AGENTS.md §94): notas de implementação, validações executadas e decisões datadas. Continue atualizando-o ao concluir cada task.
+>
+> Para **retomar o trabalho**, comece por [../CLAUDE.md](../CLAUDE.md) → [memory/PROJECT_STATUS.md](memory/PROJECT_STATUS.md) (estado atual em uma página) → [memory/CURRENT_TASK.md](memory/CURRENT_TASK.md).
+
 ## Project Overview
 Plataforma pessoal de análise e acompanhamento de investimentos com foco no mercado brasileiro (B3), acompanhamento patrimonial, recomendações quantitativas de aportes, análise de risco e módulo de Day Trade com Paper Trading.
 
