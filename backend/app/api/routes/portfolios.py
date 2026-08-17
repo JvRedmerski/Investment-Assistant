@@ -7,13 +7,20 @@ from app.data.models.assets import Asset
 from app.data.models.portfolio import Portfolio, Transaction, TransactionTypeEnum
 from app.data.models.users import User
 from app.domain.portfolio.schemas import (
+    AssetPositionResponse,
     PortfolioCreate,
+    PortfolioPositionsResponse,
     PortfolioResponse,
     PortfolioUpdate,
     TransactionCreate,
     TransactionResponse,
 )
-from app.domain.portfolio.service import compute_asset_quantity
+from app.domain.portfolio.service import (
+    ZERO,
+    compute_asset_quantity,
+    compute_net_contributions,
+    compute_positions,
+)
 
 router = APIRouter(prefix="/portfolios", tags=["Portfolio"])
 
@@ -187,4 +194,53 @@ def list_transactions(
         .filter(Transaction.portfolio_id == portfolio_id)
         .order_by(Transaction.transaction_date, Transaction.id)
         .all()
+    )
+
+
+@router.get("/{portfolio_id}/positions", response_model=PortfolioPositionsResponse)
+def get_portfolio_positions(
+    portfolio_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PortfolioPositionsResponse:
+    """Consolidated, cost-basis positions for a portfolio.
+
+    Entirely derived from the transaction ledger (AGENTS.md rule 16); does
+    not include current market value, which requires price data from the
+    Market Data integration (Wave 05, not yet implemented).
+    """
+    _get_owned_portfolio(db, portfolio_id, current_user)
+
+    transactions = (
+        db.query(Transaction).filter(Transaction.portfolio_id == portfolio_id).all()
+    )
+    positions = compute_positions(transactions)
+
+    tickers: dict[int, str] = {}
+    if positions:
+        assets = db.query(Asset).filter(Asset.id.in_(positions.keys())).all()
+        tickers = {asset.id: asset.ticker for asset in assets}
+
+    position_items = [
+        AssetPositionResponse(
+            asset_id=asset_id,
+            ticker=tickers.get(asset_id, "UNKNOWN"),
+            quantity=position.quantity,
+            average_price=position.average_price,
+            invested_amount=position.invested_amount,
+            realized_pnl=position.realized_pnl,
+            dividends_received=position.dividends_received,
+        )
+        for asset_id, position in sorted(positions.items())
+    ]
+
+    return PortfolioPositionsResponse(
+        portfolio_id=portfolio_id,
+        positions=position_items,
+        total_invested=sum((p.invested_amount for p in positions.values()), ZERO),
+        total_realized_pnl=sum((p.realized_pnl for p in positions.values()), ZERO),
+        total_dividends_received=sum(
+            (p.dividends_received for p in positions.values()), ZERO
+        ),
+        net_contributions=compute_net_contributions(transactions),
     )

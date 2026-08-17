@@ -6,16 +6,16 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 ---
 
 ## Current Phase
-- **Phase**: Wave 04 (Portfolio Management)
+- **Phase**: Wave 04 (Portfolio Management) -> Wave 05 (Market Data Integration)
 - **Status**: 🟡 IN_PROGRESS
 
 ---
 
 ## Overall Progress
 - **Total Waves**: 33 (W00 a W32)
-- **Completed Waves**: 4 (W00, W01, W02, W03)
-- **In Progress Waves**: 1 (W04)
-- **Pending Waves**: 27
+- **Completed Waves**: 5 (W00, W01, W02, W03, W04)
+- **In Progress Waves**: 0
+- **Pending Waves**: 28
 
 ---
 
@@ -44,7 +44,8 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 - **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS (`frontend/`) 🟢 COMPLETED
 - **Backend**: FastAPI + Python 3.11/3.14 + Pydantic v2 + Uvicorn (`backend/`) 🟢 COMPLETED
 - **Quant Engine**: NumPy + Pandas + SciPy (Wave 07) ⚪ NOT_STARTED
-- **Database**: PostgreSQL 16 + SQLAlchemy 2.0 Models + Alembic 001 Migration (`backend/app/data/models`) 🟢 COMPLETED
+- **Portfolio Engine**: CRUD de carteiras/ativos, ledger de transações, motor de posições (custo médio/saldo) determinístico (`backend/app/domain/portfolio`) 🟢 COMPLETED (Wave 04)
+- **Database**: PostgreSQL 16 + SQLAlchemy 2.0 Models + Alembic (001 + 002 `NUMERIC` money columns) (`backend/app/data/models`) 🟢 COMPLETED
 - **AI Integration**: Abstração `AIProvider` (Gemini / Ollama) (Wave 12) ⚪ NOT_STARTED
 
 ---
@@ -107,11 +108,11 @@ Definition of Done Wave 03: atendida — hashing seguro, JWT determinístico, en
 ---
 
 ### Wave 04 — Portfolio Management
-Status: 🟡 IN_PROGRESS
+Status: 🟢 COMPLETED
 
 - [x] **W04-001**: Endpoints CRUD de Carteiras e Ativos 🟢 COMPLETED
 - [x] **W04-002**: Registro de Transações (BUY, SELL, DIVIDEND, DEPOSIT, WITHDRAWAL) 🟢 COMPLETED
-- [ ] **W04-003**: Motor de Posições Consolidadas (Preço Médio e Saldo) ⚪ NOT_STARTED
+- [x] **W04-003**: Motor de Posições Consolidadas (Preço Médio e Saldo) 🟢 COMPLETED
 
 Detalhes W04-001:
 - `backend/app/domain/assets/schemas.py`: `AssetCreate` (normaliza ticker para maiúsculas), `AssetResponse`.
@@ -129,6 +130,13 @@ Detalhes W04-002:
 - Testes: `backend/tests/test_transactions.py` (9 casos): auth obrigatória, criação de BUY/DEPOSIT, 404 em carteira/ativo alheios ou inexistentes, validação de `asset_id` por tipo, guarda de venda insuficiente, venda até o limite permitida, ordenação cronológica na listagem.
 - Nota: `status.HTTP_422_UNPROCESSABLE_ENTITY` está depreciado nesta versão do Starlette; usado `HTTP_422_UNPROCESSABLE_CONTENT`.
 - Validação: `pytest` 42/42 passed; `ruff check` e `black --check` limpos nos arquivos da task.
+
+Detalhes W04-003:
+- `backend/app/api/routes/portfolios.py`: `GET /api/v1/portfolios/{id}/positions`, expondo `compute_positions`/`compute_net_contributions` — retorna posição por ativo (quantidade, preço médio, valor investido, P&L realizado, dividendos recebidos) e totais da carteira. Não inclui valor de mercado atual (depende da Wave 05 — Market Data, ainda não implementada).
+- Testes: `backend/tests/test_portfolio_service.py` (11 casos unitários do motor com valores conhecidos — regra 68 do AGENTS.md: preço médio ponderado em compras múltiplas, venda parcial mantém preço médio e realiza P&L, venda total zera a posição mas preserva P&L histórico, dividendos não afetam quantidade/preço médio, posições independentes por ativo, replay respeita ordem cronológica mesmo com input fora de ordem, posição zerada sem P&L/dividendos é omitida, `compute_net_contributions`) e `backend/tests/test_positions.py` (4 casos de integração via HTTP).
+- Validação: `pytest` 56/56 passed; `ruff check` e `black --check` limpos nos arquivos da task.
+
+Definition of Done Wave 04: atendida — CRUD de carteiras/ativos, ledger de transações com validação de integridade (venda não pode exceder posição), motor de posições determinístico e testável com casos conhecidos, sem cálculo financeiro no frontend (ainda não implementado), sem regressão nos testes das waves anteriores.
 
 ---
 
@@ -357,12 +365,15 @@ Completed:
 - Correção de precisão monetária pós-Wave 02 (`Float` -> `NUMERIC(18,6)`/`Decimal` em `transactions` e `asset_prices`, migration `002_numeric_money_columns.py`), decidida com o usuário.
 - W04-001 (CRUD de carteiras e ativos) concluída — 12 testes novos passando.
 - W04-002 (registro de transações + guarda de venda insuficiente) concluída — 9 testes novos passando.
+- W04-003 (endpoint de posições consolidadas + testes unitários do motor) concluída — 15 testes novos passando. **Wave 04 completa.**
 
-Remaining (Wave 04):
-- W04-003: Endpoint de posições consolidadas (`GET /api/v1/portfolios/{id}/positions`) + testes unitários dedicados do motor de posições (`compute_positions`) com casos conhecidos (compras múltiplas com preço médio ponderado, venda parcial, venda total, dividendos, aportes/retiradas).
+Remaining (Wave 05 — Market Data Integration):
+- W05-001: Abstração `MarketDataProvider` e integração Brapi.
+- W05-002: Ingestão de cotações diárias e caching.
+- W05-003: Data Quality Validator (outliers/nulos/OHLC inválido).
 
 Next Action:
-Implementar W04-003 (endpoint de posições consolidadas) expondo `backend/app/domain/portfolio/service.py::compute_positions` via `GET /api/v1/portfolios/{id}/positions`, com testes unitários dedicados do motor além dos testes de integração do endpoint.
+Ler `docs/roadmap.md` (Wave 5) e planejar W05-001 (`MarketDataProvider` + `BrapiProvider`) em `backend/app/integrations/market_data/`.
 
 ---
 
@@ -384,11 +395,12 @@ Implementar W04-003 (endpoint de posições consolidadas) expondo `backend/app/d
 - **W03-003**: Dependencies de Autenticação e Proteção de Rotas (`get_current_user`) (🟢 COMPLETED)
 - **W04-001**: Endpoints CRUD de Carteiras e Ativos (🟢 COMPLETED)
 - **W04-002**: Registro de Transações (BUY, SELL, DIVIDEND, DEPOSIT, WITHDRAWAL) (🟢 COMPLETED)
+- **W04-003**: Motor de Posições Consolidadas (Preço Médio e Saldo) (🟢 COMPLETED)
 
 ---
 
 ## In Progress
-Nenhuma tarefa em progresso no momento. Próxima: W04-003 (Motor de Posições Consolidadas).
+Nenhuma tarefa em progresso no momento. Wave 04 concluída. Próxima: W05-001 (Wave 05 — Market Data Integration).
 
 ---
 
@@ -450,10 +462,10 @@ Nenhum problema conhecido no momento.
 
 ## Last Execution
 - **Timestamp**: 2026-08-16T00:00:00-03:00
-- **Action**: W04-002 (Wave 04) — registro de transações (`/api/v1/portfolios/{id}/transactions`), motor de posições determinístico em `backend/app/domain/portfolio/service.py` usado para bloquear vendas acima da quantidade detida.
-- **Result**: Sucesso. 42/42 testes automatizados passando (`pytest`), `ruff check` e `black --check` limpos nos arquivos alterados. Nenhuma regressão nos testes de auth/health/models/security/portfolios/assets.
+- **Action**: W04-003 (Wave 04) — `GET /api/v1/portfolios/{id}/positions`, expondo o motor de posições (`compute_positions`/`compute_net_contributions`) com testes unitários dedicados (casos conhecidos: preço médio ponderado, venda parcial/total, dividendos, aportes/retiradas, ordem cronológica). **Wave 04 concluída.**
+- **Result**: Sucesso. 56/56 testes automatizados passando (`pytest`), `ruff check` e `black --check` limpos nos arquivos alterados. Nenhuma regressão nas waves anteriores.
 
 ---
 
 ## Next Action
-Implementar W04-003 (`GET /api/v1/portfolios/{id}/positions`, expondo `compute_positions`) com testes unitários dedicados do motor de posições (casos conhecidos: preço médio ponderado em compras múltiplas, venda parcial/total, dividendos, aportes/retiradas).
+Ler `docs/roadmap.md` (Wave 5 — Market Data) e `AGENTS.md` (seções 19, 21, 22, 23) e planejar W05-001 (`MarketDataProvider` + `BrapiProvider`) em `backend/app/integrations/market_data/`, seguido de W05-002 (ingestão/caching) e W05-003 (data quality validator).
