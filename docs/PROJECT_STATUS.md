@@ -110,7 +110,7 @@ Definition of Done Wave 03: atendida — hashing seguro, JWT determinístico, en
 Status: 🟡 IN_PROGRESS
 
 - [x] **W04-001**: Endpoints CRUD de Carteiras e Ativos 🟢 COMPLETED
-- [ ] **W04-002**: Registro de Transações (BUY, SELL, DIVIDEND, DEPOSIT, WITHDRAWAL) ⚪ NOT_STARTED
+- [x] **W04-002**: Registro de Transações (BUY, SELL, DIVIDEND, DEPOSIT, WITHDRAWAL) 🟢 COMPLETED
 - [ ] **W04-003**: Motor de Posições Consolidadas (Preço Médio e Saldo) ⚪ NOT_STARTED
 
 Detalhes W04-001:
@@ -121,6 +121,14 @@ Detalhes W04-001:
 - `backend/app/main.py`: registro dos routers `assets` e `portfolios`.
 - Testes: `backend/tests/test_assets.py` (6 casos) e `backend/tests/test_portfolios.py` (6 casos), incluindo isolamento entre usuários.
 - Validação: `pytest` 33/33 passed; `ruff check` e `black --check` limpos nos arquivos da task.
+
+Detalhes W04-002:
+- `backend/app/domain/portfolio/service.py`: `compute_positions`/`compute_asset_quantity`/`compute_net_contributions` — motor de posições determinístico (moving-average cost method), derivado 100% do ledger de transações (regra 16 do AGENTS.md), sem tabela própria de posições.
+- `backend/app/api/routes/portfolios.py`: `POST/GET /api/v1/portfolios/{id}/transactions`. Valida existência do ativo, exige `asset_id` só para BUY/SELL/DIVIDEND (schema `TransactionCreate`), e bloqueia SELL que exceda a quantidade atualmente detida (`INSUFFICIENT_POSITION`, 422) — usa `compute_asset_quantity` sobre o histórico já registrado.
+- Convenção documentada: valor monetário de qualquer transação = `quantity × price` (fees separado); DEPOSIT/WITHDRAWAL não têm `asset_id` (fluxo de caixa no nível da carteira).
+- Testes: `backend/tests/test_transactions.py` (9 casos): auth obrigatória, criação de BUY/DEPOSIT, 404 em carteira/ativo alheios ou inexistentes, validação de `asset_id` por tipo, guarda de venda insuficiente, venda até o limite permitida, ordenação cronológica na listagem.
+- Nota: `status.HTTP_422_UNPROCESSABLE_ENTITY` está depreciado nesta versão do Starlette; usado `HTTP_422_UNPROCESSABLE_CONTENT`.
+- Validação: `pytest` 42/42 passed; `ruff check` e `black --check` limpos nos arquivos da task.
 
 ---
 
@@ -348,13 +356,13 @@ Completed:
 - Wave 03 (Authentication & Users) concluída (hashing bcrypt + JWT, endpoints register/login/refresh/me, `get_current_user`, 18 testes novos passando).
 - Correção de precisão monetária pós-Wave 02 (`Float` -> `NUMERIC(18,6)`/`Decimal` em `transactions` e `asset_prices`, migration `002_numeric_money_columns.py`), decidida com o usuário.
 - W04-001 (CRUD de carteiras e ativos) concluída — 12 testes novos passando.
+- W04-002 (registro de transações + guarda de venda insuficiente) concluída — 9 testes novos passando.
 
 Remaining (Wave 04):
-- W04-002: Registro de transações (BUY, SELL, DIVIDEND, DEPOSIT, WITHDRAWAL), com validação de saldo insuficiente em vendas.
-- W04-003: Endpoint de posições consolidadas (preço médio e saldo derivados das transações, conforme regra 16 do AGENTS.md) + testes unitários dedicados do motor de posições.
+- W04-003: Endpoint de posições consolidadas (`GET /api/v1/portfolios/{id}/positions`) + testes unitários dedicados do motor de posições (`compute_positions`) com casos conhecidos (compras múltiplas com preço médio ponderado, venda parcial, venda total, dividendos, aportes/retiradas).
 
 Next Action:
-Implementar W04-002 (registro de transações) em `backend/app/api/routes/portfolios.py`, reaproveitando `backend/app/domain/portfolio/service.py` (motor de posições) para a validação de venda.
+Implementar W04-003 (endpoint de posições consolidadas) expondo `backend/app/domain/portfolio/service.py::compute_positions` via `GET /api/v1/portfolios/{id}/positions`, com testes unitários dedicados do motor além dos testes de integração do endpoint.
 
 ---
 
@@ -375,11 +383,12 @@ Implementar W04-002 (registro de transações) em `backend/app/api/routes/portfo
 - **W03-002**: Endpoints de Cadastro, Login, Refresh Token e Me (🟢 COMPLETED)
 - **W03-003**: Dependencies de Autenticação e Proteção de Rotas (`get_current_user`) (🟢 COMPLETED)
 - **W04-001**: Endpoints CRUD de Carteiras e Ativos (🟢 COMPLETED)
+- **W04-002**: Registro de Transações (BUY, SELL, DIVIDEND, DEPOSIT, WITHDRAWAL) (🟢 COMPLETED)
 
 ---
 
 ## In Progress
-Nenhuma tarefa em progresso no momento. Próxima: W04-002 (Registro de Transações).
+Nenhuma tarefa em progresso no momento. Próxima: W04-003 (Motor de Posições Consolidadas).
 
 ---
 
@@ -441,10 +450,10 @@ Nenhum problema conhecido no momento.
 
 ## Last Execution
 - **Timestamp**: 2026-08-16T00:00:00-03:00
-- **Action**: W04-001 (Wave 04) — CRUD de carteiras (`/api/v1/portfolios`) e ativos (`/api/v1/assets`), escopado por usuário autenticado.
-- **Result**: Sucesso. 33/33 testes automatizados passando (`pytest`), `ruff check` e `black --check` limpos nos arquivos alterados. Nenhuma regressão nos testes de auth/health/models/security.
+- **Action**: W04-002 (Wave 04) — registro de transações (`/api/v1/portfolios/{id}/transactions`), motor de posições determinístico em `backend/app/domain/portfolio/service.py` usado para bloquear vendas acima da quantidade detida.
+- **Result**: Sucesso. 42/42 testes automatizados passando (`pytest`), `ruff check` e `black --check` limpos nos arquivos alterados. Nenhuma regressão nos testes de auth/health/models/security/portfolios/assets.
 
 ---
 
 ## Next Action
-Implementar W04-002 (registro de transações BUY/SELL/DIVIDEND/DEPOSIT/WITHDRAWAL em `/api/v1/portfolios/{id}/transactions`), seguido de W04-003 (endpoint de posições consolidadas).
+Implementar W04-003 (`GET /api/v1/portfolios/{id}/positions`, expondo `compute_positions`) com testes unitários dedicados do motor de posições (casos conhecidos: preço médio ponderado em compras múltiplas, venda parcial/total, dividendos, aportes/retiradas).
