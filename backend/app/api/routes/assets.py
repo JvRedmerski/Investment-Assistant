@@ -1,13 +1,44 @@
+from datetime import UTC, date, datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_current_user
+from app.api.dependencies import get_current_user, get_market_data_provider
 from app.data.database import get_db
-from app.data.models.assets import Asset
+from app.data.models.assets import Asset, AssetPrice
 from app.data.models.users import User
 from app.domain.assets.schemas import AssetCreate, AssetResponse
+from app.domain.market_data.schemas import (
+    AssetPriceResponse,
+    PriceSyncRequest,
+    PriceSyncResponse,
+)
+from app.domain.market_data.service import sync_daily_history
+from app.integrations.market_data.base import MarketDataProvider
+from app.integrations.market_data.exceptions import (
+    InvalidMarketDataResponseError,
+    MarketDataUnavailableError,
+    TickerNotFoundError,
+)
 
 router = APIRouter(prefix="/assets", tags=["Assets"])
+
+_DEFAULT_SYNC_WINDOW_DAYS = 30
+
+
+def _get_asset_by_ticker(db: Session, ticker: str) -> Asset:
+    asset = db.query(Asset).filter(Asset.ticker == ticker.strip().upper()).first()
+    if asset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": {
+                    "code": "ASSET_NOT_FOUND",
+                    "message": f"Asset {ticker} was not found.",
+                }
+            },
+        )
+    return asset
 
 
 @router.post("", response_model=AssetResponse, status_code=status.HTTP_201_CREATED)
@@ -56,15 +87,91 @@ def get_asset(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Asset:
-    asset = db.query(Asset).filter(Asset.ticker == ticker.strip().upper()).first()
-    if asset is None:
+    return _get_asset_by_ticker(db, ticker)
+
+
+@router.post("/{ticker}/prices/sync", response_model=PriceSyncResponse)
+def sync_asset_prices(
+    ticker: str,
+    payload: PriceSyncRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    provider: MarketDataProvider = Depends(get_market_data_provider),
+) -> PriceSyncResponse:
+    """Fetch daily OHLCV history from the market data provider and store it.
+
+    This is the only endpoint that calls the external provider. Reading
+    prices (`GET /{ticker}/prices`) always reads from the database, never
+    from here implicitly (AGENTS.md rule 23).
+    """
+    asset = _get_asset_by_ticker(db, ticker)
+
+    # Explicit UTC "today" (AGENTS.md rule 18 — never assume timezone
+    # implicitly); B3-local-time nuances can be layered on later if needed.
+    end = payload.end or datetime.now(UTC).date()
+    start = payload.start or (end - timedelta(days=_DEFAULT_SYNC_WINDOW_DAYS))
+
+    try:
+        result = sync_daily_history(db, provider, asset, start, end)
+    except TickerNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={
                 "error": {
-                    "code": "ASSET_NOT_FOUND",
-                    "message": f"Asset {ticker} was not found.",
+                    "code": "MARKET_DATA_TICKER_NOT_FOUND",
+                    "message": f"Provider has no data for {asset.ticker}.",
                 }
             },
-        )
-    return asset
+        ) from exc
+    except MarketDataUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": {
+                    "code": "MARKET_DATA_UNAVAILABLE",
+                    "message": "Market data provider is currently unavailable.",
+                }
+            },
+        ) from exc
+    except InvalidMarketDataResponseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error": {
+                    "code": "MARKET_DATA_INVALID_RESPONSE",
+                    "message": "Market data provider returned an unparseable response.",
+                }
+            },
+        ) from exc
+
+    return PriceSyncResponse(
+        ticker=result.ticker,
+        start=result.start,
+        end=result.end,
+        fetched=result.fetched,
+        inserted=result.inserted,
+        skipped_existing=result.skipped_existing,
+        rejected=result.rejected,
+    )
+
+
+@router.get("/{ticker}/prices", response_model=list[AssetPriceResponse])
+def list_asset_prices(
+    ticker: str,
+    start: date | None = None,
+    end: date | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[AssetPrice]:
+    """Read stored daily prices for an asset. Never queries the external
+    provider (AGENTS.md rule 23) — use `POST /{ticker}/prices/sync` first.
+    """
+    asset = _get_asset_by_ticker(db, ticker)
+
+    query = db.query(AssetPrice).filter(AssetPrice.asset_id == asset.id)
+    if start is not None:
+        query = query.filter(AssetPrice.date >= start)
+    if end is not None:
+        query = query.filter(AssetPrice.date <= end)
+
+    return query.order_by(AssetPrice.date).all()

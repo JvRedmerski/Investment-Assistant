@@ -145,7 +145,7 @@ Definition of Done Wave 04: atendida — CRUD de carteiras/ativos, ledger de tra
 Status: 🟡 IN_PROGRESS
 
 - [x] **W05-001**: Abstração `MarketDataProvider` e integração Brapi 🟢 COMPLETED
-- [ ] **W05-002**: Ingestão de Cotizações Diárias e Caching ⚪ NOT_STARTED
+- [x] **W05-002**: Ingestão de Cotizações Diárias e Caching 🟢 COMPLETED
 - [ ] **W05-003**: Data Quality Validator (validação de outliers/nulos) ⚪ NOT_STARTED
 
 Detalhes W05-001:
@@ -157,6 +157,15 @@ Detalhes W05-001:
 - **Caveat importante**: o parser foi escrito com base na documentação pública da Brapi (`results[0].regularMarketPrice`, `results[0].historicalDataPrice[]`), mas só foi exercitado contra respostas HTTP mockadas (`httpx.MockTransport`) — não há acesso de rede de saída neste ambiente. Precisa ser validado contra uma resposta real da Brapi antes de ser usado em ingestão de produção (mesma ressalva já registrada para a migration `002_numeric_money_columns`).
 - Testes: `backend/tests/test_brapi_provider.py` (15 casos): parsing de quote/histórico com sucesso, 404 -> `TickerNotFoundError`, campo obrigatório ausente/nulo -> `InvalidMarketDataResponseError`, JSON inválido, filtro de datas, `adjustedClose` ausente cai para `close`, retry em erro 5xx/timeout transitório com sucesso subsequente, falha definitiva após esgotar tentativas, erro não-retryable (4xx) falha imediatamente sem retry, e throttle de intervalo mínimo entre requisições.
 - Validação: `pytest` 71/71 passed; `ruff check` e `black --check` limpos nos arquivos da task (exceto os `__init__.py` vazios, que replicam um padrão de estilo pré-existente no repositório — já registrado em Future Work).
+
+Detalhes W05-002:
+- `backend/app/integrations/market_data/factory.py`: `build_market_data_provider()` — seleciona a implementação concreta a partir de `settings.MARKET_DATA_PROVIDER` (padrão análogo ao `AIProvider`, regras 21/40 do AGENTS.md).
+- `backend/app/api/dependencies.py`: dependency `get_market_data_provider` (FastAPI `Depends`) que instancia e fecha o provider por request; testes sobrescrevem com um fake via `app.dependency_overrides`, sem tocar rede.
+- `backend/app/domain/market_data/schemas.py`: `PriceSyncRequest`, `PriceSyncResponse`, `AssetPriceResponse`.
+- `backend/app/domain/market_data/service.py`: `sync_daily_history` — busca o histórico via `MarketDataProvider`, insere apenas datas ainda não armazenadas (nunca sobrescreve histórico existente — regra 20 do AGENTS.md) e retorna contagem de buscados/inseridos/ignorados.
+- `backend/app/api/routes/assets.py`: `POST /api/v1/assets/{ticker}/prices/sync` (único endpoint que chama o provedor externo; mapeia `TickerNotFoundError`->404, `MarketDataUnavailableError`->503, `InvalidMarketDataResponseError`->502) e `GET /api/v1/assets/{ticker}/prices` (lê exclusivamente do banco — nunca consulta a API externa, regra 23 do AGENTS.md; suporta filtro `start`/`end`). Data "hoje" default calculada em UTC explícito (regra 18).
+- Testes: `backend/tests/test_market_data_service.py` (4 casos unitários com SQLite in-memory: insere tudo quando vazio, ignora datas já armazenadas sem sobrescrever, idempotência ao rodar duas vezes, respeita a janela solicitada) e `backend/tests/test_market_data_routes.py` (9 casos de integração via HTTP com provider fake: auth obrigatória, 404 para ativo não cadastrado, sync + leitura comprovando que o read-path nunca chama o provider — inclusive com um provider que lançaria `AssertionError` se fosse chamado —, idempotência via API, mapeamento de cada erro do provider para o código HTTP correto, filtro de datas na leitura).
+- Validação: `pytest` 84/84 passed; `ruff check` e `black --check` limpos nos arquivos da task (mesma ressalva de estilo pré-existente nos `__init__.py` vazios).
 
 ---
 
@@ -364,8 +373,8 @@ Status: ⚪ NOT_STARTED
 ## Current Task
 
 Wave: 05
-Task ID: W05-002
-Task Name: Ingestão de Cotações Diárias e Caching
+Task ID: W05-003
+Task Name: Data Quality Validator
 Status: ⚪ NOT_STARTED
 
 Completed:
@@ -376,13 +385,13 @@ Completed:
 - Correção de precisão monetária pós-Wave 02 (`Float` -> `NUMERIC(18,6)`/`Decimal` em `transactions` e `asset_prices`, migration `002_numeric_money_columns.py`), decidida com o usuário.
 - Wave 04 (Portfolio Management) concluída — CRUD de carteiras/ativos, transações, motor de posições. 36 testes novos passando.
 - W05-001 (abstração `MarketDataProvider` + `BrapiProvider`) concluída — 15 testes novos passando.
+- W05-002 (ingestão de cotações diárias + caching) concluída — 13 testes novos passando.
 
 Remaining (Wave 05):
-- W05-002: Ingestão de cotações diárias (`asset_prices`) via `BrapiProvider`, com caching (não reconsultar datas já armazenadas).
-- W05-003: Data Quality Validator (outliers/nulos/OHLC inválido/datas duplicadas) integrado à ingestão.
+- W05-003: Data Quality Validator (nulos/preços negativos/OHLC inválido/volume inválido/datas duplicadas/fora de ordem/valores absurdos — regra 20 do AGENTS.md), integrado a `sync_daily_history` para rejeitar barras inválidas em vez de armazená-las cegamente.
 
 Next Action:
-Implementar W05-002: serviço de sincronização de histórico diário em `backend/app/domain/market_data/` (ou local equivalente) + endpoints `POST /api/v1/assets/{ticker}/prices/sync` (aciona `BrapiProvider`) e `GET /api/v1/assets/{ticker}/prices` (lê do banco, sem tocar a API externa — regra 23 do AGENTS.md).
+Implementar W05-003: `backend/app/integrations/market_data/data_quality.py` (ou local equivalente) com validador determinístico e testável, populando o campo `rejected` já reservado em `PriceSyncResult`/`PriceSyncResponse`.
 
 ---
 
@@ -406,11 +415,12 @@ Implementar W05-002: serviço de sincronização de histórico diário em `backe
 - **W04-002**: Registro de Transações (BUY, SELL, DIVIDEND, DEPOSIT, WITHDRAWAL) (🟢 COMPLETED)
 - **W04-003**: Motor de Posições Consolidadas (Preço Médio e Saldo) (🟢 COMPLETED)
 - **W05-001**: Abstração `MarketDataProvider` e integração Brapi (🟢 COMPLETED)
+- **W05-002**: Ingestão de Cotações Diárias e Caching (🟢 COMPLETED)
 
 ---
 
 ## In Progress
-Nenhuma tarefa em progresso no momento. Próxima: W05-002 (Ingestão de Cotações Diárias e Caching).
+Nenhuma tarefa em progresso no momento. Próxima: W05-003 (Data Quality Validator).
 
 ---
 
@@ -478,10 +488,10 @@ Nenhum problema conhecido no momento.
 
 ## Last Execution
 - **Timestamp**: 2026-08-16T00:00:00-03:00
-- **Action**: W05-001 (Wave 05) — abstração `MarketDataProvider` e implementação `BrapiProvider` (`backend/app/integrations/market_data/`), com timeout, retry limitado com backoff, tratamento de erros e throttle opcional.
-- **Result**: Sucesso. 71/71 testes automatizados passando (`pytest`), `ruff check` e `black --check` limpos nos arquivos alterados (exceto débito de estilo pré-existente nos `__init__.py` vazios). Nenhuma regressão nas waves anteriores. **Caveat**: parser não validado contra resposta real da Brapi (sem acesso de rede neste ambiente) — ver Technical Decisions.
+- **Action**: W05-002 (Wave 05) — ingestão de cotações diárias (`sync_daily_history`) e endpoints `POST /assets/{ticker}/prices/sync` / `GET /assets/{ticker}/prices`, com caching real (read path nunca chama o provedor externo).
+- **Result**: Sucesso. 84/84 testes automatizados passando (`pytest`), `ruff check` e `black --check` limpos nos arquivos alterados. Nenhuma regressão nas waves anteriores.
 
 ---
 
 ## Next Action
-Implementar W05-002 (ingestão de cotações diárias + caching) e W05-003 (Data Quality Validator), completando a Wave 05.
+Implementar W05-003 (Data Quality Validator), completando a Wave 05.

@@ -1,3 +1,5 @@
+from collections.abc import Generator
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -6,6 +8,8 @@ from app.core.config import settings
 from app.core.security import decode_access_token
 from app.data.database import get_db
 from app.data.models.users import User
+from app.integrations.market_data.base import MarketDataProvider
+from app.integrations.market_data.factory import build_market_data_provider
 
 # tokenUrl is used only for OpenAPI documentation (Swagger "Authorize" button).
 # Actual authentication is performed via the "Authorization: Bearer <token>" header.
@@ -52,3 +56,17 @@ def get_current_user(
         raise _credentials_exception()
 
     return user
+
+
+def get_market_data_provider() -> Generator[MarketDataProvider, None, None]:
+    """Provide a `MarketDataProvider` instance for a single request.
+
+    Routes depend only on the abstract type, never on `BrapiProvider`
+    directly (AGENTS.md rule 21). Tests override this dependency with a
+    fake provider instead of hitting the network.
+    """
+    provider = build_market_data_provider()
+    try:
+        yield provider
+    finally:
+        provider.close()
