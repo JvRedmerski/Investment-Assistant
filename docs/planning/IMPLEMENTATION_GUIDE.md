@@ -37,12 +37,13 @@
 | Integração externa nova | `app/integrations/fundamentals/` (base + schemas + exceptions + vendor + factory), delegando resiliência a `app/integrations/http.py` |
 | Serviço de ingestão | `app/domain/market_data/service.py` (`sync_daily_history`) |
 | Validador de qualidade | `app/integrations/market_data/data_quality.py` (função pura, report com errors/warnings) |
-| Cálculo financeiro | `app/domain/portfolio/service.py` (`compute_positions`: puro, `Decimal`, sem I/O) |
+| Cálculo financeiro | `app/domain/fundamentals/indicators.py` (`compute_indicators`: puro, `Decimal`, política de dado faltante) ou `app/domain/portfolio/service.py` (`compute_positions`: replay ordenado) |
 | Endpoints CRUD escopados | `app/api/routes/portfolios.py` (helper de ownership + 404) |
 | Schemas de request/response | `app/domain/<área>/schemas.py` (`ConfigDict(from_attributes=True)` nos responses) |
 | Dependency de integração | `app/api/dependencies.py` (`get_market_data_provider`) |
 | Teste com provider fake | `tests/test_market_data_routes.py` (`dependency_overrides`, zero rede) |
-| Teste de cálculo | `tests/test_portfolio_service.py` (valores conhecidos, edge cases) |
+| Teste de cálculo | `tests/test_fundamental_indicators.py` ou `tests/test_portfolio_service.py` (valores conhecidos, edge cases) |
+| Teste de regressão de parser | `tests/test_brapi_fundamentals_provider.py::test_regression_against_the_real_petr4_response` (valores reais capturados) |
 
 ## Convenções de código
 
@@ -89,7 +90,23 @@ Nunca contorne o sintoma.
 
 ## Quando não souber
 
-Não invente. Consulte a documentação oficial da dependência. Se a incerteza permanecer — por exemplo, um parser que não pôde ser validado contra a API real — **implemente defensivamente e documente a lacuna explicitamente** no `PROJECT_STATUS.md` e no ADR correspondente (§124). Foi exatamente assim que a lacuna do `BrapiProvider` foi tratada; siga o mesmo procedimento.
+Não invente. Consulte a documentação oficial da dependência. Se a incerteza permanecer, **implemente defensivamente e documente a lacuna explicitamente** no `PROJECT_STATUS.md` e no ADR correspondente (§124).
+
+### Integração externa: valide contra uma resposta real antes de escrever os mocks
+
+Aprendido do jeito caro na W06-003. Os parsers da Brapi foram escritos a partir da documentação e cobertos por dezenas de testes verdes. Quando finalmente houve rede, **dois campos estavam errados** (`totalStockholderEquity` e `totalDebt`, nulos em 100% dos períodos reais), o que deixava `equity`, `debt` e `roe` silenciosamente `None`.
+
+Nenhum teste pegou, e não podia pegar: todos os fixtures eram payloads escritos por mim com os nomes que eu supunha corretos. **Um mock construído sobre uma suposição não verifica a suposição — ele a reproduz.**
+
+Procedimento para qualquer provedor novo (intraday W15, IA W12):
+
+1. Faça **uma** chamada real e salve a resposta. Peça tudo de uma vez (módulos, ranges) — a cota da Brapi é mensal e limitada, e uma requisição bem montada valida o provedor inteiro.
+2. Inspecione a estrutura de verdade: nomes de campo, aninhamento, e **quantos períodos de fato têm valor** (um campo presente mas nulo em 16/16 é o mesmo que ausente).
+3. Só então escreva o parser e os mocks, com os nomes confirmados.
+4. Deixe um **teste de regressão com valores reais** — molde: `tests/test_brapi_fundamentals_provider.py::test_regression_against_the_real_petr4_response`.
+5. Rode o pipeline ponta a ponta sobre a resposta real e **olhe os números**. Foi assim que apareceu um ROIC de −1096%, causado por um crédito tributário que o código tratava como despesa. Teste unitário nenhum teria apontado: os valores eram plausíveis isoladamente.
+
+Se não houver rede, implemente defensivamente e registre a lacuna — mas trate o resultado como **não verificado** até que o passo 1 aconteça, e não empilhe mais campos especulativos sobre ele.
 
 ## Quando o pedido quebrar a arquitetura
 

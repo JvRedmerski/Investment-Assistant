@@ -30,13 +30,17 @@ O produto final deve responder: *Como está minha carteira? Estou batendo o CDI?
 - Ledger de transações (`BUY`, `SELL`, `DIVIDEND`, `DEPOSIT`, `WITHDRAWAL`).
 - Motor de posições consolidadas derivado do ledger (quantidade, preço médio, P&L realizado, dividendos) — determinístico, custo médio móvel.
 - Integração de market data abstraída (`MarketDataProvider` / `BrapiProvider`), ingestão de histórico diário OHLCV com cache local e validação de qualidade de dados.
+- Ingestão de demonstrativos financeiros anuais (`FundamentalsProvider` / `BrapiFundamentalsProvider`), com validação de qualidade e política point-in-time.
+- Indicadores fundamentalistas derivados: as 10 fórmulas estão implementadas e testadas; **5 produzem valor** hoje (`roe`, `roic`, `net_margin`, `revenue_growth`, `profit_growth`). As outras 5 retornam `None` por limitação evidenciada da fonte — ver Known Issues em [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 ### Em desenvolvimento
-- Nada em progresso. Wave 05 fechada; Wave 06 (Fundamental Data) ainda não iniciada.
+- Nada em progresso. Wave 06 fechada; Wave 07 (Quant Engine) é a próxima.
 
 ### Planejado (não existe código)
-Fundamentos → Quant Engine (retornos/risco) → Benchmarks (CDI/IBOV/IPCA) → Recommendation Engine → Rebalanceamento → Dashboard → AI Engine → Backtesting/Walk-forward → Day Trade (intraday, setups, risco, paper trading) → Observabilidade/Segurança/CI-CD/Deploy.
+Quant Engine (retornos/risco) → Benchmarks (CDI/IBOV/IPCA) → Recommendation Engine → Rebalanceamento → Dashboard → AI Engine → Backtesting/Walk-forward → Day Trade (intraday, setups, risco, paper trading) → Observabilidade/Segurança/CI-CD/Deploy.
 Ver [../planning/ROADMAP.md](../planning/ROADMAP.md).
+
+**O frontend continua sendo apenas scaffold** — nenhuma dessas capacidades está exposta em tela. A primeira wave de frontend real é a W11.
 
 ## Stack real (o que está de fato em uso)
 
@@ -48,7 +52,7 @@ Ver [../planning/ROADMAP.md](../planning/ROADMAP.md).
 | Frontend | React 18, TypeScript, Vite 5, Tailwind CSS, lucide-react |
 | Infra | Docker + Docker Compose (postgres, backend, frontend) |
 
-Declarados no `pyproject.toml`/`package.json` mas **ainda não importados por nenhum código**: numpy, pandas, scipy, scikit-learn, google-generativeai, react-router-dom, @tanstack/react-query, recharts, zod, clsx, tailwind-merge.
+Declarados no `pyproject.toml`/`package.json` mas **ainda não importados por nenhum código**: numpy, pandas, scipy, scikit-learn, google-generativeai, react-router-dom, @tanstack/react-query, recharts, zod, clsx, tailwind-merge. (numpy/pandas/scipy passam a ser usados na Wave 07.)
 
 ## Arquitetura geral
 

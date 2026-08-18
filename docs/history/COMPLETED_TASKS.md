@@ -51,7 +51,7 @@
 
 **Entregues com ressalva**: parser da Brapi nunca validado contra a API real (sem rede no ambiente); `get_quote()` implementado mas não exposto; ingestão de proventos, listada no roadmap §17, não implementada.
 
-## Wave 06 — Fundamental Data 🟡
+## Wave 06 — Fundamental Data 🟢
 
 **W06-001 — Ingestão de Demonstrativos Financeiros** 🟢
 - `FundamentalsProvider` abstrato + `BrapiFundamentalsProvider` + factory + DTOs + exceções tipadas
