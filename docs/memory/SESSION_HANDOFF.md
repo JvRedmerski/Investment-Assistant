@@ -44,7 +44,7 @@ com round-trip `downgrade`/`upgrade`.
 
 ## Important Details
 
-### As decisões estruturais da wave ([ADR-018](../decisions/ADR-018-benchmark-representation.md))
+### As decisões estruturais da wave ([ADR-018](../decisions/ADR-018-benchmark-representation.md) e [ADR-019](../decisions/ADR-019-portfolio-return-is-time-weighted.md))
 
 **Benchmark de taxa guarda a taxa publicada, não o índice acumulado.** Acumular é uma
 operação **com parâmetro** — o índice depende da data-base, que é diferente para cada
@@ -151,4 +151,5 @@ Decidir o destino dos fundamentals **antes** de escrever código. Usar
 - `backend/app/quant/{returns,risk}.py` — tudo que o Score deve reutilizar
 - `backend/app/domain/fundamentals/indicators.py` — as 10 fórmulas (5 produzem valor)
 - `backend/tests/test_bcb_benchmark_provider.py` — molde de teste de regressão contra resposta real
-- `docs/decisions/ADR-018-benchmark-representation.md`
+- `docs/decisions/ADR-018-benchmark-representation.md` — representação de benchmark
+- `docs/decisions/ADR-019-portfolio-return-is-time-weighted.md` — rentabilidade de carteira (TWR), e por que a MWR/TIR fica pendente

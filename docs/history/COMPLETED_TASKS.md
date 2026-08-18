@@ -158,7 +158,7 @@ referência.
 - Endpoints `GET /assets/{ticker}/benchmarks/{code}` e `GET /portfolios/{id}/benchmarks/{code}`
 - +58 testes (total 449)
 
-**Resultado da wave: 🟢 concluída.** Decisões em [ADR-018](../decisions/ADR-018-benchmark-representation.md).
+**Resultado da wave: 🟢 concluída.** Decisões em [ADR-018](../decisions/ADR-018-benchmark-representation.md) (representação de benchmark) e [ADR-019](../decisions/ADR-019-portfolio-return-is-time-weighted.md) (rentabilidade de carteira).
 A base 252 do CDI foi **verificada contra a própria fonte**, não deduzida: compor a série 12
 (diária) em 252 reproduz a série 4389 (anualizada) na precisão publicada, em duas janelas
 independentes. Validado ponta a ponta contra dado real ingerido — IBOV × IBOV dá excesso

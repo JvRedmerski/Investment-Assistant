@@ -26,6 +26,7 @@ Um ADR existe aqui porque a decisão (a) teve alternativas reais, (b) afeta arqu
 | [016](ADR-016-unadjusted-bars-are-not-stored.md) | Barra sem `adjusted_close` reportado não é armazenada | Accepted | market data, ingestão, retornos (W07) |
 | [017](ADR-017-annualisation-and-numeric-type.md) | Anualização: 365 p/ retorno, 252 p/ dispersão; `Decimal` puro, sem `numpy` | Accepted | quant engine, retornos, risco, Sharpe, numpy |
 | [018](ADR-018-benchmark-representation.md) | Benchmark de taxa guarda a taxa publicada (fração), não índice acumulado; CDI anualiza em 252; período incompleto não é gravado | Accepted | benchmarks, CDI, IBOV, IPCA, BCB SGS, Sharpe, beta |
+| [019](ADR-019-portfolio-return-is-time-weighted.md) | Rentabilidade de carteira é TWR entregue como índice de cota; beta só contra `INDEX`; razão "% do CDI" só com ambos positivos | Accepted | carteira, rentabilidade, TWR, MWR, aporte, comparação, beta |
 
 ## Template
 

@@ -45,7 +45,7 @@ Baseline atual: `pytest` → **449 passed** (backend/.venv).
 
 - **W08-001** (2026-08-18) — Ingestão de benchmarks. `BenchmarkProvider` abstrato + `BcbSgsProvider` (Banco Central/SGS: aberto, sem token, sem cota) + `BrapiIndexProvider` (delega ao `MarketDataProvider`, **sem parser próprio** — verificado ao vivo, a Brapi devolve `^BVSP` na mesma forma de uma ação) + factory. Catálogo em **código** (CDI, SELIC, IPCA, IBOV), não em tabela. `benchmark_values` `NUMERIC(24,12)` + migration `005` aplicada em Postgres real. `INCOMPLETE_PERIOD`: observação de período não terminado é rejeitada, não gravada. Ingestão idempotente.
 
-- **W08-002** (2026-08-18) — Comparativo. `benchmarks/series.py` (taxa → índice acumulado; taxa anualizada da janela), `portfolio/performance.py` (índice **time-weighted** da carteira, em formato `PricePoint`), `benchmarks/comparison.py` (puro, só orquestra o `app.quant`). Endpoints `GET /assets/{ticker}/benchmarks/{code}` e `GET /portfolios/{id}/benchmarks/{code}`. **`beta`, `sharpe` e `sortino` deixaram de retornar `None`.** Decisões em [ADR-018](../decisions/ADR-018-benchmark-representation.md).
+- **W08-002** (2026-08-18) — Comparativo. `benchmarks/series.py` (taxa → índice acumulado; taxa anualizada da janela), `portfolio/performance.py` (índice **time-weighted** da carteira, em formato `PricePoint`), `benchmarks/comparison.py` (puro, só orquestra o `app.quant`). Endpoints `GET /assets/{ticker}/benchmarks/{code}` e `GET /portfolios/{id}/benchmarks/{code}`. **`beta`, `sharpe` e `sortino` deixaram de retornar `None`.** Decisões em [ADR-018](../decisions/ADR-018-benchmark-representation.md) e [ADR-019](../decisions/ADR-019-portfolio-return-is-time-weighted.md).
 
 Detalhe por task: [../history/COMPLETED_TASKS.md](../history/COMPLETED_TASKS.md).
 
@@ -59,9 +59,9 @@ Nada em execução. Wave 08 fechada.
 
 ## Known Issues
 
-Problemas reais, verificados no código (2026-08-18):
+Problemas reais, verificados no código (2026-08-18).
 
-0. 🔴 **Plano gratuito da Brapi limita o `range` a `3mo`** (verificado 2026-08-18, HTTP 400 `INVALID_RANGE`: *"Ranges permitidos: 1d, 5d, 1mo, 3mo"*). E o `range` é **relativo a hoje** — a API não aceita data inicial, então **não há como paginar histórico**: ~63 pregões é o teto absoluto. Três consequências: (a) `_brapi_range_for` mapeia janelas > 90 dias para `6mo`/`1y`/`2y`/`5y`/`max`, todos recusados — **`sync_daily_history` falha hoje para qualquer janela acima de 3 meses**, defeito pré-existente da W05 que só apareceu agora porque a validação da W06-004 usou `range=1mo`; (b) `beta` fica estatisticamente pobre; (c) atinge o backtesting da W13, que precisa de anos. Não afeta CDI/IPCA (fonte BCB).
+> 🔴 **O mais restritivo, descoberto na W08:** **Plano gratuito da Brapi limita o `range` a `3mo`** (verificado 2026-08-18, HTTP 400 `INVALID_RANGE`: *"Ranges permitidos: 1d, 5d, 1mo, 3mo"*). E o `range` é **relativo a hoje** — a API não aceita data inicial, então **não há como paginar histórico**: ~63 pregões é o teto absoluto. Três consequências: (a) `_brapi_range_for` mapeia janelas > 90 dias para `6mo`/`1y`/`2y`/`5y`/`max`, todos recusados — **`sync_daily_history` falha hoje para qualquer janela acima de 3 meses**, defeito pré-existente da W05 que só apareceu agora porque a validação da W06-004 usou `range=1mo`; (b) `beta` fica estatisticamente pobre; (c) atinge o backtesting da W13, que precisa de anos. Não afeta CDI/IPCA (fonte BCB).
 
 1. ~~Parsers da Brapi nunca validados~~ — **RESOLVIDO** (W06-003 + W06-004). Market data validado contra resposta real de ação, **FII, ETF e banco**: mesma forma de resposta nas quatro classes, 0 barras rejeitadas. Fundamentals validado só com PETR4 e agora **impossível de reexaminar** no plano gratuito (item 14).
 2. ~~Migrations `002`, `003` e `004` nunca aplicadas em PostgreSQL real~~ — **RESOLVIDO em 2026-08-18.** `001`→`004` aplicadas em PostgreSQL 16 real. Para isso foi preciso corrigir `migrations/env.py`, que chamava `context.is_offline()` (inexistente; o correto é `is_offline_mode()`) e abortava com `AttributeError` — ou seja, **o Alembic nunca havia executado**. `alembic heads`/`history` não carregam `env.py`, e por isso a "validação estrutural" anterior não pegou o erro.
@@ -81,6 +81,8 @@ Problemas reais, verificados no código (2026-08-18):
 16. ~~`adjusted_close` pode ser congelado errado~~ — **CORRIGIDO em 2026-08-18** ([ADR-016](../decisions/ADR-016-unadjusted-bars-are-not-stored.md)). O parser não fabrica mais o ajuste a partir do `close`; `adjusted_close` é `Decimal | None` refletindo o que a fonte reportou, e `validate_daily_bars` rejeita a barra sem ajuste (`MISSING_ADJUSTED_CLOSE`). Autocorretivo: a data não é gravada, então o sync seguinte a insere quando a fonte publicar. Corrigido **antes** de qualquer ingestão — o banco estava vazio, então não há linha contaminada. Efeito colateral esperado: a sessão fechada mais recente pode faltar por ~1 dia, e `rejected: 1` no sync diário é rotina.
 17. **`alembic check` falha por drift**: unique constraint + unique index duplicados em `assets.ticker` e `users.email` (a migration `001` declara a constraint, o model declara `unique=True, index=True`). Redundante, não incorreto — mas impede usar `alembic check` como guarda de drift no CI.
 18. **`env_file=".env"` é relativo ao cwd.** Rodando de `backend/`, o `.env` da raiz não é lido e `BRAPI_TOKEN` fica vazio **silenciosamente**. Sob `docker compose` não afeta.
+19. **Aproximação conhecida no `performance_index`**: um fluxo (compra/venda) que cai numa data sem preço armazenado é neutralizado na próxima data valorável, o que credita ao capital pré-existente o que as ações novas ganharam no intervalo. Só ocorre quando a data da operação não pode ser valorada; quando pode — o caso normal — não há distorção alguma. As alternativas seriam fabricar um fechamento (regra 44), esconder movimento real, ou descartar o histórico inteiro após uma lacuna. Correção verdadeira é a montante: ingerir os preços faltantes.
+20. **`app/data/models/__init__.py` entrou na lista de lint pré-existente** — `ruff` (I001, RUF022) e `black` já falhavam nele antes da W08 (confirmado rodando as ferramentas na versão do `HEAD`). Não corrigido por estar fora de escopo (regra 134).
 
 ## Inconsistências documentação × código
 
@@ -99,10 +101,7 @@ Registradas, **não corrigidas** (corrigir exigiria alterar AGENTS.md ou criar c
 
 ## Important Context
 
-- **Ambiente**: Windows + PowerShell. Virtualenv em `backend/.venv` — invoque como `.venv\Scripts\python.exe -m pytest`. Docker Desktop estava parado; nada foi validado contra Postgres real.
-- **Sem rede de saída** no ambiente onde a Wave 05 foi implementada — daí a lacuna nº 1.
-- **Testes rodam contra SQLite in-memory compartilhado** (`tests/conftest.py`), com `app.dependency_overrides` para `get_db` e `get_market_data_provider`. Nenhum teste toca rede ou Postgres.
+- **Ambiente**: Windows + PowerShell. Virtualenv em `backend/.venv` — invoque como `.venv\Scripts\python.exe -m pytest`. **PostgreSQL 16 no ar via Docker**, schema `005`, com dado real de benchmark ingerido (CDI, IPCA, IBOV).
+- **Há rede de saída** neste ambiente (a Wave 05 foi implementada sem ela — daí a lacuna nº 1, já resolvida). A W08 chamou BCB e Brapi ao vivo. O SGS do Banco Central é aberto e sem cota; a Brapi tem cota mensal e aceita 1 ativo por requisição.
+- **Testes rodam contra SQLite in-memory compartilhado** (`tests/conftest.py`), com `app.dependency_overrides` para `get_db`, `get_market_data_provider` e `get_benchmark_provider`. **Nenhum teste toca rede ou Postgres** — as chamadas ao vivo da W08 foram feitas em scripts de validação avulsos, não na suíte.
 - **A regra mais estruturante do projeto**: posições nunca são armazenadas — sempre derivadas do ledger de transações (AGENTS.md §16, ADR-002). Não crie tabela de posições.
-
-19. **Aproximação conhecida no `performance_index`**: um fluxo (compra/venda) que cai numa data sem preço armazenado é neutralizado na próxima data valorável, o que credita ao capital pré-existente o que as ações novas ganharam no intervalo. Só ocorre quando a data da operação não pode ser valorada; quando pode — o caso normal — não há distorção alguma. As alternativas seriam fabricar um fechamento (regra 44), esconder movimento real, ou descartar o histórico inteiro após uma lacuna. Correção verdadeira é a montante: ingerir os preços faltantes.
-20. **`app/data/models/__init__.py` entrou na lista de lint pré-existente** — `ruff` (I001, RUF022) e `black` já falhavam nele antes da W08 (confirmado rodando as ferramentas na versão do `HEAD`). Não corrigido por estar fora de escopo (regra 134).
