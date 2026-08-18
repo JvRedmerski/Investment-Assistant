@@ -7,7 +7,7 @@ Legenda: 🟢 concluída · 🟡 em progresso · ⚪ não iniciada
 
 ## Estado geral
 
-**7 / 33 concluídas.** Fronteira atual: **Wave 07 — Quant Engine**.
+**9 / 33 concluídas.** Fronteira atual: **Wave 09 — Recommendation Engine**.
 
 ## MVP → V1
 
@@ -31,9 +31,9 @@ Legenda: 🟢 concluída · 🟡 em progresso · ⚪ não iniciada
 | Wave | Objetivo | Status | Depende de | Spec |
 |---|---|---|---|---|
 | W06 | Fundamental Data — ingestão 🟢 · indicadores 🟢 · validação real 🟢 | 🟢 | W05 | §18 |
-| **W07** | **Quant Engine** — `returns.py`, `risk.py` (CAGR, vol, beta, drawdown, Sharpe, Sortino) | ⚪ **atual** | W05 | §19 |
-| W08 | Benchmark Engine — séries de CDI/IBOV/IPCA e comparativo | ⚪ | W07 | §20 |
-| W09 | Recommendation Engine — sub-scores e alocação do aporte mensal | ⚪ | W06 (**incl. W06-003**), W07 | §21 |
+| W07 | Quant Engine — `returns.py`, `risk.py` (CAGR, vol, beta, drawdown, Sharpe, Sortino) | 🟢 | W05 | §19 |
+| W08 | Benchmark Engine — séries de CDI/IBOV/IPCA e comparativo | 🟢 | W07 | §20 |
+| **W09** | **Recommendation Engine** — sub-scores e alocação do aporte mensal | ⚪ **atual** — Quality/Valuation/Growth bloqueados: demonstrativos fora do plano gratuito da Brapi | W06 (**incl. W06-003**), W07 | §21 |
 | W10 | Rebalanceamento — target weights, weight gaps, restrições conservadoras | ⚪ | W09 | §22 |
 | W11 | Dashboard — patrimônio, rentabilidade, benchmarks, tela de ativo | ⚪ | W07, W08 | §23 |
 

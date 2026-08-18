@@ -13,6 +13,9 @@ from app.data.models.assets import Asset, AssetPrice
 from app.data.models.fundamentals import FinancialIndicator, Fundamental
 from app.data.models.users import User
 from app.domain.assets.schemas import AssetCreate, AssetResponse
+from app.domain.benchmarks.catalog import UnknownBenchmarkError, get_benchmark
+from app.domain.benchmarks.schemas import BenchmarkComparisonResponse
+from app.domain.benchmarks.service import compare_asset_with_benchmark
 from app.domain.fundamentals.schemas import (
     FinancialIndicatorResponse,
     FundamentalResponse,
@@ -336,3 +339,36 @@ def list_asset_indicators(
         query = query.filter(FinancialIndicator.reference_date <= end)
 
     return query.order_by(FinancialIndicator.reference_date).all()
+
+
+@router.get("/{ticker}/benchmarks/{code}", response_model=BenchmarkComparisonResponse)
+def compare_asset_against_benchmark(
+    ticker: str,
+    code: str,
+    start: date | None = None,
+    end: date | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BenchmarkComparisonResponse:
+    """Compare one asset's stored price history against a benchmark.
+
+    No cash flows are involved, so the asset's own adjusted-close series
+    is already time-weighted and is used directly. Reads only stored data
+    (AGENTS.md rule 23).
+    """
+    asset = _get_asset_by_ticker(db, ticker)
+    try:
+        definition = get_benchmark(code)
+    except UnknownBenchmarkError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": {
+                    "code": "BENCHMARK_NOT_FOUND",
+                    "message": f"Unknown benchmark {code}.",
+                }
+            },
+        ) from exc
+
+    comparison = compare_asset_with_benchmark(db, asset, definition, start, end)
+    return BenchmarkComparisonResponse.model_validate(comparison)

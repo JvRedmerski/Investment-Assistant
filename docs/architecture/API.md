@@ -72,6 +72,7 @@ Códigos em uso: `INVALID_CREDENTIALS`, `ASSET_NOT_FOUND`, `ASSET_ALREADY_EXISTS
 | GET | `/{ticker}/fundamentals` | lê **só** do banco; query `start`/`end` filtram `reference_date`; itens de linha não reportados vêm `null` |
 | POST | `/{ticker}/indicators/compute` | **não** chama API externa — só transforma dado armazenado; devolve `periods/computed/skipped_existing/recomputed`. `?recompute=true` descarta e reconstrói os indicadores do ativo ([ADR-015](../decisions/ADR-015-indicator-recomputation.md)) |
 | GET | `/{ticker}/indicators` | lê **só** do banco; `start`/`end` filtram `reference_date`; `null` = não computável, nunca zero |
+| GET | `/{ticker}/benchmarks/{code}` | compara o histórico do ativo com um benchmark; lê **só** do banco; query `start`/`end` |
 
 Os dois endpoints `*/sync` são as únicas rotas que chamam provedores externos. `indicators/compute` escreve no banco mas não faz I/O de rede.
 
@@ -84,6 +85,16 @@ Unidades dos indicadores: margens, crescimento, ROE, ROIC e DY são **frações*
 | POST | `/{id}/transactions` | `asset_id` obrigatório para BUY/SELL/DIVIDEND, proibido para DEPOSIT/WITHDRAWAL; SELL acima da posição → 422 `INSUFFICIENT_POSITION` |
 | GET | `/{id}/transactions` | ordenado por `transaction_date`, `id` |
 | GET | `/{id}/positions` | posições consolidadas + totais; **sem valor de mercado** (depende de precificação, ainda não integrada) |
+| GET | `/{id}/benchmarks/{code}` | compara a carteira com um benchmark; a carteira entra como índice **time-weighted**, então aporte não conta como rentabilidade; lê **só** do banco |
+
+### Benchmarks — `/api/v1/benchmarks` (todos autenticados)
+| Método | Rota | Nota |
+|---|---|---|
+| GET | `""` | catálogo (CDI, SELIC, IPCA, IBOV); servido do código, não toca banco nem fonte externa |
+| POST | `/{code}/sync` | única rota que chama a fonte externa; body `{start?, end?}`, default 1 ano; `rejected: 1` num sync diário é rotina — é o período em curso |
+| GET | `/{code}/values` | lê **só** do banco; `value` é **fração** para benchmark `RATE` e **nível** para `INDEX` |
+
+O `code` é casado sem diferenciar maiúsculas; desconhecido → 404 `BENCHMARK_NOT_FOUND`.
 
 ### Convenção de transação
 Valor monetário = `quantity × price`; `fees` é separado e não entra nesse produto.
@@ -94,6 +105,8 @@ DEPOSIT/WITHDRAWAL: registrar `quantity = valor`, `price = 1`, sem `asset_id`.
 - `PortfolioPositionsResponse`: `positions[]` (`asset_id`, `ticker`, `quantity`, `average_price`, `invested_amount`, `realized_pnl`, `dividends_received`) + `total_invested`, `total_realized_pnl`, `total_dividends_received`, `net_contributions`. Todos `Decimal`, serializados como string no JSON.
 - `PriceSyncResponse`: `ticker`, `start`, `end`, `fetched`, `inserted`, `skipped_existing`, `rejected`.
 - `AssetPriceResponse`: barra diária OHLCV armazenada (`Decimal`) + `source`.
+- `BenchmarkComparisonResponse`: `subject` e `benchmark` (cada um com a **janela que de fato foi medida**, `observations`, `periodicity`, `total_return`, `annualised_return`, `volatility`, `max_drawdown`) + `excess_return`, `return_ratio`, `beta`, `sharpe`, `sortino`, `risk_free_rate`.
+  `excess_return` é **diferença** em pontos de fração; `return_ratio` é **múltiplo** ("115% do CDI") e vem `null` a menos que ambos os retornos sejam positivos. `beta` é `null` contra benchmark de taxa, por desenho. `sharpe`/`sortino` são `null` enquanto não houver CDI ingerido para a janela — nunca calculados contra taxa zero.
 
 ## Ao adicionar endpoints
 

@@ -18,6 +18,7 @@
   - `002_numeric_money_columns` — converte `transactions.{quantity,price,fees}` e `asset_prices.{open,high,low,close,adjusted_close}` de `FLOAT` para `NUMERIC(18,6)`.
   - `003_numeric_fundamentals_columns` — converte as sete colunas monetárias de `fundamentals` de `FLOAT` para `NUMERIC(24,4)`.
   - `004_fundamentals_income_detail` — adiciona `ebit`, `income_before_tax` e `income_tax_expense` a `fundamentals`.
+  - `005_benchmark_values` — cria `benchmark_values` (séries de CDI/IBOV/IPCA/Selic) em `NUMERIC(24,12)`.
 - Todas foram **escritas manualmente**, não por autogenerate.
 
 ```powershell
@@ -28,7 +29,7 @@ alembic revision --autogenerate -m "descrição"   # sempre revisar o resultado 
 
 Regras invioláveis (AGENTS.md §14/§15): nunca alterar tabela fora de migration; nunca editar migration já aplicada; nunca recriar histórico; toda migration precisa de `upgrade` e, quando possível, `downgrade`.
 
-⚠️ **`002`, `003` e `004` nunca foram aplicadas contra um PostgreSQL real** — só validadas estruturalmente e contra SQLite. Rodar `alembic upgrade head` com Postgres de pé é pendência aberta.
+✅ **`001`→`005` aplicadas contra PostgreSQL 16 real** (2026-08-18). Para isso foi preciso corrigir `migrations/env.py`, que chamava `context.is_offline()` (o correto é `is_offline_mode()`) e abortava com `AttributeError` — ou seja, **o Alembic nunca havia executado** antes disso. `alembic heads`/`history` não carregam `env.py`, e é por isso que a "validação estrutural" anterior não pegou o erro. Lição: validado estruturalmente não é validado.
 
 ## Entidades (13 tabelas)
 
@@ -46,6 +47,26 @@ Agrupadas por domínio; `id` serial PK e `created_at` são universais e foram om
 | `assets` | `ticker` (unique, index), `name`, `asset_type`, `sector`, `currency`, `is_active` | ✅ |
 | `asset_prices` | `asset_id`, `date`, OHLC + `adjusted_close` (`NUMERIC`), `volume` (`Float`), `source` | ✅ |
 | `intraday_prices` | `asset_id`, `timestamp`, `timeframe` (1m/5m/15m), OHLCV (`Float`) | ❌ Wave 15 |
+
+### Benchmarks
+| Tabela | Campos-chave | Usada? |
+|---|---|---|
+| `benchmark_values` | `benchmark_code` + `date` (unique), `value` (`NUMERIC(24,12)`), `source` | ✅ |
+
+Sem tabela `benchmarks`: o catálogo (código, nome, tipo, periodicidade, fonte, id da série na
+fonte) vive em **código**, em `app/domain/benchmarks/catalog.py`. A definição de um benchmark
+não é dado de usuário — é fato revisável sobre uma fonte externa, e controle de versão é melhor
+lar para isso do que um seed que dois ambientes podem divergir. Daí `benchmark_code` ser string
+e não foreign key.
+
+`value` significa coisas diferentes conforme o `kind` do catálogo: **fração** por período para
+um benchmark `RATE` (CDI a 0,00043739) e **nível** para um `INDEX` (IBOV a 166784). Nunca ler a
+tabela sem consultar a definição — é por isso que todo caminho de leitura passa por
+`app/domain/benchmarks/series.py`. Nenhum índice acumulado é armazenado: acumular depende da
+data-base que o consumidor pede ([ADR-018](../decisions/ADR-018-benchmark-representation.md)).
+
+A escala de 12 casas é maior que a `NUMERIC(18,6)` do dinheiro de propósito: uma taxa diária
+arredondada em 6 casas perde dois dígitos significativos, e o erro compõe 252 vezes por ano.
 
 ### Carteira
 | Tabela | Campos-chave | Usada? |

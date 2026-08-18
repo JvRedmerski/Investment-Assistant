@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -6,6 +8,9 @@ from app.data.database import get_db
 from app.data.models.assets import Asset
 from app.data.models.portfolio import Portfolio, Transaction, TransactionTypeEnum
 from app.data.models.users import User
+from app.domain.benchmarks.catalog import UnknownBenchmarkError, get_benchmark
+from app.domain.benchmarks.schemas import BenchmarkComparisonResponse
+from app.domain.benchmarks.service import compare_portfolio_with_benchmark
 from app.domain.portfolio.schemas import (
     AssetPositionResponse,
     PortfolioCreate,
@@ -244,3 +249,44 @@ def get_portfolio_positions(
         ),
         net_contributions=compute_net_contributions(transactions),
     )
+
+
+@router.get(
+    "/{portfolio_id}/benchmarks/{code}",
+    response_model=BenchmarkComparisonResponse,
+)
+def compare_portfolio_against_benchmark(
+    portfolio_id: int,
+    code: str,
+    start: date | None = None,
+    end: date | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BenchmarkComparisonResponse:
+    """Compare this portfolio's performance against a benchmark.
+
+    The portfolio side is a **time-weighted** index, so contributions and
+    withdrawals do not count as performance (AGENTS.md rule 26) — without
+    that, a portfolio receiving a monthly contribution would appear to
+    beat every benchmark in a year the investor lost money.
+
+    Reads only stored data (rule 23). Both the prices and the benchmark
+    series must have been synced first, and each side reports the window
+    it could actually measure.
+    """
+    portfolio = _get_owned_portfolio(db, portfolio_id, current_user)
+    try:
+        definition = get_benchmark(code)
+    except UnknownBenchmarkError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": {
+                    "code": "BENCHMARK_NOT_FOUND",
+                    "message": f"Unknown benchmark {code}.",
+                }
+            },
+        ) from exc
+
+    comparison = compare_portfolio_with_benchmark(db, portfolio, definition, start, end)
+    return BenchmarkComparisonResponse.model_validate(comparison)

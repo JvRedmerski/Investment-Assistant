@@ -10,28 +10,42 @@ backend/
 ├── app/
 │   ├── main.py                 App FastAPI, CORS, exception handler global, registro de routers
 │   ├── api/
-│   │   ├── dependencies.py     get_current_user · get_market_data_provider
-│   │   └── routes/             health · auth · assets · portfolios
+│   │   ├── dependencies.py     get_current_user · get_{market_data,fundamentals,benchmark}_provider
+│   │   └── routes/             health · auth · assets · portfolios · benchmarks
 │   ├── core/
 │   │   ├── config.py           Settings (pydantic-settings, lê .env) → singleton `settings`
 │   │   ├── security.py         hash/verify de senha (bcrypt) · create/decode de JWT (PyJWT)
 │   │   └── logging.py          setup_logging()
-│   ├── domain/                 users · portfolio · assets · market_data · fundamentals
+│   ├── domain/                 users · portfolio · assets · market_data · fundamentals · benchmarks
 │   │   └── <área>/             schemas.py (Pydantic) + service.py (regra de negócio)
+│   ├── quant/                  returns.py · risk.py — puro, sem I/O, tudo em Decimal
 │   ├── integrations/
 │   │   ├── http.py             RetryingJsonClient — transporte compartilhado (retry/throttle)
 │   │   ├── market_data/        base · schemas · exceptions · brapi · factory · data_quality
-│   │   └── fundamentals/       mesma estrutura de cinco peças
+│   │   ├── fundamentals/       mesma estrutura de cinco peças
+│   │   └── benchmarks/         base · schemas · exceptions · bcb · brapi_index · factory
 │   └── data/
 │       ├── database.py         engine · SessionLocal · Base · get_db · utc_now
-│       └── models/             users · assets · portfolio · fundamentals · recommendations · daytrade
-├── migrations/versions/        001_initial_schema · 002_numeric_money_columns
+│       └── models/             users · assets · portfolio · fundamentals · benchmarks · recommendations · daytrade
+├── migrations/versions/        001_initial_schema … 005_benchmark_values
 ├── tests/                      plano, sem subpastas
 ├── pyproject.toml              deps + config de pytest/ruff
 └── alembic.ini
 ```
 
-**Ainda não existem** (previstos no AGENTS.md §6, waves futuras): `app/quant/`, `app/workers/`, `app/domain/recommendations/`, `app/domain/daytrade/`, `app/integrations/{intraday,ai}/`, `app/data/repositories/`.
+**Ainda não existem** (previstos no AGENTS.md §6, waves futuras): `app/workers/`, `app/domain/recommendations/`, `app/domain/daytrade/`, `app/integrations/{intraday,ai}/`, `app/data/repositories/`.
+
+### Onde o cálculo mora
+
+`app/quant/` é **puro**: sem I/O, sem relógio, sem banco. Recebe séries e devolve números.
+`app/domain/<área>/` é quem carrega dado do banco, monta as séries e chama o `app.quant` —
+nunca reimplementa uma fórmula. `benchmarks/comparison.py` é o exemplo canônico: é um módulo
+de comparação que **não calcula nada**. Quando um módulo de domínio precisa de uma conta,
+a conta pertence ao `app/quant/`, e o módulo de domínio pertence à camada que a alimenta.
+
+Dentro de um domínio, cálculo puro e I/O ficam em arquivos separados — `fundamentals/indicators.py`
+(puro) contra `fundamentals/service.py` (I/O); `benchmarks/{series,comparison}.py` e
+`portfolio/performance.py` (puros) contra `benchmarks/service.py` (I/O).
 
 ## Fluxo de uma requisição
 

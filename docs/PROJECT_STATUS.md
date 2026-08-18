@@ -10,15 +10,15 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 ---
 
 ## Current Phase
-- **Phase**: Wave 08 (Benchmark Engine)
-- **Status**: 🟡 IN_PROGRESS — W08-001 concluída, W08-002 pendente
+- **Phase**: Wave 08 (Benchmark Engine) concluída -> Wave 09 (Portfolio Recommendation Engine)
+- **Status**: 🟢 W08 COMPLETED
 
 ---
 
 ## Overall Progress
 - **Total Waves**: 33 (W00 a W32)
-- **Completed Waves**: 8 (W00, W01, W02, W03, W04, W05, W06, W07)
-- **In Progress Waves**: 1 (W08)
+- **Completed Waves**: 9 (W00 a W08)
+- **In Progress Waves**: 0
 - **Pending Waves**: 24
 
 ---
@@ -240,10 +240,10 @@ Status: ⚪ NOT_STARTED
 ---
 
 ### Wave 08 — Benchmark Engine
-Status: 🟡 IN_PROGRESS
+Status: 🟢 COMPLETED
 
 - [x] **W08-001**: Ingestão das Séries Históricas de CDI, IBOV e IPCA 🟢 COMPLETED
-- [ ] **W08-002**: Comparativo de Rentabilidade Carteira vs Benchmarks ⚪ NOT_STARTED
+- [x] **W08-002**: Comparativo de Rentabilidade Carteira vs Benchmarks 🟢 COMPLETED
 
 ---
 
@@ -478,11 +478,12 @@ Wave 07 — Quant Engine. `returns.py` (diário, semanal, mensal, trimestral, YT
 - **W07-001**: Quant Engine — módulo `returns.py` (diário, semanal, mensal, trimestral, YTD, anual, CAGR) (🟢 COMPLETED)
 - **W07-002**: Quant Engine — módulo `risk.py` (volatilidade, beta, max drawdown, Sharpe, Sortino) (🟢 COMPLETED) — **Wave 07 concluída**
 - **W08-001**: Benchmark Engine — ingestão de CDI, IBOV, IPCA e Selic (🟢 COMPLETED)
+- **W08-002**: Comparativo carteira/ativo × benchmark, com índice de performance time-weighted (🟢 COMPLETED) — **Wave 08 concluída**
 
 ---
 
 ## In Progress
-**W08-002** — Comparativo de rentabilidade carteira × benchmarks. A ingestão (W08-001) está pronta e validada; falta o módulo de derivação de série (índice acumulado a partir da taxa) e a comparação em si.
+Nenhuma tarefa em progresso. Wave 08 concluída. Próxima: **Wave 09 — Portfolio Recommendation Engine**, hoje parcialmente bloqueada pelos fundamentals fora do plano gratuito da Brapi (ver Known Issues).
 
 ---
 
@@ -604,6 +605,11 @@ Nenhuma tarefa bloqueada no momento.
 - **Nao implementado, de proposito**: volatilidade de carteira. Nao e a media das volatilidades dos ativos — precisa da matriz de covariancias e dos pesos das posicoes. Esta em Future Work; **nao aproximar por media** (regra 44).
 - **Status**: APPROVED. Registrado como adendo datado em `docs/decisions/ADR-017`.
 
+### Decision — 2026-08-18 (W08-002)
+- **Decision**: A carteira entra na comparação como **índice de performance time-weighted** (valor de cota, base 100), não como valor patrimonial. `beta` é reportado **apenas** contra benchmark do tipo `INDEX`. `return_ratio` ("% do CDI") só é reportada quando **ambos** os retornos são estritamente positivos.
+- **Reason**: (a) Sem time-weighting, uma carteira que recebe aporte mensal apareceria batendo qualquer benchmark num ano em que o investidor perdeu dinheiro — o aporte entra como se fosse rentabilidade (regra 26). Entregar o resultado como `PricePoint` faz todo o `app.quant` da W07 ler a carteira sem adaptador. (b) Beta contra o CDI não é uma grandeza: o CDI quase não varia, então `cov/var` divide por quase-zero. Pior, **não** sairia `None` sozinho — a variância não é exatamente zero, então a guarda dentro de `beta` não dispara e um número enorme e instável seria reportado com cara de fato. (c) A razão foi restringida **por evidência de dado real**: o IBOV caindo 5,96% contra um IPCA de +0,07% na janela produziu razão **-85,16**, e contra um CDI de +3,32% produziu **-1,80** ("-180% do CDI" não significa nada para quem lê). `excess_return` é correto nos três casos e é o número a mostrar.
+- **Status**: 🟢 APPROVED.
+
 ### Decision — 2026-08-18 (W08-001)
 - **Decision**: Benchmark de taxa (CDI, IPCA, Selic) é gravado **como a taxa publicada**, convertida de percentual para fração, e **nunca** como índice acumulado. O índice é derivado na leitura. Benchmark de nível (IBOV) é gravado como o nível publicado. Taxa livre de risco anualiza em **base 252**. Observação cujo **período ainda não terminou** é rejeitada, não gravada. Catálogo de benchmarks vive em código, não em tabela.
 - **Reason**: Acumular é operação com parâmetro — o índice depende da data-base, que é diferente para cada carteira e cada janela de tela; gravar um índice congela uma data-base que ninguém pediu e perde a taxa diária, que não é recuperável. A base 252 **foi verificada contra a própria fonte**, não deduzida: compor a série 12 do SGS (CDI diário) em 252 reproduz a série 4389 (CDI anualizado) na precisão publicada — 0,043739% → 11,6499% contra 11,65% em 2024-01-02, e 0,051660% → 13,8998% contra 13,90% em 2026-08-17. Isso também fecha sem resíduo com o `_periodic_rate` da W07, que de-anualiza com `PERIODS_PER_YEAR[DAILY] = 252`. A rejeição de período incompleto estende o ADR-016: a Brapi devolve a **sessão em curso** dentro de `historicalDataPrice` com `adjustedClose` preenchido (a guarda do ADR-016 não dispara), e três requisições ao `^BVSP` em poucos minutos devolveram 166851,5156 → 166978,9375 → 166923,3438 **para a mesma data** — como a ingestão nunca reescreve data gravada, o primeiro a chegar ficaria congelado como "o fechamento do Ibovespa".
@@ -629,7 +635,9 @@ Nenhuma tarefa bloqueada no momento.
 
 ## Last Execution
 - **Timestamp**: 2026-08-18T00:00:00-03:00
-- **Action**: W08-001 — Benchmark Engine, ingestão. `BenchmarkProvider` abstrato + `BcbSgsProvider` (BCB/SGS, aberto e sem cota) + `BrapiIndexProvider` (delega ao `MarketDataProvider`, sem parser próprio) + factory; catálogo em código (CDI, SELIC, IPCA, IBOV); `benchmark_values` (`NUMERIC(24,12)`) + migration `005`; `validate_benchmark_series` com `INCOMPLETE_PERIOD`; `sync_benchmark_series` idempotente; endpoints de catálogo/sync/leitura. **Parsers validados contra as APIs reais antes de qualquer mock** (ADR-018).
+- **Action**: W08-002 — Comparativo carteira/ativo × benchmark. `benchmarks/series.py` (taxa → índice acumulado, taxa anualizada da janela), `portfolio/performance.py` (índice time-weighted a partir do ledger + `asset_prices`), `benchmarks/comparison.py` (puro, só orquestra o `app.quant`), assembly em `benchmarks/service.py`, endpoints `GET /assets/{ticker}/benchmarks/{code}` e `GET /portfolios/{id}/benchmarks/{code}`. **`beta`, `sharpe` e `sortino` deixaram de retornar `None` — o objetivo da wave.**
+- **Result**: Sucesso. 449/449 testes (391 + 58 novos), `ruff`/`black` limpos nos arquivos alterados. Validado contra o dado real já ingerido: IBOV × CDI na janela 2026-05-20..2026-08-17 dá -5,96% contra +3,32% (excesso -9,28 p.p., Sharpe -2,34, CDI anualizado 14,20% a.a.), e IBOV × IBOV dá excesso 0,00% com **beta exatamente 1,0000** — a sanidade mais forte possível para o alinhamento por data. Um teste escrito à mão pegou um defeito real no `performance_index`: eventos do ledger em datas sem preço eram ignorados por completo (quantidades **e** fluxos), corrigido com varredura por ponteiro.
+- **Action anterior**: W08-001 — Benchmark Engine, ingestão. `BenchmarkProvider` abstrato + `BcbSgsProvider` (BCB/SGS, aberto e sem cota) + `BrapiIndexProvider` (delega ao `MarketDataProvider`, sem parser próprio) + factory; catálogo em código (CDI, SELIC, IPCA, IBOV); `benchmark_values` (`NUMERIC(24,12)`) + migration `005`; `validate_benchmark_series` com `INCOMPLETE_PERIOD`; `sync_benchmark_series` idempotente; endpoints de catálogo/sync/leitura. **Parsers validados contra as APIs reais antes de qualquer mock** (ADR-018).
 - **Result**: Sucesso. 391/391 testes (316 + 75 novos), `ruff`/`black` limpos nos arquivos alterados, migration `005` aplicada em PostgreSQL 16 real com round-trip `downgrade`/`upgrade`. Ingestão real executada: CDI 252 pregões (acumulado 14,67% no ano), IPCA 31 meses (2024 fecha em 4,83%, igual ao IBGE), IBOV 63 pregões com a sessão em curso corretamente rejeitada; segunda passada inseriu 0 e pulou 63 (idempotência). 3 requisições à Brapi.
 - **Action anterior**: W07-002 — `app/quant/risk.py`: `standard_deviation`, `downside_deviation`, `volatility`, `max_drawdown`, `beta`, `sharpe`, `sortino`. `PERIODS_PER_YEAR` local (252 diario), alinhamento por data antes de medir retornos no beta, taxa livre de risco de-anualizada geometricamente. Fronteira `Decimal -> float` resolvida como inexistente (adendo ao ADR-017). **Wave 07 concluida.**
 - **Result**: Sucesso. 316/316 testes passando (262 + 54 novos), `ruff` e `black` limpos nos arquivos alterados. Nenhuma regressao. Zero requisicoes externas.
@@ -637,4 +645,4 @@ Nenhuma tarefa bloqueada no momento.
 ---
 
 ## Next Action
-**W08-002** — Comparativo carteira × benchmark. Precisa de: derivação de índice acumulado a partir da série de taxa (`RATE` → `PricePoint`), taxa anualizada da janela para alimentar `sharpe`/`sortino`, e a comparação em si. Ver `docs/memory/CURRENT_TASK.md`.
+**Wave 09 — Portfolio Recommendation Engine.** Antes de começar é preciso uma **decisão de produto**: os sub-scores fundamentalistas dependem de demonstrativos, e os módulos da Brapi saíram do plano gratuito. Opções: assinar o plano Startup, migrar para dados abertos da CVM, ou entregar a W09 só com os scores que os dados disponíveis sustentam (risco e diversificação, que a W07/W08 já habilitam). Ver `docs/memory/CURRENT_TASK.md`.

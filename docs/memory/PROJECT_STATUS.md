@@ -6,20 +6,24 @@
 
 ## Current Phase
 
-**Wave 07 concluída.** Próxima: **Wave 08 — Benchmark Engine**.
-8 de 33 waves concluídas (W00–W07).
+**Wave 08 concluída.** Próxima: **Wave 09 — Portfolio Recommendation Engine**.
+9 de 33 waves concluídas (W00–W08).
 
-⚠️ **Mudança externa relevante**: os módulos de demonstrativos da Brapi saíram do plano gratuito (403 em 2026-08-18). A ingestão de fundamentals está inoperante por plano. Não bloqueia a W07, que só consome `asset_prices`; bloqueia a W09.
+⚠️ **Duas restrições externas, ambas do plano gratuito da Brapi, ambas verificadas ao vivo em 2026-08-18:**
+1. Os módulos de demonstrativos saíram do plano (HTTP 403) — a ingestão de fundamentals está inoperante **por plano, não por código**. Bloqueia parcialmente a W09.
+2. O `range` está limitado a `3mo` (HTTP 400, `INVALID_RANGE`) e é **relativo a hoje**, sem parâmetro de data inicial — então não há como paginar histórico. Teto absoluto de ~63 pregões para preços de ações e para o IBOV. Já quebra `sync_daily_history` em janelas acima de 3 meses e limita a W13.
+
+O CDI e o IPCA **não** são afetados: vêm do Banco Central (SGS), que é aberto e sem cota.
 
 ## Overall Status
 
 | | |
 |---|---|
-| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine |
+| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine · W08 Benchmark Engine |
 | **In Progress** | — nenhuma |
 | **Blocked** | — nenhuma |
 
-Baseline atual: `pytest` → **316 passed** (backend/.venv).
+Baseline atual: `pytest` → **449 passed** (backend/.venv).
 
 ## Completed Work (nível wave)
 
@@ -39,19 +43,25 @@ Baseline atual: `pytest` → **316 passed** (backend/.venv).
 
 - **W06-004** (manutenção, 2026-08-18) — PostgreSQL real no ar; migrations `001`→`004` aplicadas de fato, após corrigir um `AttributeError` que impedia o Alembic de rodar. Confirmado que **não havia banco nem dado algum** — a pendência de recomputar indicadores era hipotética. Parser de market data validado contra FII/ETF/banco reais. Fundamentals bloqueado por mudança de plano da Brapi. Custo: 5 requisições.
 
+- **W08-001** (2026-08-18) — Ingestão de benchmarks. `BenchmarkProvider` abstrato + `BcbSgsProvider` (Banco Central/SGS: aberto, sem token, sem cota) + `BrapiIndexProvider` (delega ao `MarketDataProvider`, **sem parser próprio** — verificado ao vivo, a Brapi devolve `^BVSP` na mesma forma de uma ação) + factory. Catálogo em **código** (CDI, SELIC, IPCA, IBOV), não em tabela. `benchmark_values` `NUMERIC(24,12)` + migration `005` aplicada em Postgres real. `INCOMPLETE_PERIOD`: observação de período não terminado é rejeitada, não gravada. Ingestão idempotente.
+
+- **W08-002** (2026-08-18) — Comparativo. `benchmarks/series.py` (taxa → índice acumulado; taxa anualizada da janela), `portfolio/performance.py` (índice **time-weighted** da carteira, em formato `PricePoint`), `benchmarks/comparison.py` (puro, só orquestra o `app.quant`). Endpoints `GET /assets/{ticker}/benchmarks/{code}` e `GET /portfolios/{id}/benchmarks/{code}`. **`beta`, `sharpe` e `sortino` deixaram de retornar `None`.** Decisões em [ADR-018](../decisions/ADR-018-benchmark-representation.md).
+
 Detalhe por task: [../history/COMPLETED_TASKS.md](../history/COMPLETED_TASKS.md).
 
 ## Current Work
 
-Nada em execução. Wave 07 fechada.
+Nada em execução. Wave 08 fechada.
 
 ## Next Recommended Step
 
-**Wave 08 — Benchmark Engine** (CDI, IBOV, IPCA). É o que **desbloqueia `beta`, `sharpe` e `sortino`**: as três já têm a assinatura pronta recebendo a série de referência como parâmetro e retornam `None` sem ela. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
+**Wave 09 — Portfolio Recommendation Engine** — mas ela **começa por uma decisão de produto, não por código**. Três dos seis sub-scores (Quality, Valuation, Growth) dependem de demonstrativos, que estão inoperantes por plano. Os outros três (Risk, Diversification, Portfolio Fit) estão desbloqueados pela W07+W08. Opções: assinar o plano Startup da Brapi, migrar para dados abertos da CVM, ou entregar a wave com os sub-scores disponíveis e os demais **explicitamente ausentes** (nunca estimados — regra 44/ADR-014). Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ## Known Issues
 
 Problemas reais, verificados no código (2026-08-18):
+
+0. 🔴 **Plano gratuito da Brapi limita o `range` a `3mo`** (verificado 2026-08-18, HTTP 400 `INVALID_RANGE`: *"Ranges permitidos: 1d, 5d, 1mo, 3mo"*). E o `range` é **relativo a hoje** — a API não aceita data inicial, então **não há como paginar histórico**: ~63 pregões é o teto absoluto. Três consequências: (a) `_brapi_range_for` mapeia janelas > 90 dias para `6mo`/`1y`/`2y`/`5y`/`max`, todos recusados — **`sync_daily_history` falha hoje para qualquer janela acima de 3 meses**, defeito pré-existente da W05 que só apareceu agora porque a validação da W06-004 usou `range=1mo`; (b) `beta` fica estatisticamente pobre; (c) atinge o backtesting da W13, que precisa de anos. Não afeta CDI/IPCA (fonte BCB).
 
 1. ~~Parsers da Brapi nunca validados~~ — **RESOLVIDO** (W06-003 + W06-004). Market data validado contra resposta real de ação, **FII, ETF e banco**: mesma forma de resposta nas quatro classes, 0 barras rejeitadas. Fundamentals validado só com PETR4 e agora **impossível de reexaminar** no plano gratuito (item 14).
 2. ~~Migrations `002`, `003` e `004` nunca aplicadas em PostgreSQL real~~ — **RESOLVIDO em 2026-08-18.** `001`→`004` aplicadas em PostgreSQL 16 real. Para isso foi preciso corrigir `migrations/env.py`, que chamava `context.is_offline()` (inexistente; o correto é `is_offline_mode()`) e abortava com `AttributeError` — ou seja, **o Alembic nunca havia executado**. `alembic heads`/`history` não carregam `env.py`, e por isso a "validação estrutural" anterior não pegou o erro.
@@ -93,3 +103,6 @@ Registradas, **não corrigidas** (corrigir exigiria alterar AGENTS.md ou criar c
 - **Sem rede de saída** no ambiente onde a Wave 05 foi implementada — daí a lacuna nº 1.
 - **Testes rodam contra SQLite in-memory compartilhado** (`tests/conftest.py`), com `app.dependency_overrides` para `get_db` e `get_market_data_provider`. Nenhum teste toca rede ou Postgres.
 - **A regra mais estruturante do projeto**: posições nunca são armazenadas — sempre derivadas do ledger de transações (AGENTS.md §16, ADR-002). Não crie tabela de posições.
+
+19. **Aproximação conhecida no `performance_index`**: um fluxo (compra/venda) que cai numa data sem preço armazenado é neutralizado na próxima data valorável, o que credita ao capital pré-existente o que as ações novas ganharam no intervalo. Só ocorre quando a data da operação não pode ser valorada; quando pode — o caso normal — não há distorção alguma. As alternativas seriam fabricar um fechamento (regra 44), esconder movimento real, ou descartar o histórico inteiro após uma lacuna. Correção verdadeira é a montante: ingerir os preços faltantes.
+20. **`app/data/models/__init__.py` entrou na lista de lint pré-existente** — `ruff` (I001, RUF022) e `black` já falhavam nele antes da W08 (confirmado rodando as ferramentas na versão do `HEAD`). Não corrigido por estar fora de escopo (regra 134).

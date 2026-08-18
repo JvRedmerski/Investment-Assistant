@@ -1,4 +1,4 @@
-"""Benchmark series ingestion.
+"""Benchmark series ingestion, and the database side of comparison.
 
 The same shape as `market_data.service`, and for the same reasons: this
 is the only code path that calls an external source, the read path only
@@ -11,18 +11,30 @@ makes. If a CDI observation were rewritten on a later sync, every
 previously reported "portfolio versus CDI" figure would silently stop
 reproducing, with nothing in the output to show that the reference moved
 rather than the portfolio.
+
+The second half of this module assembles a comparison: it loads a
+subject series and a benchmark series out of the database, converts each
+into the `PricePoint` shape `app.quant` reads, and hands both to
+`comparison.compare`, which is pure. Nothing is calculated here.
 """
 
 import logging
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
+from app.data.models.assets import Asset, AssetPrice
 from app.data.models.benchmarks import BenchmarkValue
-from app.domain.benchmarks.catalog import BenchmarkDefinition
+from app.data.models.portfolio import Portfolio, Transaction
+from app.domain.benchmarks.catalog import CDI, BenchmarkDefinition
+from app.domain.benchmarks.comparison import BenchmarkComparison, compare
 from app.domain.benchmarks.data_quality import validate_benchmark_series
+from app.domain.benchmarks.series import annualised_rate, to_price_points
+from app.domain.portfolio.performance import performance_index
 from app.integrations.benchmarks.base import BenchmarkProvider
+from app.quant.returns import Periodicity, PricePoint
 
 logger = logging.getLogger("investment_assistant.benchmarks.ingestion")
 
@@ -138,3 +150,109 @@ def read_benchmark_values(
     if end is not None:
         query = query.filter(BenchmarkValue.date <= end)
     return query.order_by(BenchmarkValue.date).all()
+
+
+# -- comparison ------------------------------------------------------
+
+
+def benchmark_price_points(
+    db: Session,
+    definition: BenchmarkDefinition,
+    start: date | None = None,
+    end: date | None = None,
+) -> list[PricePoint]:
+    """The stored benchmark series as a level series (see `series.py`)."""
+    return to_price_points(
+        read_benchmark_values(db, definition, start, end), definition
+    )
+
+
+def risk_free_rate_for(
+    db: Session,
+    start: date | None = None,
+    end: date | None = None,
+) -> Decimal | None:
+    """The CDI over the window, as an annual fraction.
+
+    The CDI rather than a configurable choice: it is *the* risk-free
+    reference in Brazil, and `sharpe`/`sortino` want one number, not a
+    preference. `None` when no CDI has been ingested for the window, in
+    which case those two ratios stay `None` rather than being computed
+    against an assumed zero.
+    """
+    return annualised_rate(read_benchmark_values(db, CDI, start, end), CDI)
+
+
+def compare_asset_with_benchmark(
+    db: Session,
+    asset: Asset,
+    definition: BenchmarkDefinition,
+    start: date | None = None,
+    end: date | None = None,
+) -> BenchmarkComparison:
+    """One asset's stored price history against a benchmark."""
+    query = db.query(AssetPrice).filter(AssetPrice.asset_id == asset.id)
+    if start is not None:
+        query = query.filter(AssetPrice.date >= start)
+    if end is not None:
+        query = query.filter(AssetPrice.date <= end)
+
+    subject = [
+        PricePoint(date=row.date, adjusted_close=row.adjusted_close)
+        for row in query.order_by(AssetPrice.date)
+    ]
+    return _compare(db, subject, definition, start, end)
+
+
+def compare_portfolio_with_benchmark(
+    db: Session,
+    portfolio: Portfolio,
+    definition: BenchmarkDefinition,
+    start: date | None = None,
+    end: date | None = None,
+) -> BenchmarkComparison:
+    """A portfolio's time-weighted performance against a benchmark.
+
+    The whole ledger is replayed, not only the part inside [start, end]:
+    holdings on the first day of the window are the product of every
+    transaction before it, so truncating the ledger would value the
+    portfolio as if it had been bought on the window's first day. Only
+    the *valuation* is windowed.
+    """
+    transactions = (
+        db.query(Transaction)
+        .filter(Transaction.portfolio_id == portfolio.id)
+        .order_by(Transaction.transaction_date, Transaction.id)
+        .all()
+    )
+    asset_ids = {tx.asset_id for tx in transactions if tx.asset_id is not None}
+
+    prices: dict[int, dict[date, Decimal]] = {}
+    if asset_ids:
+        price_query = db.query(AssetPrice).filter(AssetPrice.asset_id.in_(asset_ids))
+        if start is not None:
+            price_query = price_query.filter(AssetPrice.date >= start)
+        if end is not None:
+            price_query = price_query.filter(AssetPrice.date <= end)
+        for row in price_query:
+            prices.setdefault(row.asset_id, {})[row.date] = row.adjusted_close
+
+    subject = performance_index(transactions, prices, as_of=end)
+    return _compare(db, subject, definition, start, end)
+
+
+def _compare(
+    db: Session,
+    subject: list[PricePoint],
+    definition: BenchmarkDefinition,
+    start: date | None,
+    end: date | None,
+) -> BenchmarkComparison:
+    return compare(
+        subject,
+        benchmark_price_points(db, definition, start, end),
+        definition,
+        risk_free_rate=risk_free_rate_for(db, start, end),
+        periodicity=Periodicity.DAILY,
+        as_of=end,
+    )

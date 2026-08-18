@@ -119,6 +119,58 @@
 
 **Resultado da wave: 🟢 concluída.** Duas decisões estruturais em [ADR-017](../decisions/ADR-017-annualisation-and-numeric-type.md): anualização em **365 dias corridos para retorno** e **252 pregões para dispersão** (misturá-las corromperia todo Sharpe por ~1,20 sem sintoma visível), e o Quant Engine **inteiramente em `Decimal`** — `numpy`/`scipy` seguem sem nenhum import no projeto, porque nenhuma das métricas exige uma operação que `Decimal` não cubra.
 
+## Wave 08 — Benchmark Engine (2026-08-18) 🟢
+
+A wave que faz o Quant Engine da W07 produzir número em vez de `None`: `beta`, `sharpe` e
+`sortino` estavam escritos e testados desde a wave anterior, esperando apenas a série de
+referência.
+
+**W08-001 — Ingestão de benchmarks** 🟢
+- `BenchmarkProvider` abstrato + factory. `BcbSgsProvider` (CDI/IPCA/Selic pela API SGS do
+  Banco Central — aberta, sem token, sem cota, e fonte **primária**) e `BrapiIndexProvider` (IBOV)
+- `BrapiIndexProvider` **não escreve parser**: verificado ao vivo, a Brapi devolve `^BVSP`
+  na mesma forma de uma ação, então ele delega ao `MarketDataProvider` já validado na W06
+  e só traduz o vocabulário de erro
+- Catálogo de benchmarks em **código**, não em tabela — é o que a roadmap §20 pede por
+  "outros benchmarks configuráveis", sem seed migration que dois ambientes possam divergir
+- `benchmark_values` em `NUMERIC(24,12)` (uma coluna que guarda tanto 166.978,9375 pontos
+  quanto uma taxa de 0,00043739) + migration `005`, aplicada em Postgres 16 real
+- `INCOMPLETE_PERIOD`: observação de período ainda não encerrado é **rejeitada**. A regra
+  olha o fim do *período*, não a data — a linha do IPCA datada de 01/08 mede agosto inteiro
+- **Parsers validados contra as APIs reais antes de qualquer mock.** Foi o que revelou:
+  404 do SGS significa "janela sem observação" (fim de semana), série inexistente devolve
+  HTTP 200 com página HTML, e janela diária acima de 10 anos é recusada com 406
+- +75 testes (total 391)
+
+**W08-002 — Comparativo carteira × benchmark** 🟢
+- `benchmarks/series.py` — taxa → índice acumulado (na leitura, porque acumular depende da
+  data-base, que muda por carteira e por janela); taxa anualizada da janela para o Sharpe
+- `portfolio/performance.py` — índice **time-weighted** da carteira (valor de cota) derivado
+  do ledger + `asset_prices`, entregue como `PricePoint` para que todo o `app.quant` o leia
+  sem adaptador. Sem isso, uma carteira com aporte mensal apareceria batendo qualquer
+  benchmark num ano em que o investidor perdeu dinheiro (regra 26)
+- `benchmarks/comparison.py` — puro, **não calcula nada**: só orquestra o `app.quant`
+- `beta` só contra benchmark do tipo `INDEX`. Contra o CDI não sairia `None` sozinho — a
+  variância não é exatamente zero, então a guarda interna não dispara e um número enorme e
+  instável seria reportado com cara de fato
+- `return_ratio` ("% do CDI") só com **ambos** os retornos positivos — restrição imposta por
+  evidência de dado real, que produziu razões de -85,16 e -1,80
+- Endpoints `GET /assets/{ticker}/benchmarks/{code}` e `GET /portfolios/{id}/benchmarks/{code}`
+- +58 testes (total 449)
+
+**Resultado da wave: 🟢 concluída.** Decisões em [ADR-018](../decisions/ADR-018-benchmark-representation.md).
+A base 252 do CDI foi **verificada contra a própria fonte**, não deduzida: compor a série 12
+(diária) em 252 reproduz a série 4389 (anualizada) na precisão publicada, em duas janelas
+independentes. Validado ponta a ponta contra dado real ingerido — IBOV × IBOV dá excesso
+0,00% e beta exatamente 1,0000.
+
+Achado colateral, **não** regressão desta wave: o plano gratuito da Brapi passou a limitar o
+`range` a `3mo`, e o `range` é relativo a hoje, sem parâmetro de data inicial — de modo que
+`sync_daily_history` falha hoje para qualquer janela acima de 3 meses e não há como paginar
+histórico.
+
+---
+
 ---
 
 ## Marcos de infraestrutura de conhecimento

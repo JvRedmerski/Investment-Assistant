@@ -32,12 +32,15 @@ O produto final deve responder: *Como está minha carteira? Estou batendo o CDI?
 - Integração de market data abstraída (`MarketDataProvider` / `BrapiProvider`), ingestão de histórico diário OHLCV com cache local e validação de qualidade de dados.
 - Ingestão de demonstrativos financeiros anuais (`FundamentalsProvider` / `BrapiFundamentalsProvider`), com validação de qualidade e política point-in-time.
 - Indicadores fundamentalistas derivados: as 10 fórmulas estão implementadas e testadas; **5 produzem valor** hoje (`roe`, `roic`, `net_margin`, `revenue_growth`, `profit_growth`). As outras 5 retornam `None` por limitação evidenciada da fonte — ver Known Issues em [PROJECT_STATUS.md](PROJECT_STATUS.md).
+- **Quant Engine** puro e determinístico: retorno (diário a anual, YTD, CAGR) e risco (volatilidade, max drawdown, beta, Sharpe, Sortino). Sem I/O, inteiramente em `Decimal`.
+- **Benchmarks**: CDI, IPCA e Selic pelo Banco Central (SGS, aberto e sem cota) e IBOV pelo provedor de market data, atrás de interface abstrata. Ingestão idempotente, com rejeição de período ainda não encerrado.
+- **Comparativo carteira × benchmark**: a carteira vira um índice **time-weighted** (valor de cota) derivado do ledger, o que neutraliza aportes e a torna comparável a um índice. Responde "estou batendo o CDI?" com retorno, excesso, volatilidade, drawdown, beta, Sharpe e Sortino.
 
 ### Em desenvolvimento
-- Nada em progresso. Wave 06 fechada; Wave 07 (Quant Engine) é a próxima.
+- Nada em progresso. Wave 08 fechada; Wave 09 (Recommendation Engine) é a próxima.
 
 ### Planejado (não existe código)
-Quant Engine (retornos/risco) → Benchmarks (CDI/IBOV/IPCA) → Recommendation Engine → Rebalanceamento → Dashboard → AI Engine → Backtesting/Walk-forward → Day Trade (intraday, setups, risco, paper trading) → Observabilidade/Segurança/CI-CD/Deploy.
+Recommendation Engine → Rebalanceamento → Dashboard → AI Engine → Backtesting/Walk-forward → Day Trade (intraday, setups, risco, paper trading) → Observabilidade/Segurança/CI-CD/Deploy.
 Ver [../planning/ROADMAP.md](../planning/ROADMAP.md).
 
 **O frontend continua sendo apenas scaffold** — nenhuma dessas capacidades está exposta em tela. A primeira wave de frontend real é a W11.
@@ -52,7 +55,9 @@ Ver [../planning/ROADMAP.md](../planning/ROADMAP.md).
 | Frontend | React 18, TypeScript, Vite 5, Tailwind CSS, lucide-react |
 | Infra | Docker + Docker Compose (postgres, backend, frontend) |
 
-Declarados no `pyproject.toml`/`package.json` mas **ainda não importados por nenhum código**: numpy, pandas, scipy, scikit-learn, google-generativeai, react-router-dom, @tanstack/react-query, recharts, zod, clsx, tailwind-merge. (numpy/pandas/scipy passam a ser usados na Wave 07.)
+Declarados no `pyproject.toml`/`package.json` mas **ainda não importados por nenhum código**: numpy, pandas, scipy, scikit-learn, google-generativeai, react-router-dom, @tanstack/react-query, recharts, zod, clsx, tailwind-merge.
+
+⚠️ A expectativa de que numpy/pandas/scipy entrariam na Wave 07 **foi revogada, não adiada**: levantando operação por operação, `Decimal` cobre todas as métricas de risco, e o determinismo (regra 113) é argumento para preferi-lo quando é grátis. Ver o adendo ao [ADR-017](../decisions/ADR-017-annualisation-and-numeric-type.md). A pergunta só volta se uma wave precisar de álgebra matricial de verdade (matriz de covariância, Markowitz).
 
 ## Arquitetura geral
 
@@ -68,8 +73,9 @@ Backend FastAPI
 PostgreSQL  ←  Alembic migrations
 ```
 
-Domínios conceituais (AGENTS.md §4), a maioria ainda não construída:
+Domínios conceituais (AGENTS.md §4):
 `Market Data → Quant Engine → Portfolio Engine → Recommendation Engine → AI Engine (só explicação)`.
+Os três primeiros existem; Recommendation Engine e AI Engine ainda não.
 
 ## Documentos-âncora do projeto
 
