@@ -26,6 +26,13 @@ from app.domain.portfolio.service import (
     compute_net_contributions,
     compute_positions,
 )
+from app.domain.recommendations.schemas import (
+    AssetScoreResponse,
+    PortfolioScoresResponse,
+    SubScoreResponse,
+)
+from app.domain.recommendations.scoring import SCORING_FORMULA_VERSION
+from app.domain.recommendations.service import score_universe
 
 router = APIRouter(prefix="/portfolios", tags=["Portfolio"])
 
@@ -290,3 +297,49 @@ def compare_portfolio_against_benchmark(
 
     comparison = compare_portfolio_with_benchmark(db, portfolio, definition, start, end)
     return BenchmarkComparisonResponse.model_validate(comparison)
+
+
+@router.get("/{portfolio_id}/scores", response_model=PortfolioScoresResponse)
+def get_portfolio_scores(
+    portfolio_id: int,
+    start: date | None = None,
+    as_of: date | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PortfolioScoresResponse:
+    """Score every tracked asset against this portfolio.
+
+    Scores are **relative to the portfolio** (AGENTS.md rule 31): the
+    Diversification pillar reads its current concentration, so the same
+    asset scores differently for an investor who already holds 15% of it.
+
+    Read `coverage` before comparing two scores. With the fundamentals
+    source unavailable, most assets are scored on Risk and
+    Diversification alone, and a score resting on 40% of the formula is
+    not comparable with one resting on all of it.
+
+    Reads only stored data (rule 23); prices, benchmarks and indicators
+    must have been synced first.
+    """
+    portfolio = _get_owned_portfolio(db, portfolio_id, current_user)
+    scored = score_universe(db, portfolio, start=start, as_of=as_of)
+
+    return PortfolioScoresResponse(
+        portfolio_id=portfolio.id,
+        formula_version=SCORING_FORMULA_VERSION,
+        scores=[
+            AssetScoreResponse(
+                ticker=asset.ticker,
+                asset_id=asset.id,
+                name=asset.name,
+                sector=asset.sector,
+                formula_version=score.formula_version,
+                final_score=score.final_score,
+                coverage=score.coverage,
+                sub_scores=[
+                    SubScoreResponse.model_validate(sub) for sub in score.sub_scores
+                ],
+            )
+            for asset, score in scored
+        ],
+    )
