@@ -24,9 +24,27 @@ Tratar reexpressão corretamente exige um schema que comporte mais de uma versã
 
 ### 3. `ebitda` e `free_cash_flow` ficam `NULL`
 
-A Brapi expõe esses dois campos apenas no módulo `financialData`, que é um snapshot **trailing-twelve-months sem data-fim de período**. Carimbá-lo num `reference_date` histórico atribuiria dado a um período ao qual ele não pertence — exatamente o look-ahead que §109 proíbe.
+> ⚠️ **A justificativa original desta seção estava errada.** Ver "Correção" abaixo. A decisão (`NULL`) se mantém, mas por outro motivo.
+
+~~A Brapi expõe esses dois campos apenas no módulo `financialData`, que é um snapshot trailing-twelve-months sem data-fim de período.~~
 
 Derivá-los (EBITDA de EBIT + depreciação, FCF de fluxo operacional − capex) depende de convenções de sinal e rotulagem que não podem ser verificadas sem uma resposta real da API. Um número silenciosamente errado é pior que um `NULL` honesto (AGENTS.md §44).
+
+---
+
+## Correção — 2026-08-17 (W06-003), após validação contra a API real
+
+A primeira versão deste ADR foi escrita sem acesso de rede, a partir da documentação. Uma única chamada real (`GET /quote/PETR4`, 16 períodos anuais) mostrou que:
+
+**O item 3 estava errado sobre onde o EBITDA vive.** A Brapi expõe `cleanEbitda` **por período**, dentro de `incomeStatementHistory` — não apenas como snapshot TTM. Porém o campo é **idêntico a `ebit` nos 16 períodos**: nenhuma depreciação/amortização é somada de volta. Ou seja, não é EBITDA.
+
+Conclusão: `ebitda` continua `NULL`, agora por evidência (`cleanEbitda` é uma cópia de `ebit`) em vez de por suposição sobre a estrutura da API. `debt_ebitda` e `ebitda_margin` seguem bloqueados.
+
+**Os itens 1 e 2 se confirmaram.** As linhas trazem um discriminador `type` (`"yearly"`), o que valida a preocupação com mistura de períodos — o parser agora filtra explicitamente por ele em vez de assumir. A política de não sobrescrever reexpressões permanece.
+
+**Correção relacionada:** a simetria "indicadores também nunca são sobrescritos", herdada deste ADR pela W06-002, foi revista — ver [ADR-015](ADR-015-indicator-recomputation.md). Fatos reportados continuam imutáveis; valores derivados podem ser recomputados sob demanda.
+
+**Lição registrada:** dois campos (`totalStockholderEquity`, `totalDebt`) foram mapeados a partir da documentação e são `null` em 100% dos períodos reais, o que deixou `equity`, `debt` e, por consequência, `roe` silenciosamente `None`. Nenhum teste pegou isso, porque todos os testes usavam payloads que eu mesmo escrevi com os nomes que eu supunha corretos. **Mock construído sobre uma suposição não verifica a suposição.** Existe agora um teste de regressão com a resposta real (`test_regression_against_the_real_petr4_response`).
 
 ## Evidence
 

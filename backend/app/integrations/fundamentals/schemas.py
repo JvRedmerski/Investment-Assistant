@@ -34,20 +34,34 @@ class FinancialStatement(BaseModel):
     debt: Decimal | None = None
     cash: Decimal | None = None
     free_cash_flow: Decimal | None = None
+    # Added in W06-003; the two tax figures are kept as reported so the
+    # effective rate can be derived per period rather than assumed.
+    ebit: Decimal | None = None
+    income_before_tax: Decimal | None = None
+    income_tax_expense: Decimal | None = None
 
     @property
     def reported_fields(self) -> dict[str, Decimal]:
         """The subset of figures actually reported (non-null)."""
         return {
             name: value
-            for name, value in (
-                ("revenue", self.revenue),
-                ("ebitda", self.ebitda),
-                ("net_income", self.net_income),
-                ("equity", self.equity),
-                ("debt", self.debt),
-                ("cash", self.cash),
-                ("free_cash_flow", self.free_cash_flow),
-            )
-            if value is not None
+            for name in REPORTED_FIELD_NAMES
+            if (value := getattr(self, name)) is not None
         }
+
+
+#: Every monetary line item a statement can carry. Kept as a single list
+#: so the data quality checks cannot drift out of sync with the schema
+#: when a field is added.
+REPORTED_FIELD_NAMES: tuple[str, ...] = (
+    "revenue",
+    "ebitda",
+    "net_income",
+    "equity",
+    "debt",
+    "cash",
+    "free_cash_flow",
+    "ebit",
+    "income_before_tax",
+    "income_tax_expense",
+)

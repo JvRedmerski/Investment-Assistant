@@ -39,17 +39,17 @@ def asset(db_session):
     return asset
 
 
-def _add_statement(db_session, asset, year, revenue="1000", net_income="150"):
+def _add_statement(db_session, asset, year, revenue="1000", net_income="150", **extra):
+    values = {
+        "revenue": Decimal(revenue),
+        "net_income": Decimal(net_income),
+        "equity": Decimal(600),
+        "debt": Decimal(400),
+        "cash": Decimal(100),
+    }
+    values.update(extra)
     db_session.add(
-        Fundamental(
-            asset_id=asset.id,
-            reference_date=date(year, 12, 31),
-            revenue=Decimal(revenue),
-            net_income=Decimal(net_income),
-            equity=Decimal(600),
-            debt=Decimal(400),
-            cash=Decimal(100),
-        )
+        Fundamental(asset_id=asset.id, reference_date=date(year, 12, 31), **values)
     )
     db_session.commit()
 
@@ -158,6 +158,96 @@ def test_a_skipped_period_still_serves_as_the_growth_baseline(db_session, asset)
     assert (result.computed, result.skipped_existing) == (1, 1)
     newer = _stored(db_session, asset)[-1]
     assert newer.revenue_growth == 0.25
+
+
+def test_roic_is_produced_from_the_stored_income_detail(db_session, asset):
+    _add_statement(
+        db_session,
+        asset,
+        2024,
+        ebit=Decimal(300),
+        income_before_tax=Decimal(1000),
+        income_tax_expense=Decimal(-340),
+    )
+
+    compute_and_store_indicators(db_session, asset)
+
+    (row,) = _stored(db_session, asset)
+    # NOPAT = 300 * (1 - 340/1000) = 198; invested = 400 + 600 - 100 = 900
+    assert row.roic == 0.22
+
+
+def test_ebitda_indicators_stay_null_because_ebitda_is_never_ingested(
+    db_session, asset
+):
+    _add_statement(db_session, asset, 2024, ebit=Decimal(300))
+
+    compute_and_store_indicators(db_session, asset)
+
+    (row,) = _stored(db_session, asset)
+    assert row.debt_ebitda is None
+    assert row.ebitda_margin is None
+
+
+# -- recomputation (ADR-015) -------------------------------------------
+
+
+def test_recompute_rebuilds_rows_from_current_inputs(db_session, asset):
+    _add_statement(db_session, asset, 2024)
+    compute_and_store_indicators(db_session, asset)
+    (before,) = _stored(db_session, asset)
+    assert before.roic is None, "no income detail stored yet"
+
+    # The input that was missing arrives later.
+    stored_statement = db_session.query(Fundamental).one()
+    stored_statement.ebit = Decimal(300)
+    stored_statement.income_before_tax = Decimal(1000)
+    stored_statement.income_tax_expense = Decimal(-340)
+    db_session.commit()
+
+    result = compute_and_store_indicators(db_session, asset, recompute=True)
+
+    assert result.recomputed is True
+    assert (result.computed, result.skipped_existing) == (1, 0)
+    rows = _stored(db_session, asset)
+    assert len(rows) == 1, "rebuilt, not duplicated"
+    assert rows[0].roic == 0.22, "the stale None was replaced by the new value"
+
+
+def test_recompute_without_it_leaves_a_stale_row_untouched(db_session, asset):
+    _add_statement(db_session, asset, 2024)
+    compute_and_store_indicators(db_session, asset)
+    stored_statement = db_session.query(Fundamental).one()
+    stored_statement.ebit = Decimal(300)
+    stored_statement.income_before_tax = Decimal(1000)
+    stored_statement.income_tax_expense = Decimal(-340)
+    db_session.commit()
+
+    result = compute_and_store_indicators(db_session, asset)
+
+    assert (result.computed, result.skipped_existing) == (0, 1)
+    (row,) = _stored(db_session, asset)
+    assert row.roic is None, "default behaviour never rewrites a stored indicator"
+
+
+def test_recompute_does_not_touch_the_raw_statements(db_session, asset):
+    _add_statement(db_session, asset, 2023)
+    _add_statement(db_session, asset, 2024)
+    compute_and_store_indicators(db_session, asset)
+
+    compute_and_store_indicators(db_session, asset, recompute=True)
+
+    # Reported facts survive a recomputation of derived values (ADR-015).
+    assert db_session.query(Fundamental).count() == 2
+
+
+def test_recompute_on_an_asset_with_no_indicators_yet_is_harmless(db_session, asset):
+    _add_statement(db_session, asset, 2024)
+
+    result = compute_and_store_indicators(db_session, asset, recompute=True)
+
+    assert (result.computed, result.skipped_existing) == (1, 0)
+    assert len(_stored(db_session, asset)) == 1
 
 
 def test_asset_without_statements_computes_nothing(db_session, asset):

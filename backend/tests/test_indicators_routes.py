@@ -90,6 +90,7 @@ def test_compute_then_read_returns_derived_indicators(client):
         "periods": 2,
         "computed": 2,
         "skipped_existing": 0,
+        "recomputed": False,
     }
 
     read = client.get(f"{ASSETS_URL}/PETR4/indicators", headers=headers)
@@ -145,5 +146,27 @@ def test_compute_on_asset_without_statements_returns_zero_counts(client):
         "periods": 0,
         "computed": 0,
         "skipped_existing": 0,
+        "recomputed": False,
     }
     assert client.get(f"{ASSETS_URL}/VALE3/indicators", headers=headers).json() == []
+
+
+def test_recompute_rebuilds_stored_indicators(client):
+    headers = _auth_headers(client)
+    _seed_asset_with_statements(client, headers)
+    client.post(f"{ASSETS_URL}/PETR4/indicators/compute", headers=headers)
+
+    response = client.post(
+        f"{ASSETS_URL}/PETR4/indicators/compute",
+        params={"recompute": "true"},
+        headers=headers,
+    )
+
+    body = response.json()
+    assert body["recomputed"] is True
+    assert body["computed"] == 2
+    assert body["skipped_existing"] == 0
+    # Rebuilt, not duplicated.
+    assert (
+        len(client.get(f"{ASSETS_URL}/PETR4/indicators", headers=headers).json()) == 2
+    )

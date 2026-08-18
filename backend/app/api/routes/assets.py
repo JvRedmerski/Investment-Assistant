@@ -287,23 +287,30 @@ def list_asset_fundamentals(
 @router.post("/{ticker}/indicators/compute", response_model=IndicatorsComputeResponse)
 def compute_asset_indicators(
     ticker: str,
+    recompute: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> IndicatorsComputeResponse:
     """Derive fundamental indicators from data already stored.
 
     Unlike the `*/sync` endpoints, this **never contacts an external
-    provider** — it only transforms stored statements and prices. Periods
-    already computed are left untouched (ADR-013).
+    provider** — it only transforms stored statements and prices.
+
+    By default, periods already computed are left untouched. Pass
+    `?recompute=true` to discard this asset's stored indicators and
+    rebuild them — needed after a formula is corrected or a previously
+    missing input is ingested. Raw statements are never affected
+    (ADR-015).
     """
     asset = _get_asset_by_ticker(db, ticker)
-    result = compute_and_store_indicators(db, asset)
+    result = compute_and_store_indicators(db, asset, recompute=recompute)
 
     return IndicatorsComputeResponse(
         ticker=result.ticker,
         periods=result.periods,
         computed=result.computed,
         skipped_existing=result.skipped_existing,
+        recomputed=result.recomputed,
     )
 
 

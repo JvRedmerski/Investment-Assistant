@@ -96,6 +96,27 @@ def provider_for(revenue: str) -> FakeProvider:
     return FakeProvider([_statement(2024, revenue=revenue)])
 
 
+def test_income_detail_fields_are_persisted(db_session, asset):
+    provider = FakeProvider(
+        [
+            FinancialStatement(
+                reference_date=date(2024, 12, 31),
+                revenue=Decimal(1000),
+                ebit=Decimal(300),
+                income_before_tax=Decimal("1000.5"),
+                income_tax_expense=Decimal("-340.25"),
+            )
+        ]
+    )
+
+    sync_annual_statements(db_session, provider, asset)
+
+    (row,) = _stored(db_session, asset)
+    assert row.ebit == Decimal(300)
+    assert row.income_before_tax == Decimal("1000.5")
+    assert row.income_tax_expense == Decimal("-340.25")
+
+
 def test_null_line_items_are_stored_as_null_not_zero(db_session, asset):
     provider = FakeProvider(
         [FinancialStatement(reference_date=date(2024, 12, 31), revenue=Decimal(1))]

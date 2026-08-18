@@ -100,6 +100,9 @@ def sync_annual_statements(
                 debt=statement.debt,
                 cash=statement.cash,
                 free_cash_flow=statement.free_cash_flow,
+                ebit=statement.ebit,
+                income_before_tax=statement.income_before_tax,
+                income_tax_expense=statement.income_tax_expense,
             )
         )
         # Guard against a provider returning the same period twice across
@@ -124,16 +127,29 @@ class IndicatorsComputeResult:
     periods: int
     computed: int
     skipped_existing: int
+    recomputed: bool = False
 
 
-def compute_and_store_indicators(db: Session, asset: Asset) -> IndicatorsComputeResult:
+def compute_and_store_indicators(
+    db: Session, asset: Asset, recompute: bool = False
+) -> IndicatorsComputeResult:
     """Derive `financial_indicators` rows from stored statements and prices.
 
     Purely a transformation of data already held: this never calls an
-    external provider. Periods already present in `financial_indicators`
-    are left untouched, for the same reason a stored statement is never
-    overwritten (ADR-013) — a recomputation must not silently rewrite an
-    indicator a past analysis may have relied on.
+    external provider.
+
+    By default, periods already present are left untouched. Passing
+    `recompute=True` discards this asset's stored indicators and rebuilds
+    them from the current inputs and formulas.
+
+    Why recomputation is allowed here, when a stored *statement* is never
+    overwritten (ADR-013): a statement is a reported fact, and replacing
+    it would rewrite what the source said. An indicator is a pure
+    function of stored inputs and the current code — when a formula is
+    corrected or an input arrives that was missing, the old value is
+    simply wrong, and preserving it would be preserving a bug. The raw
+    statements are untouched either way, so nothing reported is lost.
+    It stays opt-in rather than automatic (ADR-015).
 
     Growth indicators use the immediately preceding stored statement.
     Because statements are replayed in chronological order, the "previous
@@ -146,12 +162,28 @@ def compute_and_store_indicators(db: Session, asset: Asset) -> IndicatorsCompute
         .all()
     )
 
-    existing_dates = {
-        row.reference_date
-        for row in db.query(FinancialIndicator.reference_date).filter(
-            FinancialIndicator.asset_id == asset.id
+    if recompute:
+        # "fetch" evicts the deleted rows from the session's identity map.
+        # With synchronize_session=False they would linger there, and the
+        # rows inserted below could collide with them on primary key.
+        deleted = (
+            db.query(FinancialIndicator)
+            .filter(FinancialIndicator.asset_id == asset.id)
+            .delete(synchronize_session="fetch")
         )
-    }
+        logger.info(
+            "Recomputing indicators for %s: discarded %s stored row(s).",
+            asset.ticker,
+            deleted,
+        )
+        existing_dates: set = set()
+    else:
+        existing_dates = {
+            row.reference_date
+            for row in db.query(FinancialIndicator.reference_date).filter(
+                FinancialIndicator.asset_id == asset.id
+            )
+        }
 
     computed = 0
     skipped = 0
@@ -195,6 +227,7 @@ def compute_and_store_indicators(db: Session, asset: Asset) -> IndicatorsCompute
         periods=len(statements),
         computed=computed,
         skipped_existing=skipped,
+        recomputed=recompute,
     )
 
 
@@ -208,6 +241,9 @@ def _inputs_from(db: Session, asset: Asset, statement: Fundamental) -> Indicator
         debt=statement.debt,
         cash=statement.cash,
         free_cash_flow=statement.free_cash_flow,
+        ebit=statement.ebit,
+        income_before_tax=statement.income_before_tax,
+        income_tax_expense=statement.income_tax_expense,
         price=_price_on_or_before(db, asset.id, statement.reference_date),
     )
 

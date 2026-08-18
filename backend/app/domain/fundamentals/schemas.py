@@ -25,6 +25,7 @@ class IndicatorsComputeResponse(BaseModel):
     periods: int
     computed: int
     skipped_existing: int
+    recomputed: bool
 
 
 class FinancialIndicatorResponse(BaseModel):
@@ -73,4 +74,7 @@ class FundamentalResponse(BaseModel):
     debt: Decimal | None
     cash: Decimal | None
     free_cash_flow: Decimal | None
+    ebit: Decimal | None
+    income_before_tax: Decimal | None
+    income_tax_expense: Decimal | None
     created_at: datetime

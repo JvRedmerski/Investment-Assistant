@@ -42,5 +42,5 @@ A implementação concreta é responsável por: timeout configurável, retry **l
 - ✅ Trocar de fornecedor toca um arquivo novo e a factory.
 - ✅ Testes rodam offline, determinísticos.
 - ✅ O mesmo molde serve para fundamentals (W06), intraday (W15) e IA (W12) — **replique-o, não invente outro**.
-- ⚠️ **Lacuna aberta**: o parser da Brapi foi escrito a partir da documentação pública e exercitado apenas contra `httpx.MockTransport` — não havia rede de saída no ambiente. Os nomes de campo (`regularMarketPrice`, `historicalDataPrice`) **não foram confirmados** contra a API real. Validar antes de usar em ingestão de produção. Documentado assim, em vez de omitido, por AGENTS.md §124.
+- ✅ **Lacuna fechada em 2026-08-17 (W06-003)**: o parser do market data foi validado contra uma resposta real da Brapi. `regularMarketPrice`, `regularMarketTime`, `currency`, e as chaves de `historicalDataPrice` (`date` como epoch, `open`, `high`, `low`, `close`, `volume`, `adjustedClose`) conferem exatamente com o que o código espera. Nenhuma correção foi necessária aqui — ao contrário do parser de fundamentals, que tinha dois campos errados (ver ADR-013).
 - ⚠️ `get_quote()` existe e é testado, mas nenhum endpoint o expõe.

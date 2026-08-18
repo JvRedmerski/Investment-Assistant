@@ -182,11 +182,11 @@ Definition of Done Wave 05: atendida — provider abstraído e testável sem red
 ---
 
 ### Wave 06 — Fundamental Data
-Status: ⚠️ NEEDS_REVIEW — as duas tasks planejadas estão concluídas, mas o resultado é parcial: 6 dos 10 indicadores são estruturalmente `None` por falta de insumo. Ver W06-003.
+Status: 🟢 COMPLETED — parsers validados contra a API real, dois bugs de mapeamento corrigidos, ROIC destravado. 5 dos 10 indicadores produzem valor; os 5 restantes têm limitação documentada e evidenciada, não suposta.
 
 - [x] **W06-001**: Ingestão de Demonstrativos Financeiros 🟢 COMPLETED
 - [x] **W06-002**: Cálculo e Normalização de Indicadores Fundamentalistas 🟢 COMPLETED
-- [ ] **W06-003**: Captação dos insumos faltantes (shares outstanding, EBIT, proventos) ⚪ NOT_STARTED — task criada nesta wave, não prevista no roadmap original
+- [x] **W06-003**: Validação contra a API real, correção do mapeamento e captação de insumos 🟢 COMPLETED
 
 Detalhes W06-001:
 - `backend/app/integrations/http.py` (novo): `RetryingJsonClient` — transporte HTTP compartilhado com timeout, retry limitado com backoff exponencial só em falha transitória (timeout/conexão/429/5xx), falha imediata em 4xx e throttle de rate limit. As classes de exceção são injetadas, então cada integração mantém seu próprio vocabulário de erro. Extraído do `BrapiProvider` (regra 8 do AGENTS.md — não reimplementar o que já existe) em vez de copiar o loop de retry para o segundo provedor; ver Technical Decisions.
@@ -211,10 +211,22 @@ Detalhes W06-002:
 - Testes (+44): `test_fundamental_indicators.py` (25 casos com valores conhecidos), `test_indicators_service.py` (12), `test_indicators_routes.py` (7).
 - Validação: `pytest` 184/184 passed; `ruff check` e `black --check` limpos nos arquivos da task. **Zero requisições à API da Brapi nesta task.**
 
-Detalhes W06-003 (a fazer):
-- Captar `shares_outstanding` (módulo `defaultKeyStatistics`), `ebit` (já vem em `incomeStatementHistory`, apenas não mapeado) e histórico de proventos. Módulos extras entram no **mesmo** `GET /quote`, então não aumentam a contagem de requisições — só o tamanho do payload.
-- Exige migration `004` (colunas novas em `fundamentals`) e alteração do `BrapiFundamentalsProvider`.
-- Deliberadamente adiada até haver como validar contra a API real: hoje nenhum mapeamento de campo da Brapi foi confirmado, e empilhar mais campos especulativos aumenta a superfície não verificada.
+Detalhes W06-003:
+- **Havia acesso de rede nesta sessão** (não havia nas anteriores). Gasta **1 requisição** à Brapi (`GET /quote/PETR4` com `range`, `interval` e três módulos de uma vez), suficiente para validar tudo. Resposta salva no scratchpad e usada offline no restante do trabalho.
+- **Parsers de market data (W05-001) confirmados corretos.** `regularMarketPrice`, `regularMarketTime`, `currency` e as chaves de `historicalDataPrice` (`date` epoch, OHLC, `volume`, `adjustedClose`) conferem exatamente. Lacuna aberta desde a Wave 05 — fechada, sem necessidade de correção.
+- **Dois bugs encontrados no parser de fundamentals (W06-001)**, ambos silenciosos:
+  - `equity` lia `totalStockholderEquity` → **null em 16/16 períodos**. Campo correto: `shareholdersEquity`. Como `roe` e o capital investido dependem de `equity`, **`roe` era `None` em dados reais** — a task anterior reportou "4 indicadores funcionando", quando na prática eram 3.
+  - `debt` lia `totalDebt` (inexistente) com fallback para `shortLongTermDebt` + `longTermDebt` → **null em 16/16**. Agora soma as seis linhas efetivamente reportadas (empréstimos, debêntures e arrendamentos, curto e longo prazo), todas 16/16.
+- **`cleanEbitda` é idêntico a `ebit` nos 16 períodos** — não é EBITDA. Mapeá-lo teria colocado número errado atrás de `debt_ebitda` e `ebitda_margin`. `ebitda` permanece `NULL`, agora por evidência. Corrige a justificativa do ADR-013.
+- **ROIC destravado**: `ebit`, `incomeBeforeTax` e `incomeTaxExpense` são reportados 16/16. Alíquota efetiva derivada por período. O campo `cleanNopat` da Brapi foi **descartado** porque aplica 34% fixos, enquanto as alíquotas reais vão de 26,6% a 32,4%.
+- **Bug encontrado só ao rodar contra dados reais**: em 2020 a Petrobras teve imposto **positivo** (crédito de R$ 6,2 bi) contra R$ 37 mi de lucro antes de impostos. O `abs()` original transformava crédito em ônus e gerava alíquota de 16.780%, produzindo **ROIC de −1096%**. Corrigido: sinal tratado corretamente e alíquota fora de [0, 1] retorna `None` (ADR-014, item 4).
+- **Filtro `type == "yearly"`**: as linhas trazem discriminador de período; o parser agora filtra explicitamente em vez de assumir.
+- **Política de recomputação (ADR-015)**: `POST /assets/{ticker}/indicators/compute?recompute=true` reconstrói os indicadores do ativo. Necessário porque os valores gravados pela W06-002 estavam errados (equity nula). Fatos reportados nunca são tocados; só valores derivados.
+- `backend/migrations/versions/004_fundamentals_income_detail.py`: `ebit`, `income_before_tax`, `income_tax_expense` em `NUMERIC(24,4)`, nullable.
+- **`pe`, `pb`, `dy` permanecem `None`**: `sharesOutstanding` e `dividendYield` existem, mas só como snapshots atuais sem data-fim de período. Aplicar a contagem de ações de hoje a um balanço de 2010 seria atribuir fato presente a período passado (regras 108/109).
+- Testes (+21, total 205), incluindo `test_regression_against_the_real_petr4_response`, que trava o mapeamento verificado com os números reais de 2025.
+- Verificação de ponta a ponta sobre a resposta real: 16 períodos parseados, 0 rejeitados; ROE 26,5%, ROIC 10,7%, margem líquida 22,2% em 2025 — valores plausíveis; 2020 corretamente `None`.
+- Validação: `pytest` 205/205; `ruff check` e `black --check` limpos. `alembic heads` → `004`.
 
 ---
 
@@ -413,10 +425,10 @@ Status: ⚪ NOT_STARTED
 
 ## Current Task
 
-Wave: 06
-Task ID: W06-003
-Task Name: Captação dos insumos faltantes para indicadores (shares outstanding, EBIT, proventos)
-Status: ⚪ NOT_STARTED — bloqueada por falta de acesso de rede para validar o mapeamento de campos
+Wave: 07
+Task ID: W07-001
+Task Name: Quant Engine — módulo `returns.py`
+Status: ⚪ NOT_STARTED
 
 Completed:
 - Wave 00 (Foundation) concluída.
@@ -428,16 +440,10 @@ Completed:
 - Wave 05 (Market Data Integration) concluída — `MarketDataProvider`/`BrapiProvider`, ingestão diária com caching, Data Quality Validator. 39 testes novos passando.
 - W06-001 (Ingestão de Demonstrativos Financeiros) concluída — `FundamentalsProvider`/`BrapiFundamentalsProvider`, transporte HTTP compartilhado, ingestão anual idempotente, data quality de demonstrativos, migration `003`. 45 testes novos passando.
 - W06-002 (Indicadores Fundamentalistas) concluída — `compute_indicators` puro com as 10 fórmulas, seleção de preço sem look-ahead, persistência idempotente, endpoints de compute/leitura. 44 testes novos passando.
-
-Remaining (Wave 06 — Fundamental Data):
-- W06-003: captar `shares_outstanding`, `ebit` e histórico de proventos, para destravar `pe`, `pb`, `dy` e `roic`. Bloqueada por falta de acesso de rede para confirmar o mapeamento de campos.
+- W06-003 (Validação real e correção do mapeamento) concluída — parsers validados contra a API, dois bugs corrigidos, ROIC destravado, política de recomputação. 21 testes novos passando. **Wave 06 concluída.**
 
 Next Action:
-Duas opções, a critério do usuário:
-1. **W06-003**, se houver como validar o mapeamento de campos contra a API real da Brapi (o custo em requisições é zero — módulos extras vão no mesmo `GET /quote`).
-2. **Wave 07 (Quant Engine)**, que não depende dos indicadores faltantes: `returns.py` e `risk.py` consomem `asset_prices`, já ingerido e disponível.
-
-A Wave 09 (Recommendation Engine) é que depende de verdade dos 6 indicadores inertes — até lá há caminho livre.
+Wave 07 — Quant Engine. `returns.py` (diário, semanal, mensal, trimestral, YTD, anual, CAGR) e `risk.py` (volatilidade, beta, max drawdown, Sharpe, Sortino) sobre `asset_prices`. Ver `docs/memory/CURRENT_TASK.md`.
 
 ---
 
@@ -465,6 +471,7 @@ A Wave 09 (Recommendation Engine) é que depende de verdade dos 6 indicadores in
 - **W05-003**: Data Quality Validator (validação de outliers/nulos) (🟢 COMPLETED)
 - **W06-001**: Ingestão de Demonstrativos Financeiros (🟢 COMPLETED)
 - **W06-002**: Cálculo e Normalização de Indicadores Fundamentalistas (🟢 COMPLETED)
+- **W06-003**: Validação contra a API real, correção do mapeamento e captação de insumos (🟢 COMPLETED)
 
 ---
 
@@ -479,8 +486,10 @@ Nenhuma tarefa bloqueada no momento.
 ---
 
 ## Known Issues
-- **6 dos 10 indicadores fundamentalistas são estruturalmente `None`** (`pe`, `pb`, `dy`, `roic`, `debt_ebitda`, `ebitda_margin`) por falta de insumo. Comportamento correto e testado, mas limita a Wave 09. Endereçado pela W06-003.
+- **5 dos 10 indicadores permanecem `None`**, cada um por motivo evidenciado: `pe`/`pb`/`dy` (a Brapi só oferece `sharesOutstanding` e `dividendYield` como snapshots atuais, sem data-fim de período — usá-los seria look-ahead) e `debt_ebitda`/`ebitda_margin` (`cleanEbitda` é cópia de `ebit`, não é EBITDA). Limita os sub-scores de Valuation na Wave 09.
+- **Indicadores gravados antes da W06-003 estão errados** (`roe`/`roic` nulos por causa do bug de `equity`). Rodar `POST /assets/{ticker}/indicators/compute?recompute=true` em cada ativo já processado.
 - **Throttle de requisições desligado por padrão**: `MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS` e `FUNDAMENTALS_MIN_REQUEST_INTERVAL_SECONDS` têm default `0.0`, ou seja, sem espaçamento entre chamadas. A Brapi tem cota mensal limitada no plano gratuito. Definir um intervalo no `.env` antes de qualquer ingestão em lote.
+- **Só a PETR4 foi usada na validação.** O mapeamento pode divergir para FIIs, ETFs, BDRs ou bancos (o balanço traz linhas específicas de seguradora/banco). Validar com um ticker de cada tipo quando for ingerir em lote — cada um custa 1 requisição.
 
 ---
 
@@ -538,7 +547,19 @@ Nenhuma tarefa bloqueada no momento.
 ### Decision — 2026-08-17 — Brapi parser not yet verified live
 - **Decision**: Implementar `BrapiProvider` (W05-001) com base na documentação pública da Brapi, testado exclusivamente contra respostas HTTP mockadas (`httpx.MockTransport`), sem acesso de rede de saída neste ambiente.
 - **Reason**: Regra 124 do AGENTS.md ("quando não souber, explicar a incerteza") — não há como validar contra a API real sem rede; a alternativa (não implementar) bloquearia toda a Wave 05. Preferi implementar de forma defensiva (nunca assumir campo presente, regra 19) e documentar claramente a lacuna, em vez de fingir que foi validado.
-- **Status**: 🟢 APPROVED (implementação); ⚠️ verificação contra resposta real da Brapi ainda pendente antes de uso em ingestão de produção.
+- **Status**: 🟢 RESOLVIDO em 2026-08-17 (W06-003). Validado contra resposta real: o parser de market data estava **correto**; o de fundamentals tinha **dois campos errados**, corrigidos. Ver "Validação contra a API real" abaixo.
+
+### Decision — 2026-08-17 — Validação contra a API real e o que ela ensinou (W06-003)
+- **Decision**: Gastar 1 requisição à Brapi para validar todos os mapeamentos de uma vez, em vez de continuar acumulando código não verificado.
+- **Resultado**: market data ✅ correto; fundamentals ❌ `totalStockholderEquity` e `totalDebt` nulos em 16/16 períodos, deixando `equity`, `debt` e `roe` silenciosamente `None`.
+- **Lição registrada**: todos os testes anteriores usavam payloads que eu mesmo escrevi com os nomes de campo que eu supunha corretos. **Um mock construído sobre uma suposição não verifica a suposição** — ele a reproduz. Existe agora um teste de regressão com a resposta real (`test_regression_against_the_real_petr4_response`). Aplicar o mesmo padrão a intraday (W15) e IA (W12): validar contra uma resposta real **antes** de escrever a bateria de mocks.
+- **Custo em cota**: 1 requisição no total. Módulos e `range` cabem todos no mesmo `GET /quote`.
+- **Status**: 🟢 APPROVED
+
+### Decision — 2026-08-17 — Recomputação de indicadores derivados
+- **Decision**: `financial_indicators` pode ser reconstruído sob demanda (`?recompute=true`); `fundamentals` nunca é sobrescrito.
+- **Reason**: Um indicador é `f(insumos, versão do código)`, não um fato reportado. Quando a fórmula é corrigida, o valor antigo é simplesmente um bug preservado. Os demonstrativos crus continuam imutáveis, então nada do que a fonte publicou se perde.
+- **Status**: 🟢 APPROVED. Registrado como `docs/decisions/ADR-015`.
 
 ---
 
@@ -555,10 +576,10 @@ Nenhuma tarefa bloqueada no momento.
 
 ## Last Execution
 - **Timestamp**: 2026-08-17T00:00:00-03:00
-- **Action**: W06-002 (Wave 06) — cálculo de indicadores fundamentalistas: `compute_indicators` (função pura com as 10 fórmulas), `compute_and_store_indicators` idempotente, `_price_on_or_before` sem look-ahead, endpoints `POST /indicators/compute` e `GET /indicators`. Escopo confirmado com o usuário após a descoberta de que 6 indicadores carecem de insumo; criada a task W06-003.
-- **Result**: Sucesso. 184/184 testes passando (`pytest`), `ruff check` e `black --check` limpos nos arquivos da task. Nenhuma regressão. **Zero requisições à API da Brapi.**
+- **Action**: W06-003 (Wave 06) — validação dos parsers contra a API real da Brapi (1 requisição), correção de dois bugs silenciosos de mapeamento (`equity`, `debt`), ingestão de `ebit`/`income_before_tax`/`income_tax_expense` (migration `004`), ROIC com alíquota efetiva derivada, guarda para alíquota absurda, filtro `type == "yearly"`, política de recomputação (ADR-015). **Wave 06 concluída.**
+- **Result**: Sucesso. 205/205 testes passando (`pytest`), `ruff check` e `black --check` limpos. Nenhuma regressão. **1 requisição à API da Brapi no total.**
 
 ---
 
 ## Next Action
-Decidir entre W06-003 (destravar os 6 indicadores, requer validação do mapeamento de campos contra a API real) e Wave 07 — Quant Engine (`returns.py`/`risk.py`, sem dependência dos indicadores faltantes). Ver `docs/memory/CURRENT_TASK.md`.
+Wave 07 — Quant Engine: `app/quant/returns.py` e `app/quant/risk.py` sobre as séries de `asset_prices`. Ver `docs/memory/CURRENT_TASK.md`.

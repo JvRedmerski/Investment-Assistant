@@ -44,6 +44,17 @@ class Fundamental(Base):
     free_cash_flow: Mapped[Decimal | None] = mapped_column(
         STATEMENT_MONEY, nullable=True
     )
+    # Added in W06-003 to unblock ROIC. `income_before_tax` and
+    # `income_tax_expense` are stored as reported so the effective tax
+    # rate can be derived per period, instead of assuming a headline rate
+    # (ADR-014).
+    ebit: Mapped[Decimal | None] = mapped_column(STATEMENT_MONEY, nullable=True)
+    income_before_tax: Mapped[Decimal | None] = mapped_column(
+        STATEMENT_MONEY, nullable=True
+    )
+    income_tax_expense: Mapped[Decimal | None] = mapped_column(
+        STATEMENT_MONEY, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, nullable=False
     )

@@ -13,22 +13,30 @@ have" and must never be read as zero, nor substituted by a default
 plausible is worse than an honest gap, because a score built on it would
 look equally plausible.
 
-## Inputs not yet ingested
+## Inputs not ingested
 
-`IndicatorInputs` declares fields the system does not collect yet, so
-the formulas that need them are written, tested, and ready — they simply
-return `None` until W06-003 supplies the data:
+`IndicatorInputs` declares fields the system does not collect, so the
+formulas that need them are written, tested and ready — they simply
+return `None` until a per-period source exists:
 
-| missing input       | indicators it blocks       |
-|---------------------|----------------------------|
-| shares_outstanding  | pe, pb                     |
-| dividends_per_share | dy                         |
-| ebit + tax rate     | roic                       |
-| ebitda              | debt_ebitda, ebitda_margin |
+| missing input       | indicators it blocks       | why                    |
+|---------------------|----------------------------|------------------------|
+| shares_outstanding  | pe, pb                     | only a current snapshot|
+| dividends_per_share | dy                         | only a current snapshot|
+| ebitda              | debt_ebitda, ebitda_margin | provider field is fake |
 
-`ebitda` is blocked for the reason recorded in ADR-013 (the provider only
-exposes it as a trailing-twelve-months snapshot with no period end date,
-which cannot be attributed to a reference date without look-ahead).
+`shares_outstanding` and `dividendYield` exist in Brapi's
+`defaultKeyStatistics`, but as **present-day snapshots with no period end
+date**. Applying today's share count to a 2010 statement would attribute
+present facts to a past period — the point-in-time violation AGENTS.md
+rules 108/109 forbid. They stay uncomputed pending a per-period source.
+
+`ebitda` is blocked on evidence: Brapi's `cleanEbitda` is byte-identical
+to `ebit` in all 16 periods returned, so it is not EBITDA at all. See
+`app.integrations.fundamentals.brapi` and ADR-013.
+
+ROIC **is** computable as of W06-003: `ebit`, `income_before_tax` and
+`income_tax_expense` are reported for every period.
 
 ## Units
 
@@ -69,11 +77,16 @@ class IndicatorInputs:
     # recent one before it. Never a later price (AGENTS.md rule 108).
     price: Decimal | None = None
 
-    # Not ingested yet — see module docstring.
+    # From `fundamentals`, added in W06-003. The tax figures are kept as
+    # reported so the effective rate is derived per period rather than
+    # assumed (ADR-014).
+    ebit: Decimal | None = None
+    income_before_tax: Decimal | None = None
+    income_tax_expense: Decimal | None = None
+
+    # Not ingested — see module docstring.
     shares_outstanding: Decimal | None = None
     dividends_per_share: Decimal | None = None
-    ebit: Decimal | None = None
-    effective_tax_rate: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -113,8 +126,9 @@ def compute_indicators(
     - **roe** = net_income / equity. Reported even when negative: a loss,
       or negative shareholders' equity, is a real and meaningful result.
     - **roic** = NOPAT / invested capital, where NOPAT =
-      ebit × (1 − effective_tax_rate) and invested capital =
-      debt + equity − cash.
+      ebit × (1 − effective tax rate), the effective rate is
+      |income_tax_expense| / income_before_tax for that same period, and
+      invested capital = debt + equity − cash.
     - **dy** = dividends_per_share / price.
     - **debt_ebitda** = debt / ebitda.
     - **net_margin** = net_income / revenue.
@@ -179,18 +193,51 @@ def _growth(current: Decimal | None, previous: Decimal | None) -> Decimal | None
     return (current - previous) / previous
 
 
-def _nopat(inputs: IndicatorInputs) -> Decimal | None:
-    """Net operating profit after tax = ebit × (1 − effective tax rate).
+def _effective_tax_rate(inputs: IndicatorInputs) -> Decimal | None:
+    """The period's actual tax burden as a fraction of pre-tax income.
 
-    Both inputs are required. No default tax rate is assumed: picking one
-    (e.g. Brazil's headline 34%) would silently bake a modelling
-    assumption into a figure presented as measured (AGENTS.md rule 44).
-    When EBIT is ingested, the tax-rate source becomes an explicit
-    decision to make then.
+    Derived from the two figures as reported, never assumed. Brapi's own
+    `cleanNopat` applies a flat 34% to every period, while the real
+    effective rates for PETR4 range from 26.6% to 32.4% — a gap large
+    enough to move ROIC materially, which is why this is computed rather
+    than taken from the provider (ADR-014).
+
+    The sign matters. Tax expense is reported as a negative number (a
+    deduction), so the rate is `-expense / pre-tax income`. A *positive*
+    expense is a tax benefit, and negating it yields a negative rate,
+    correctly signalling a credit rather than a burden.
+
+    Returns `None` when the result is not usable as a rate:
+
+    - either figure missing;
+    - pre-tax income not positive — in a loss-making year the ratio is
+      not a tax rate at all;
+    - the rate falls outside [0, 1]. `NOPAT = ebit × (1 − t)` is only
+      meaningful in that band; outside it the formula would inflate NOPAT
+      beyond EBIT or flip its sign. A rate outside the band means the two
+      reported figures are inconsistent or the period was extraordinary,
+      not that we learned something about profitability. Petrobras 2020
+      is the real case that exposed this: a R$ 6.2bn tax *benefit* against
+      R$ 37m of pre-tax income implies a rate of −16,780%, which turned
+      ROIC into −1096% before this guard existed.
     """
-    if inputs.ebit is None or inputs.effective_tax_rate is None:
+    if inputs.income_before_tax is None or inputs.income_tax_expense is None:
         return None
-    return inputs.ebit * (Decimal(1) - inputs.effective_tax_rate)
+    if inputs.income_before_tax <= 0:
+        return None
+
+    rate = -inputs.income_tax_expense / inputs.income_before_tax
+    if rate < 0 or rate > 1:
+        return None
+    return rate
+
+
+def _nopat(inputs: IndicatorInputs) -> Decimal | None:
+    """Net operating profit after tax = ebit × (1 − effective tax rate)."""
+    tax_rate = _effective_tax_rate(inputs)
+    if inputs.ebit is None or tax_rate is None:
+        return None
+    return inputs.ebit * (Decimal(1) - tax_rate)
 
 
 def _invested_capital(inputs: IndicatorInputs) -> Decimal | None:

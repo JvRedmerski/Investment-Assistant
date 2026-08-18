@@ -6,18 +6,18 @@
 
 ## Current Phase
 
-**Wave 06 (Fundamental Data): as duas tasks planejadas estão concluídas, mas o resultado é ⚠️ parcial** — 6 dos 10 indicadores são estruturalmente `None` por falta de insumo. Criada a W06-003 para fechar a lacuna.
-6 de 33 waves concluídas (W00–W05) + W06 parcial.
+**Wave 06 concluída.** Próxima: **Wave 07 — Quant Engine**.
+7 de 33 waves concluídas (W00–W06).
 
 ## Overall Status
 
 | | |
 |---|---|
-| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data |
-| **Needs review** | W06 Fundamental Data — W06-001 ✅ · W06-002 ✅ · W06-003 ⚪ (insumos faltantes) |
-| **Blocked** | W06-003 — precisa de acesso de rede para confirmar o mapeamento de campos da Brapi |
+| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data |
+| **In Progress** | — nenhuma |
+| **Blocked** | — nenhuma |
 
-Baseline atual: `pytest` → **184 passed** (backend/.venv).
+Baseline atual: `pytest` → **205 passed** (backend/.venv).
 
 ## Completed Work (nível wave)
 
@@ -31,32 +31,35 @@ Baseline atual: `pytest` → **184 passed** (backend/.venv).
 
 - **W06-002** — `compute_indicators`: função pura com as **10 fórmulas** implementadas e testadas; `compute_and_store_indicators` idempotente; seleção de preço sem look-ahead (`_price_on_or_before`); endpoints `POST /indicators/compute` (não chama provedor externo) e `GET /indicators`. Política de dado faltante em [ADR-014](../decisions/ADR-014-indicator-missing-data-policy.md).
 
+- **W06-003** — **parsers validados contra a API real da Brapi** (1 requisição). Market data estava correto; fundamentals tinha dois campos errados (`equity`, `debt`) que deixavam `roe` silenciosamente `None`. ROIC destravado com alíquota efetiva derivada por período; migration `004`; política de recomputação ([ADR-015](../decisions/ADR-015-indicator-recomputation.md)).
+
 Detalhe por task: [../history/COMPLETED_TASKS.md](../history/COMPLETED_TASKS.md).
 
 ## Current Work
 
-Nada em execução. Aguardando escolha entre W06-003 e Wave 07.
+Nada em execução. Wave 06 fechada.
 
 ## Next Recommended Step
 
-**Wave 07 — Quant Engine** (`returns.py`, `risk.py`), que não depende dos indicadores faltantes; ou **W06-003** se houver como validar o mapeamento contra a API real. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
+**Wave 07 — Quant Engine**: `app/quant/returns.py` e `risk.py` sobre `asset_prices`. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ## Known Issues
 
 Problemas reais, verificados no código (2026-08-17):
 
-1. **Parsers da Brapi nunca validados contra resposta real.** Vale para os **dois** provedores: `BrapiProvider` (`regularMarketPrice`, `historicalDataPrice`) e `BrapiFundamentalsProvider` (módulos `incomeStatementHistory`/`balanceSheetHistory`, seu aninhamento e nomes de campo). Ambos foram escritos a partir da documentação pública e exercitados só com `httpx.MockTransport` (sem rede no ambiente). **Bloqueia uso em ingestão real.**
-2. **Migrations `002` e `003` nunca aplicadas em PostgreSQL real.** Validadas apenas estruturalmente (`alembic heads`/`history`) e contra SQLite in-memory (Docker Desktop parado). `alembic upgrade head` contra Postgres é obrigatório antes de confiar nelas.
+1. ~~Parsers da Brapi nunca validados~~ — **RESOLVIDO na W06-003.** Ambos validados contra resposta real; dois bugs corrigidos no de fundamentals. Pendência residual: só a **PETR4** foi usada. FIIs, ETFs, BDRs e bancos podem trazer linhas de balanço diferentes — validar um ticker de cada tipo (1 requisição cada) antes de ingestão em lote.
+2. **Migrations `002`, `003` e `004` nunca aplicadas em PostgreSQL real.** Validadas apenas estruturalmente (`alembic heads`/`history`) e contra SQLite in-memory (Docker Desktop parado). `alembic upgrade head` contra Postgres é obrigatório antes de confiar nelas.
 3. **`get_quote()` implementado mas não exposto.** Existe no provider e é testado, mas nenhum endpoint o consome — cotação atual não chega ao usuário.
 4. **Ingestão de dividendos (proventos) não implementada**, embora o roadmap a liste como entregável da Wave 5 (`docs/roadmap.md` §17). A Wave 05 foi marcada como concluída sem ela.
 5. **`npm run lint` quebrado no frontend.** O script chama `eslint` mas não há `eslint` nas `devDependencies` nem arquivo de config.
 6. **Lint pré-existente sujo no backend.** `ruff check` acusa findings em arquivos não tocados desde a Wave 02 (`data/models/users.py`, `daytrade.py`, `recommendations.py`, `core/logging.py`, `data/database.py`, `api/routes/health.py`, `tests/test_health.py`) — import-sorting e `Optional[X]`/`List[X]` → `X | None`/`list[X]`. Deliberadamente fora de escopo até uma task dedicada de cleanup. (`data/models/fundamentals.py` saiu da lista: foi reescrito e está limpo.)
 7. **Colunas monetárias ainda em `Float`** (dívida conhecida, conversão adiada para a wave que as usar): `intraday_prices` OHLC (W15), `portfolio_snapshots.total_value/cash_value` (W11), `investor_profiles.monthly_contribution` (W09).
 8. **`PriceSyncRequest` documenta que `end` não pode ser futura, mas o validador não verifica isso** — apenas `start <= end`.
-9. **6 dos 10 indicadores fundamentalistas são estruturalmente `None`**: `pe`, `pb`, `dy` (falta `shares_outstanding` e histórico de proventos — não existem no schema), `roic` (falta EBIT + alíquota), `debt_ebitda`, `ebitda_margin` (falta EBITDA, [ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md)). As fórmulas estão prontas e testadas; só falta o insumo. **Limita a Wave 09.** Endereçado pela W06-003.
-10. **Reexpressões (restatements) de exercícios anteriores são invisíveis**: o primeiro valor gravado para um `reference_date` nunca é substituído. Vale também para `financial_indicators` — período já computado não é recomputado. Corrigir exige schema versionado por período.
-11. **Demonstrativos trimestrais não são ingeridos** — `fundamentals` não tem coluna de período para distingui-los de um exercício anual com a mesma data-fim ([ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md)).
-12. **Throttle de requisições desligado por padrão.** `MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS` e `FUNDAMENTALS_MIN_REQUEST_INTERVAL_SECONDS` têm default `0.0` — nenhum espaçamento entre chamadas. A Brapi tem **cota mensal limitada** no plano gratuito. Definir um intervalo no `.env` antes de qualquer ingestão em lote.
+9. **5 dos 10 indicadores permanecem `None`**, cada um por motivo **evidenciado** contra a API real: `pe`/`pb`/`dy` — a Brapi só expõe `sharesOutstanding` e `dividendYield` como snapshots atuais, sem data-fim de período; aplicá-los a um balanço de 2010 seria look-ahead (§108/§109). `debt_ebitda`/`ebitda_margin` — `cleanEbitda` é cópia literal de `ebit` em 16/16 períodos, não é EBITDA. **Limita os sub-scores de Valuation na Wave 09.**
+10. **Indicadores gravados antes da W06-003 estão errados** (`roe`/`roic` nulos pelo bug de `equity`). Rodar `POST /assets/{ticker}/indicators/compute?recompute=true` em cada ativo já processado — não custa requisição externa.
+11. **Reexpressões (restatements) de demonstrativos são invisíveis**: o primeiro valor gravado para um `reference_date` nunca é substituído. Corrigir exige schema versionado por período. (Indicadores derivados, ao contrário, podem ser recomputados — [ADR-015](../decisions/ADR-015-indicator-recomputation.md).)
+12. **Demonstrativos trimestrais não são ingeridos** — o parser filtra `type == "yearly"`, porque `fundamentals` não tem coluna de período para distingui-los de um exercício anual com a mesma data-fim ([ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md)).
+13. **Throttle de requisições desligado por padrão.** `MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS` e `FUNDAMENTALS_MIN_REQUEST_INTERVAL_SECONDS` têm default `0.0` — nenhum espaçamento entre chamadas. A Brapi tem **cota mensal limitada** no plano gratuito. Definir um intervalo no `.env` antes de qualquer ingestão em lote.
 
 ## Inconsistências documentação × código
 

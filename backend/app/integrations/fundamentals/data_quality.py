@@ -15,7 +15,10 @@ deterministic in tests.
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 
-from app.integrations.fundamentals.schemas import FinancialStatement
+from app.integrations.fundamentals.schemas import (
+    REPORTED_FIELD_NAMES,
+    FinancialStatement,
+)
 
 # Line items that cannot legitimately be negative. Deliberately excluded:
 # `net_income` (losses are normal), `equity` (patrimônio líquido can be
@@ -93,7 +96,7 @@ def validate_financial_statements(
     return report
 
 
-_EXPECTED_FIELD_COUNT = 7
+_EXPECTED_FIELD_COUNT = len(REPORTED_FIELD_NAMES)
 
 
 def _validate_single(

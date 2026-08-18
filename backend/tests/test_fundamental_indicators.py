@@ -170,7 +170,7 @@ def test_ebitda_indicators_are_computed_once_ebitda_is_supplied():
     assert result.ebitda_margin == 0.25
 
 
-def test_roic_is_none_without_ebit_and_tax_rate():
+def test_roic_is_none_without_ebit_and_tax_figures():
     result = compute_indicators(_inputs())
 
     assert result.roic is None
@@ -183,24 +183,111 @@ def test_roic_is_none_when_only_ebit_is_supplied():
     assert result.roic is None
 
 
-def test_roic_is_computed_once_ebit_and_tax_rate_are_supplied():
+def test_roic_uses_the_effective_tax_rate_reported_for_the_period():
     result = compute_indicators(
         _inputs(
             ebit=Decimal(300),
-            effective_tax_rate=Decimal("0.34"),
+            income_before_tax=Decimal(1000),
+            income_tax_expense=Decimal(-340),
             debt=Decimal(400),
             equity=Decimal(600),
             cash=Decimal(100),
         )
     )
 
-    # NOPAT = 300 * 0.66 = 198; invested capital = 400 + 600 - 100 = 900
+    # effective rate = 340/1000 = 0.34; NOPAT = 300 * 0.66 = 198
+    # invested capital = 400 + 600 - 100 = 900 -> 198/900
     assert result.roic == 0.22
+
+
+def test_effective_tax_rate_comes_from_the_data_not_a_headline_rate():
+    # 26.56% here, not Brazil's nominal 34% (ADR-014). Brapi's own
+    # cleanNopat field would have applied 34% to every period.
+    result = compute_indicators(
+        _inputs(
+            ebit=Decimal(1000),
+            income_before_tax=Decimal(10000),
+            income_tax_expense=Decimal(-2656),
+            debt=Decimal(0),
+            equity=Decimal(1000),
+            cash=Decimal(0),
+        )
+    )
+
+    assert result.roic == 0.7344
+
+
+def test_roic_is_none_when_the_implied_tax_rate_is_absurd():
+    # Petrobras 2020, verbatim: a R$ 6.2bn tax *benefit* (positive
+    # expense) against R$ 37m of pre-tax income implies a rate of
+    # -16,780%. Before the guard this produced a ROIC of -1096%.
+    result = compute_indicators(
+        _inputs(
+            ebit=Decimal(49_621_000_000),
+            income_before_tax=Decimal(37_000_000),
+            income_tax_expense=Decimal(6_209_000_000),
+            debt=Decimal(505_058_000_000),
+            equity=Decimal(311_150_000_000),
+            cash=Decimal(60_856_000_000),
+        )
+    )
+
+    assert result.roic is None
+
+
+def test_a_tax_benefit_is_not_treated_as_a_burden():
+    # A positive tax expense is a credit; taking its absolute value would
+    # invert its meaning. A negative rate is not usable for NOPAT.
+    result = compute_indicators(
+        _inputs(
+            ebit=Decimal(1000),
+            income_before_tax=Decimal(1000),
+            income_tax_expense=Decimal(100),
+            debt=Decimal(0),
+            equity=Decimal(1000),
+            cash=Decimal(0),
+        )
+    )
+
+    assert result.roic is None
+
+
+def test_roic_is_none_when_tax_exceeds_pre_tax_income():
+    result = compute_indicators(
+        _inputs(
+            ebit=Decimal(1000),
+            income_before_tax=Decimal(100),
+            income_tax_expense=Decimal(-150),
+            debt=Decimal(0),
+            equity=Decimal(1000),
+            cash=Decimal(0),
+        )
+    )
+
+    assert result.roic is None
+
+
+def test_roic_is_none_in_a_loss_making_year():
+    # A negative pre-tax result makes tax/pre-tax not a rate at all.
+    result = compute_indicators(
+        _inputs(
+            ebit=Decimal(300),
+            income_before_tax=Decimal(-1000),
+            income_tax_expense=Decimal(-50),
+        )
+    )
+
+    assert result.roic is None
 
 
 def test_roic_is_none_when_any_invested_capital_component_is_missing():
     result = compute_indicators(
-        _inputs(ebit=Decimal(300), effective_tax_rate=Decimal("0.34"), cash=None)
+        _inputs(
+            ebit=Decimal(300),
+            income_before_tax=Decimal(1000),
+            income_tax_expense=Decimal(-340),
+            cash=None,
+        )
     )
 
     assert result.roic is None

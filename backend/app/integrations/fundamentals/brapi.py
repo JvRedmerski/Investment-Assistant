@@ -2,39 +2,63 @@
 (https://brapi.dev), which exposes Yahoo-style financial statement
 modules for B3 tickers.
 
-CAVEAT — read before relying on this in production: like
-`app.integrations.market_data.brapi`, this parser was written against
-Brapi's publicly documented module shape and has been exercised only
-against mocked HTTP responses (no outbound network access in this
-environment — see docs/PROJECT_STATUS.md). The module names, their
-nesting, and the individual field names below are **not confirmed
-against a live response**. Smoke-test before real ingestion.
+VERIFIED against a live response on 2026-08-17 (W06-003), using a single
+`GET /quote/PETR4` with 16 annual periods. The mapping below reflects
+what the API actually returns, not what its documentation implies — the
+first version of this parser was written from the docs alone and got two
+fields wrong (see "Corrections" at the end).
 
 Field mapping (AGENTS.md rule 44 — never invent a figure; a line item
 the source does not report stays `None`):
 
-| our field       | source                                              |
-|-----------------|-----------------------------------------------------|
-| revenue         | incomeStatement.totalRevenue                         |
-| net_income      | incomeStatement.netIncome                            |
-| equity          | balanceSheet.totalStockholderEquity                  |
-| cash            | balanceSheet.cash                                    |
-| debt            | balanceSheet.totalDebt, else shortLongTermDebt +     |
-|                 | longTermDebt (both are reported liability lines, so  |
-|                 | summing them is arithmetic on real data, not an      |
-|                 | estimate); `None` if neither is present              |
-| ebitda          | always `None` — see below                            |
-| free_cash_flow  | always `None` — see below                            |
+| our field          | source                                            |
+|--------------------|---------------------------------------------------|
+| revenue            | income.totalRevenue                    (16/16)    |
+| net_income         | income.netIncome                       (16/16)    |
+| ebit               | income.ebit                            (16/16)    |
+| income_before_tax  | income.incomeBeforeTax                 (16/16)    |
+| income_tax_expense | income.incomeTaxExpense                (16/16)    |
+| cash               | balance.cash                           (16/16)    |
+| equity             | balance.shareholdersEquity             (16/16)    |
+| debt               | sum of the six reported financial-debt and lease  |
+|                    | lines (each 16/16), see `_DEBT_COMPONENTS`        |
+| ebitda             | always `None` — see below                         |
+| free_cash_flow     | always `None` — see below                         |
 
-`ebitda` and `free_cash_flow` are intentionally left unpopulated. Brapi
-exposes them only through `financialData`, which is a trailing-twelve-
-months snapshot with no period end date. Attaching a TTM figure to a
-historical `reference_date` would attribute data to a period it does not
-belong to — precisely the look-ahead/point-in-time violation AGENTS.md
-rules 108/109 forbid. Deriving them instead (EBITDA from EBIT +
-depreciation, FCF from operating cash flow − capex) depends on sign and
-labelling conventions that cannot be verified without a live response,
-and a silently wrong number is worse than an honest `None`.
+Only rows with `type == "yearly"` are returned; the module carries a
+`type` discriminator and quarterly rows must not be mixed in (ADR-013).
+
+`ebitda` stays `None` on evidence, not assumption. Brapi exposes a
+`cleanEbitda` field on every period, but it is **identical to `ebit` in
+all 16 periods** — no depreciation or amortisation is added back, so it
+is not EBITDA. Storing it as such would put a silently wrong number
+behind `debt_ebitda` and `ebitda_margin`, which is worse than an honest
+gap (rule 44).
+
+`free_cash_flow` stays `None`: the cash flow statement module was not
+requested, and deriving FCF from operating cash flow − capex depends on
+a sign convention not yet verified.
+
+Deliberately **not** used, though present in the response:
+- `cleanNopat` — applies a flat 34% tax rate to every period, while the
+  actual effective rates for PETR4 range from 26.6% to 32.4%. ROIC is
+  instead derived from the reported tax figures (ADR-014: never assume a
+  rate).
+- `defaultKeyStatistics.sharesOutstanding` / `dividendYield` /
+  `marketCap` — current snapshots with no period end date. Applying
+  today's share count to a 2010 statement would attribute present-day
+  facts to a past period (rules 108/109), so `pe`, `pb` and `dy` remain
+  uncomputable pending a per-period source.
+
+## Corrections to the pre-verification mapping
+
+- `equity` read `totalStockholderEquity`, which is **null in all 16
+  periods**. The populated field is `shareholdersEquity`.
+- `debt` read `totalDebt` (not a key at all) with a fallback to
+  `shortLongTermDebt` + `longTermDebt`, **both null in all 16 periods**.
+
+Both bugs made their indicators silently `None` on real data — including
+`roe`, which needs equity.
 """
 
 import logging
@@ -57,6 +81,35 @@ from app.integrations.http import RetryingJsonClient
 logger = logging.getLogger("investment_assistant.fundamentals.brapi")
 
 _MODULES = "incomeStatementHistory,balanceSheetHistory"
+
+#: Only annual periods are ingested (ADR-013).
+_ANNUAL_ROW_TYPE = "yearly"
+
+#: Equity, in order of preference. `shareholdersEquity` is the field the
+#: live response populates; the other two are the documented names, kept
+#: as fallbacks in case another ticker or API version uses them.
+_EQUITY_FIELDS = (
+    "shareholdersEquity",
+    "totalStockholderEquity",
+    "controllerShareholdersEquity",
+)
+
+#: Gross financial debt, summed from the individual reported lines.
+#: Summing reported liability lines is arithmetic on real data, not an
+#: estimate. Leases are included: they are contractual debt-like
+#: obligations under IFRS 16 and excluding them would understate
+#: leverage for a capital-intensive company.
+_DEBT_COMPONENTS = (
+    "loansAndFinancing",
+    "longTermLoansAndFinancing",
+    "debentures",
+    "longTermDebentures",
+    "leaseFinancing",
+    "longTermLeaseFinancing",
+)
+
+#: Aggregate debt fields, tried before falling back to the components.
+_DEBT_TOTAL_FIELDS = ("totalDebt",)
 
 
 class BrapiFundamentalsProvider(FundamentalsProvider):
@@ -144,10 +197,14 @@ def _rows_by_reference_date(
 ) -> dict[date, dict[str, Any]]:
     """Pull one module's statement rows out, keyed by period end date.
 
-    Brapi wraps a module either as a bare list or as an object containing
-    the list under a nested key (the Yahoo-derived shape). Both are
-    accepted because the exact nesting could not be verified live; an
+    The live response returns a bare list; an object wrapping the list
+    under a nested key (the Yahoo-derived shape the docs suggest) is also
+    accepted, since other tickers or a future version may use it. An
     unrecognised shape is reported rather than silently ignored.
+
+    Rows whose `type` is not `yearly` are dropped: the `fundamentals`
+    table keys on `(asset_id, reference_date)` and cannot distinguish a
+    fiscal year from a quarter sharing that end date (ADR-013).
 
     A row without a usable `endDate` is skipped with a warning: it cannot
     be attributed to a reference period, and guessing one would violate
@@ -179,6 +236,10 @@ def _rows_by_reference_date(
             raise InvalidFundamentalsResponseError(
                 f"Brapi module '{module_key}' for {ticker} contains a non-object row."
             )
+        row_type = row.get("type")
+        if row_type is not None and row_type != _ANNUAL_ROW_TYPE:
+            continue
+
         raw_end_date = row.get("endDate")
         if raw_end_date is None:
             logger.warning(
@@ -202,12 +263,17 @@ def _build_statement(
         return FinancialStatement(
             reference_date=reference_date,
             revenue=_decimal_or_none(income.get("totalRevenue")),
-            ebitda=None,  # not available per period — see module docstring
+            # `cleanEbitda` is identical to `ebit` in every period the
+            # live response returns, so it is not EBITDA — see docstring.
+            ebitda=None,
             net_income=_decimal_or_none(income.get("netIncome")),
-            equity=_decimal_or_none(balance.get("totalStockholderEquity")),
+            equity=_first_reported(balance, _EQUITY_FIELDS),
             debt=_total_debt(balance),
             cash=_decimal_or_none(balance.get("cash")),
-            free_cash_flow=None,  # not available per period — see docstring
+            free_cash_flow=None,  # cash flow module not requested
+            ebit=_decimal_or_none(income.get("ebit")),
+            income_before_tax=_decimal_or_none(income.get("incomeBeforeTax")),
+            income_tax_expense=_decimal_or_none(income.get("incomeTaxExpense")),
         )
     except (InvalidOperation, ValueError) as exc:
         raise InvalidFundamentalsResponseError(
@@ -216,16 +282,33 @@ def _build_statement(
         ) from exc
 
 
+def _first_reported(
+    row: dict[str, Any], field_names: tuple[str, ...]
+) -> Decimal | None:
+    """The first of `field_names` the source actually reports."""
+    for name in field_names:
+        value = _decimal_or_none(row.get(name))
+        if value is not None:
+            return value
+    return None
+
+
 def _total_debt(balance: dict[str, Any]) -> Decimal | None:
-    total = _decimal_or_none(balance.get("totalDebt"))
+    """Gross financial debt for the period.
+
+    Prefers an aggregate field if the source provides one; otherwise sums
+    the individual reported debt and lease lines. Returns `None` when the
+    source reports none of them, rather than a misleading zero.
+    """
+    total = _first_reported(balance, _DEBT_TOTAL_FIELDS)
     if total is not None:
         return total
 
-    components = [
-        _decimal_or_none(balance.get("shortLongTermDebt")),
-        _decimal_or_none(balance.get("longTermDebt")),
+    reported = [
+        value
+        for name in _DEBT_COMPONENTS
+        if (value := _decimal_or_none(balance.get(name))) is not None
     ]
-    reported = [value for value in components if value is not None]
     if not reported:
         return None
     return sum(reported, Decimal(0))

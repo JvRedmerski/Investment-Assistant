@@ -28,7 +28,17 @@ Como percentual, crescimento sobre base negativa não é interpretável. O módu
 
 NOPAT = `ebit × (1 − alíquota efetiva)`. Ambos os insumos são obrigatórios. Adotar a alíquota nominal brasileira (34% = IRPJ 25% + CSLL 9%) como default embutiria uma premissa de modelagem dentro de um número apresentado como medido (AGENTS.md §44).
 
-Quando o EBIT for ingerido, a origem da alíquota vira uma decisão explícita a tomar.
+**Resolvido na W06-003**: a alíquota efetiva é derivada por período dos valores reportados, `−income_tax_expense / income_before_tax`. Vale notar que a Brapi oferece um campo `cleanNopat` pronto — e ele aplica **34% fixos a todos os períodos**, enquanto as alíquotas efetivas reais da PETR4 vão de 26,6% a 32,4%. Usar o campo do provedor teria importado exatamente a premissa que este ADR proíbe.
+
+### 4. Alíquota derivada fora de [0, 1] → `None` (adicionado na W06-003)
+
+`NOPAT = ebit × (1 − t)` só faz sentido para `t` entre 0 e 1. Fora dessa faixa a fórmula infla o NOPAT acima do EBIT ou inverte seu sinal.
+
+O caso real que expôs isso: a Petrobras em 2020 reportou um **benefício** fiscal de R$ 6,2 bi (despesa positiva) contra R$ 37 mi de lucro antes de impostos — alíquota implícita de −16.780%, que produzia um ROIC de **−1096%** antes da guarda existir.
+
+Também importa o sinal: despesa de imposto é reportada como número negativo, então a alíquota é `−despesa / lucro antes de impostos`. Usar `abs()` transformaria um crédito tributário em ônus — foi o bug original.
+
+Uma alíquota fora da faixa indica que os dois valores reportados são inconsistentes ou o período foi extraordinário — não que aprendemos algo sobre rentabilidade.
 
 ## Evidence
 

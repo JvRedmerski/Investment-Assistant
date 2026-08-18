@@ -70,9 +70,21 @@
 - Política de dado faltante: `None` = não computável, nunca zero ([ADR-014](../decisions/ADR-014-indicator-missing-data-policy.md))
 - +44 testes (total 184)
 
-**Resultado da wave: ⚠️ parcial.** Só 4 indicadores produzem valor (`roe`, `net_margin`, `revenue_growth`, `profit_growth`); os outros 6 carecem de insumo não ingerido.
+**W06-003 — Validação contra a API real e correção do mapeamento** 🟢 (criada nesta wave, não prevista no roadmap original)
+- **Parsers validados contra uma resposta real da Brapi** (1 requisição), fechando lacuna aberta desde a Wave 05
+- Market data: correto. Fundamentals: **dois bugs silenciosos** — `equity` e `debt` liam campos null em 16/16 períodos, deixando `roe` sempre `None` em dados reais
+- `cleanEbitda` identificado como cópia de `ebit`: `ebitda` segue `NULL`, agora por evidência (corrige o ADR-013)
+- ROIC destravado com alíquota efetiva derivada por período; `cleanNopat` da Brapi descartado por aplicar 34% fixos
+- Guarda para alíquota absurda (PETR4 2020 produzia ROIC de −1096%)
+- Migration `004` (`ebit`, `income_before_tax`, `income_tax_expense`); filtro `type == "yearly"`
+- Política de recomputação de derivados ([ADR-015](../decisions/ADR-015-indicator-recomputation.md))
+- +21 testes (total 205), incl. regressão com a resposta real
 
-**W06-003 — Captação dos insumos faltantes** ⚪ — criada nesta wave, não prevista no roadmap original. Ver [../memory/CURRENT_TASK.md](../memory/CURRENT_TASK.md).
+**Resultado da wave: 🟢 concluída.** Cinco indicadores produzem valor (`roe`, `roic`, `net_margin`, `revenue_growth`, `profit_growth`); os cinco restantes têm limitação **evidenciada** contra a API, não suposta.
+
+## Wave 07 — Quant Engine ⚪
+
+Próxima. Ver [../memory/CURRENT_TASK.md](../memory/CURRENT_TASK.md).
 
 ---
 

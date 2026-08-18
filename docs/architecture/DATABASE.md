@@ -17,6 +17,7 @@
   - `001_initial_schema` — as 13 tabelas.
   - `002_numeric_money_columns` — converte `transactions.{quantity,price,fees}` e `asset_prices.{open,high,low,close,adjusted_close}` de `FLOAT` para `NUMERIC(18,6)`.
   - `003_numeric_fundamentals_columns` — converte as sete colunas monetárias de `fundamentals` de `FLOAT` para `NUMERIC(24,4)`.
+  - `004_fundamentals_income_detail` — adiciona `ebit`, `income_before_tax` e `income_tax_expense` a `fundamentals`.
 - Todas foram **escritas manualmente**, não por autogenerate.
 
 ```powershell
@@ -27,7 +28,7 @@ alembic revision --autogenerate -m "descrição"   # sempre revisar o resultado 
 
 Regras invioláveis (AGENTS.md §14/§15): nunca alterar tabela fora de migration; nunca editar migration já aplicada; nunca recriar histórico; toda migration precisa de `upgrade` e, quando possível, `downgrade`.
 
-⚠️ **`002` e `003` nunca foram aplicadas contra um PostgreSQL real** — só validadas estruturalmente e contra SQLite. Rodar `alembic upgrade head` com Postgres de pé é pendência aberta.
+⚠️ **`002`, `003` e `004` nunca foram aplicadas contra um PostgreSQL real** — só validadas estruturalmente e contra SQLite. Rodar `alembic upgrade head` com Postgres de pé é pendência aberta.
 
 ## Entidades (13 tabelas)
 
@@ -56,8 +57,8 @@ Agrupadas por domínio; `id` serial PK e `created_at` são universais e foram om
 ### Fundamentos
 | Tabela | Campos-chave | Usada? |
 |---|---|---|
-| `fundamentals` | `asset_id`, `reference_date`, `revenue`, `ebitda`, `net_income`, `equity`, `debt`, `cash`, `free_cash_flow` (todos nullable, `NUMERIC(24,4)`) | ✅ W06-001 — só demonstrativos **anuais** |
-| `financial_indicators` | `asset_id`, `reference_date`, `pe`, `pb`, `roe`, `roic`, `dy`, `debt_ebitda`, `net_margin`, `ebitda_margin`, `revenue_growth`, `profit_growth` (`Float`, deliberado — são razões, não moeda) | ✅ W06-002 — 4 dos 10 populados; os demais `NULL` por falta de insumo |
+| `fundamentals` | `asset_id`, `reference_date`, `revenue`, `ebitda`, `net_income`, `equity`, `debt`, `cash`, `free_cash_flow`, `ebit`, `income_before_tax`, `income_tax_expense` (todos nullable, `NUMERIC(24,4)`) | ✅ W06-001/003 — só demonstrativos **anuais** |
+| `financial_indicators` | `asset_id`, `reference_date`, `pe`, `pb`, `roe`, `roic`, `dy`, `debt_ebitda`, `net_margin`, `ebitda_margin`, `revenue_growth`, `profit_growth` (`Float`, deliberado — são razões, não moeda) | ✅ W06-002/003 — 5 dos 10 populados; os demais `NULL` por limitação evidenciada da fonte |
 
 ### Recomendações e Day Trade
 | Tabela | Campos-chave | Usada? |

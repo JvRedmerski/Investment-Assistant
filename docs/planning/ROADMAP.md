@@ -7,7 +7,7 @@ Legenda: 🟢 concluída · 🟡 em progresso · ⚪ não iniciada
 
 ## Estado geral
 
-**6 / 33 concluídas + Wave 06 ⚠️ parcial.** Fronteira atual: **W06-003 ou Wave 07** (decisão pendente — ver [CURRENT_TASK](../memory/CURRENT_TASK.md)).
+**7 / 33 concluídas.** Fronteira atual: **Wave 07 — Quant Engine**.
 
 ## MVP → V1
 
@@ -30,8 +30,8 @@ Legenda: 🟢 concluída · 🟡 em progresso · ⚪ não iniciada
 
 | Wave | Objetivo | Status | Depende de | Spec |
 |---|---|---|---|---|
-| **W06** | **Fundamental Data** — W06-001 ingestão 🟢 · W06-002 indicadores 🟢 · W06-003 insumos faltantes ⚪ | ⚠️ **parcial** | W05 | §18 |
-| **W07** | **Quant Engine** — `returns.py`, `risk.py` (CAGR, vol, beta, drawdown, Sharpe, Sortino) | ⚪ **próxima recomendada** | W05 | §19 |
+| W06 | Fundamental Data — ingestão 🟢 · indicadores 🟢 · validação real 🟢 | 🟢 | W05 | §18 |
+| **W07** | **Quant Engine** — `returns.py`, `risk.py` (CAGR, vol, beta, drawdown, Sharpe, Sortino) | ⚪ **atual** | W05 | §19 |
 | W08 | Benchmark Engine — séries de CDI/IBOV/IPCA e comparativo | ⚪ | W07 | §20 |
 | W09 | Recommendation Engine — sub-scores e alocação do aporte mensal | ⚪ | W06 (**incl. W06-003**), W07 | §21 |
 | W10 | Rebalanceamento — target weights, weight gaps, restrições conservadoras | ⚪ | W09 | §22 |
@@ -91,8 +91,9 @@ Não pule para IA ou Day Trade (AGENTS.md §96). Uma wave por vez (§133) — ex
 
 Não bloqueiam a W06, mas precisam ser resolvidas antes de produção:
 
-- Aplicar `alembic upgrade head` contra PostgreSQL real (`002` e `003` nunca rodaram lá).
-- Validar os **dois** parsers da Brapi (market data e fundamentals) contra a API real.
+- Aplicar `alembic upgrade head` contra PostgreSQL real (`002`, `003` e `004` nunca rodaram lá).
+- Validar o parser da Brapi com tickers de outros tipos (FII, ETF, BDR, banco) — só a PETR4 foi verificada; bancos e seguradoras têm linhas de balanço próprias.
+- Recomputar indicadores gravados antes da W06-003 (`?recompute=true`).
 - Suportar demonstrativos trimestrais e reexpressões: exige coluna de período / versionamento em `fundamentals` ([ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md)).
 - Task dedicada de lint cleanup no backend (findings pré-existentes da W02).
 - Consertar `npm run lint` no frontend (falta `eslint`).
