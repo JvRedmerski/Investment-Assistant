@@ -426,8 +426,8 @@ Status: ⚪ NOT_STARTED
 ## Current Task
 
 Wave: 07
-Task ID: W07-001
-Task Name: Quant Engine — módulo `returns.py`
+Task ID: W07-002
+Task Name: Quant Engine — módulo `risk.py`
 Status: ⚪ NOT_STARTED
 
 Completed:
@@ -474,6 +474,7 @@ Wave 07 — Quant Engine. `returns.py` (diário, semanal, mensal, trimestral, YT
 - **W06-003**: Validação contra a API real, correção do mapeamento e captação de insumos (🟢 COMPLETED)
 - **W06-004**: Manutenção pré-Wave 07 — ambiente Postgres real, migrations aplicadas, validação multi-tipo do parser (🟢 COMPLETED)
 - **W06-005**: Correção do `adjusted_close` fabricado a partir do `close` (ADR-016) (🟢 COMPLETED)
+- **W07-001**: Quant Engine — módulo `returns.py` (diário, semanal, mensal, trimestral, YTD, anual, CAGR) (🟢 COMPLETED)
 
 ---
 
@@ -584,6 +585,13 @@ Nenhuma tarefa bloqueada no momento.
 - **Custo aceito**: a sessão fechada mais recente pode faltar por ~1 dia; `rejected: 1` no sync diário passa a ser rotina, não sinal de problema de qualidade.
 - **Status**: 🟢 APPROVED. Registrado como `docs/decisions/ADR-016`.
 
+### Decision — 2026-08-18 — Anualização e tipo numérico no Quant Engine (ADR-017)
+- **Decision**: retornos anualizam em **dias corridos (ACT/365 fixo)**; volatilidade anualizará em **252 pregões** na W07-002. `returns.py` fica inteiramente em `Decimal` — **sem** fronteira `float` e sem `numpy`.
+- **Reason**: as duas convenções de anualização não são alternativas para a mesma pergunta. Retorno composto escala com **tempo decorrido** (feriado não suspende juro); volatilidade escala com **número de observações** (~252/ano). Misturá-las corrompe o Sharpe por um fator constante (`sqrt(365/252) ~ 1,20`) sem que nada no resultado denuncie. Quanto ao tipo: retorno só exige subtração, divisão e exponenciação fracionária — todas operações determinísticas de `Decimal` — então `float` custaria precisão sem comprar nada, e os valores são encadeados pela W08/W13.
+- **A fronteira `float` não foi antecipada de propósito**: ela é real em `risk.py` (desvio-padrão, covariância) e deve ser decidida lá, com o cálculo concreto em mãos, em vez de importar `numpy` para cumprir uma expectativa documentada (regras 92 e 134).
+- **Nota de validação**: o caso conhecido de CAGR foi escrito assumindo 730 dias entre 2024-01-01 e 2026-01-01. Sao 731 — 2024 e bissexto. O teste falhou e o intervalo foi corrigido. Evidencia de que os valores sao calculados a mao e conferidos, nao ajustados ao que o codigo devolveu.
+- **Status**: APPROVED. Registrado como `docs/decisions/ADR-017`.
+
 ---
 
 ## Future Work
@@ -601,10 +609,10 @@ Nenhuma tarefa bloqueada no momento.
 
 ## Last Execution
 - **Timestamp**: 2026-08-18T00:00:00-03:00
-- **Action**: W06-004 — manutenção pré-Wave 07. Subida do PostgreSQL real, correção de `migrations/env.py` (`is_offline()` → `is_offline_mode()`), aplicação das migrations `001`→`004`, verificação de que não havia dado gravado (pendência de recomputação anulada), e validação do parser de market data contra respostas reais de FII (HGLG11), ETF (BOVA11) e banco (ITUB4).
-- **Result**: Sucesso parcial. 211/211 testes passando (205 baseline + 6 novos), `ruff`/`black` limpos nos arquivos alterados. Market data validado para as três classes de ativo. **Fundamentals ficou bloqueado**: os módulos de demonstrativos saíram do plano gratuito da Brapi (HTTP 403). **5 requisições à API no total.**
+- **Action**: W07-001 — `app/quant/returns.py`: `simple_return`, `period_returns` (diario/semanal ISO/mensal/trimestral/anual), `total_return`, `ytd_return`, `cagr`. Funcoes puras, sem I/O, tudo em `Decimal`. Convencao de anualizacao e tipo numerico registrados em ADR-017. Precedido pela correcao do `adjusted_close` (ADR-016), feita antes por o banco estar vazio.
+- **Result**: Sucesso. 262/262 testes passando (215 + 47 novos), `ruff` e `black` limpos nos arquivos alterados. Nenhuma regressao.
 
 ---
 
 ## Next Action
-Wave 07 — Quant Engine: `app/quant/returns.py` e `app/quant/risk.py` sobre as séries de `asset_prices`. Ver `docs/memory/CURRENT_TASK.md`.
+W07-002 — `app/quant/risk.py` (volatilidade, beta, max drawdown, Sharpe, Sortino). Definir `TRADING_DAYS_PER_YEAR = 252` **proprio**, nao reutilizar `DAYS_PER_YEAR`, e registrar a fronteira `Decimal -> float` (ADR-017 deixa essa parte explicitamente em aberto). Ver `docs/memory/CURRENT_TASK.md`.

@@ -6,7 +6,7 @@
 
 ## Current Phase
 
-**Wave 06 concluída** + manutenção W06-004. Próxima: **Wave 07 — Quant Engine**.
+**Wave 07 em andamento** — W07-001 (`returns.py`) concluída; W07-002 (`risk.py`) é a próxima.
 7 de 33 waves concluídas (W00–W06).
 
 ⚠️ **Mudança externa relevante**: os módulos de demonstrativos da Brapi saíram do plano gratuito (403 em 2026-08-18). A ingestão de fundamentals está inoperante por plano. Não bloqueia a W07, que só consome `asset_prices`; bloqueia a W09.
@@ -19,7 +19,7 @@
 | **In Progress** | — nenhuma |
 | **Blocked** | — nenhuma |
 
-Baseline atual: `pytest` → **215 passed** (backend/.venv).
+Baseline atual: `pytest` → **262 passed** (backend/.venv).
 
 ## Completed Work (nível wave)
 
@@ -41,11 +41,11 @@ Detalhe por task: [../history/COMPLETED_TASKS.md](../history/COMPLETED_TASKS.md)
 
 ## Current Work
 
-Nada em execução. Wave 06 fechada; pendências operacionais herdadas resolvidas na W06-004 (2026-08-18).
+**Wave 07 — Quant Engine.** `app/quant/returns.py` entregue (W07-001), com anualização e tipo numérico decididos em [ADR-017](../decisions/ADR-017-annualisation-and-numeric-type.md). Falta `risk.py` (W07-002).
 
 ## Next Recommended Step
 
-**Wave 07 — Quant Engine**: `app/quant/returns.py` e `risk.py` sobre `asset_prices`. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
+**W07-002 — `app/quant/risk.py`**: volatilidade, beta, max drawdown, Sharpe, Sortino. Duas amarras deixadas por [ADR-017](../decisions/ADR-017-annualisation-and-numeric-type.md): definir um `TRADING_DAYS_PER_YEAR = 252` **próprio** (reutilizar `DAYS_PER_YEAR = 365` corromperia o Sharpe por ~1,20) e registrar a fronteira `Decimal → float`, que ali é real. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ## Known Issues
 

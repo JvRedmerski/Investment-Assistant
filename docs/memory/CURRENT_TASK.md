@@ -2,7 +2,7 @@
 
 ## Task
 
-**W07-001 / W07-002 — Quant Engine: Returns & Risk** (Wave 07)
+**W07-002 — Quant Engine: Risk** (Wave 07)
 
 ## Status
 
@@ -10,84 +10,83 @@
 
 ## Objective
 
-Criar `app/quant/`, o módulo que o AGENTS.md §24 define como o lugar de **todo** cálculo financeiro do projeto:
-
-- **`returns.py`** — retorno diário, semanal, mensal, trimestral, YTD, anual e CAGR.
-- **`risk.py`** — volatilidade, beta, maximum drawdown, Sharpe, Sortino.
-
-Sobre as séries de `asset_prices`.
-
-⚠️ A tabela está **vazia** (verificado 2026-08-18): nunca houve ingestão. Como as funções devem ser **puras e sem I/O** (requisito 1), isso não bloqueia a implementação nem os testes, que usam séries construídas à mão. Mas não presuma dado disponível ao projetar, e planeje uma ingestão pequena se quiser conferir ponta a ponta — custa 1 requisição por ticker.
+`app/quant/risk.py` — volatilidade, beta, maximum drawdown, Sharpe e Sortino, sobre as mesmas séries que `returns.py` consome.
 
 ## Context
 
-Este é o coração quantitativo do produto. Tudo que vem depois se apoia nele: benchmarks (W08), scores de recomendação (W09), backtesting (W13). Uma fórmula errada aqui contamina todas as waves seguintes de forma invisível.
+W07-001 entregou `app/quant/returns.py`: `simple_return`, `period_returns` (diário, semanal ISO, mensal, trimestral, anual), `total_return`, `ytd_return` e `cagr`. Funções puras, sem I/O, tudo em `Decimal`. 47 testes com valores conhecidos.
 
-A Wave 06 fechou com 5 dos 10 indicadores fundamentalistas produzindo valor; os outros 5 têm limitação evidenciada e documentada. A W07 **não depende deles**.
+Este módulo é o par do anterior, e é onde vencem as duas amarras deixadas por [ADR-017](../decisions/ADR-017-annualisation-and-numeric-type.md).
+
+## ⚠️ Duas amarras herdadas do ADR-017 — leia antes de escrever código
+
+### 1. `TRADING_DAYS_PER_YEAR = 252`, definido aqui, **não** importado de `returns.py`
+
+`returns.py` define `DAYS_PER_YEAR = Decimal(365)` porque **retorno composto escala com tempo decorrido** — feriado não suspende juro. Volatilidade é outra grandeza: é uma estatística **por observação**, e anualizá-la é multiplicar por `√(observações por ano)` ≈ `√252`.
+
+Reutilizar os 365 aqui infla a volatilidade anualizada em ~19% (`√(365/252) ≈ 1,20`) e, como o Sharpe divide retorno anualizado por volatilidade anualizada, o índice sai errado por um fator constante — **sem que nada no resultado denuncie**. Se um Sharpe futuro parecer estranho por ~1,2, é o primeiro lugar a olhar.
+
+Definir a constante local, com a justificativa ao lado, como `returns.py` faz com a sua.
+
+### 2. A fronteira `Decimal → float` precisa ser decidida e registrada **nesta task**
+
+`returns.py` não tem essa fronteira, de propósito: subtração, divisão e exponenciação fracionária são todas operações determinísticas de `Decimal`, então `float` custaria precisão sem comprar nada. O ADR-017 cobre **apenas a ausência dela em retornos**, e diz explicitamente que a decisão para risco fica em aberto.
+
+Aqui a necessidade é real: desvio-padrão, covariância (beta) e raiz quadrada. A regra 17 do AGENTS.md permite `float` para cálculo estatístico **desde que a decisão seja documentada**. Avaliar antes de importar `numpy`: `Decimal` tem `sqrt()`, e desvio-padrão/covariância são somas, subtrações e divisões — pode ser que `Decimal` baste aqui também. Decidir com o cálculo em mãos, não por expectativa. Registrar em ADR próprio (ou como adendo datado ao ADR-017, se a decisão for simétrica).
 
 ## Relevant Areas
 
-- Backend — novo pacote `app/quant/`
-- Backend — Domain (persistência/exposição, se a task chegar até lá)
+- Backend — `app/quant/` (pacote já criado)
 
 ## Relevant Files
 
-**Moldes de cálculo puro a seguir:**
-- `backend/app/domain/fundamentals/indicators.py` — o mais recente: função pura, `Decimal`, política de dado faltante, cada fórmula documentada na docstring
-- `backend/app/domain/portfolio/service.py` — replay determinístico ordenado
+**Molde direto a seguir** (mesmo pacote, escrito nesta wave):
+- `backend/app/quant/returns.py` — política de dado faltante, constantes documentadas com justificativa, `_usable` estabelecendo pré-condições, `PeriodReturn` carregando o intervalo realmente medido
+- `backend/tests/test_quant_returns.py` — valores conhecidos calculados à mão + edge cases
 
-**Fonte de dados:**
-- `backend/app/data/models/assets.py` — `AssetPrice` (`date`, OHLC `Decimal`, `adjusted_close`, `volume`)
+**Outros moldes:**
+- `backend/app/domain/fundamentals/indicators.py` — função pura com fórmula documentada por indicador
+- [ADR-014](../decisions/ADR-014-indicator-missing-data-policy.md) — dado faltante → `None`, vale aqui também
 
-**Testes-molde:**
-- `backend/tests/test_fundamental_indicators.py` — valores conhecidos + edge cases
-
-**Leitura obrigatória antes de começar:**
-- `docs/roadmap.md` §19 (Wave 7)
-- `AGENTS.md` §24 (quant engine), §25 (retornos), §26 (retorno de carteira ≠ variação patrimonial), §27 (risco), §128 (DoD quant)
-- [ADR-014](../decisions/ADR-014-indicator-missing-data-policy.md) — política de dado faltante, vale aqui também
+**Leitura obrigatória:**
+- `AGENTS.md` §27 (risco: cada métrica com definição, fórmula, periodicidade, tratamento de dados, testes), §17 (dinheiro e precisão), §128 (DoD quant)
+- [ADR-017](../decisions/ADR-017-annualisation-and-numeric-type.md) — as duas amarras acima
+- `docs/roadmap.md` §19
 
 ## Requirements
 
-1. Funções **puras**, sem I/O, em `app/quant/`. Persistência separada.
-2. Cada métrica com **fórmula, periodicidade e metodologia documentadas** (§128) — incluindo a convenção de anualização escolhida (252 pregões vs. 365 dias) e o porquê.
-3. **Usar `adjusted_close`, não `close`**, para retornos: proventos e desdobramentos distorcem a série de preço bruto.
-4. Distinguir claramente retorno do **ativo**, retorno da **carteira** e **variação patrimonial** (§26). Com aportes intermediários, `(atual − inicial)/inicial` **não** é rentabilidade — usar TWR ou MWR/IRR quando aplicável.
-5. Dado faltante, série curta demais e divisão por zero → `None`, nunca zero nem exceção ([ADR-014](../decisions/ADR-014-indicator-missing-data-policy.md)).
-6. Sem look-ahead: toda janela usa apenas dados até a data de referência (§108).
-7. Beta e Sharpe exigem referência externa (índice, taxa livre de risco) que **ainda não existe** no sistema — a série de CDI/IBOV é da Wave 08. Projetar a assinatura recebendo a série de referência como parâmetro e deixá-la `None` até a W08, em vez de antecipar a wave.
-8. Testes com **casos conhecidos**: entrada conhecida → resultado esperado conhecido, calculado à mão (§68). Não apenas "não quebra".
+1. Funções **puras**, sem I/O. Persistência separada.
+2. Cada métrica com **definição, fórmula, periodicidade e tratamento de dado faltante** documentados (§27, §128).
+3. **Beta e Sharpe exigem referência externa** (série de índice, taxa livre de risco) que **não existe** no sistema — CDI/IBOV é a Wave 08. Projetar a assinatura **recebendo a série de referência como parâmetro** e retornando `None` quando ela não vier, em vez de antecipar a W08.
+4. Dado faltante, série curta demais e divisão por zero → `None`, nunca zero nem exceção.
+5. Sem look-ahead: aceitar `as_of` e nunca ler além dele (§108), como `returns.py` faz.
+6. Testes com **valores conhecidos calculados à mão** (§68), não apenas "não quebra".
+7. Reutilizar `period_returns` de `returns.py` para obter a série de retornos — não reimplementar o cálculo de retorno.
 
 ## Constraints
 
 - **Não** implementar benchmarks (W08), scoring (W09) nem backtesting (W13).
-- **Nenhuma chamada externa.** Esta wave só consome o que está no banco — zero requisições à Brapi.
-- **Decidir e documentar** onde `float` passa a ser aceitável na fronteira com numpy/pandas. Preços são `Decimal`; estatística em `Decimal` é inviável. A regra 17 permite float para cálculo estatístico **desde que a decisão seja registrada** — provavelmente merece um ADR.
-- Não adicionar dependências: numpy, pandas, scipy já estão no `pyproject.toml` (nunca importados até agora).
+- **Nenhuma chamada externa.**
+- Não adicionar dependências: `numpy`/`pandas`/`scipy` já estão no `pyproject.toml`. Se usar, justificar (§92) — e note que até agora nenhuma foi importada por código algum.
+- Distinguir volatilidade **do ativo** de volatilidade **da carteira**: a segunda precisa de covariâncias entre ativos, não é a média das individuais. Se não couber nesta task, registrar em Future Work.
 
 ## Definition of Done
 
-- [ ] `app/quant/returns.py` e `app/quant/risk.py`, funções puras e determinísticas
-- [ ] Cada fórmula documentada com periodicidade e tratamento de dado faltante
-- [ ] Convenção de anualização escolhida e justificada
-- [ ] Fronteira `Decimal` → `float` decidida e registrada
-- [ ] Testes com valores conhecidos calculados à mão + edge cases (série vazia, um ponto, gaps)
-- [ ] `pytest` verde (baseline 211 + novos), sem regressão
+- [ ] `app/quant/risk.py`, funções puras e determinísticas
+- [ ] Cada métrica com definição, fórmula, periodicidade e dado faltante documentados
+- [ ] `TRADING_DAYS_PER_YEAR = 252` local, com justificativa
+- [ ] Fronteira `Decimal → float` decidida e registrada (ADR)
+- [ ] Beta/Sharpe com assinatura preparada para a série de referência da W08, `None` sem ela
+- [ ] Testes com valores conhecidos + edge cases (série vazia, um ponto, gaps, volatilidade zero)
+- [ ] `pytest` verde (baseline 262 + novos), sem regressão
 - [ ] `ruff check` e `black --check` limpos nos arquivos alterados
 - [ ] `docs/PROJECT_STATUS.md` e a memória atualizados
-- [ ] Commit: `feat: add quant engine returns module (W07-001)`
+- [ ] Commit: `feat: add quant engine risk module (W07-002)`
 
 ---
 
-## Estado do insumo desta wave (atualizado 2026-08-18)
+## Estado do insumo (verificado 2026-08-18)
 
-A pendência de recomputar indicadores **foi anulada**: nunca existiu banco nem dado gravado.
+A tabela `asset_prices` está **vazia** — nunca houve ingestão. Como as funções são puras e sem I/O, isso não bloqueia nada: os testes usam séries construídas à mão, e `returns.py` foi inteiramente desenvolvido assim.
 
-O defeito que ameaçava esta wave — `adjusted_close` fabricado a partir do `close` e congelado para sempre — **foi corrigido antes de começar**, ver [ADR-016](../decisions/ADR-016-unadjusted-bars-are-not-stored.md). Agora vale um invariante útil para o design das funções de retorno:
-
-- **Todo `adjusted_close` gravado foi reportado pela fonte.** Nenhum é derivado do `close`. A coluna segue `NOT NULL`.
-- **Em troca, a série pode ter buracos**: a sessão fechada mais recente costuma faltar por ~1 dia (a fonte publica o ajuste com atraso), e uma data cujo ajuste nunca seja publicado fica permanentemente ausente.
-
-Ou seja: as funções **não** precisam desconfiar do valor de `adjusted_close`, mas **precisam** tratar lacunas na série — datas ausentes, séries com furos, pregões não consecutivos. Isso já estava previsto como edge case na DoD; agora é um requisito com motivo concreto.
-
-A tabela `asset_prices` está **vazia** (nenhuma ingestão foi feita). Como as funções devem ser puras e sem I/O, isso não bloqueia nada: os testes usam séries construídas à mão.
+Invariante útil, garantido por [ADR-016](../decisions/ADR-016-unadjusted-bars-are-not-stored.md): **todo `adjusted_close` gravado foi reportado pela fonte**, nenhum é derivado do `close`. Em troca, a série pode ter **lacunas** (a sessão fechada mais recente costuma faltar por ~1 dia). Ou seja: não é preciso desconfiar do valor, mas é preciso tratar buracos — mesma premissa que `returns.py` adotou.
