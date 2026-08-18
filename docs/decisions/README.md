@@ -25,6 +25,7 @@ Um ADR existe aqui porque a decisão (a) teve alternativas reais, (b) afeta arqu
 | [015](ADR-015-indicator-recomputation.md) | Derivados podem ser recomputados; fatos reportados não | Accepted | indicadores, correção de fórmula, W09 |
 | [016](ADR-016-unadjusted-bars-are-not-stored.md) | Barra sem `adjusted_close` reportado não é armazenada | Accepted | market data, ingestão, retornos (W07) |
 | [017](ADR-017-annualisation-and-numeric-type.md) | Anualização: 365 p/ retorno, 252 p/ dispersão; `Decimal` puro, sem `numpy` | Accepted | quant engine, retornos, risco, Sharpe, numpy |
+| [018](ADR-018-benchmark-representation.md) | Benchmark de taxa guarda a taxa publicada (fração), não índice acumulado; CDI anualiza em 252; período incompleto não é gravado | Accepted | benchmarks, CDI, IBOV, IPCA, BCB SGS, Sharpe, beta |
 
 ## Template
 

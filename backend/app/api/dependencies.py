@@ -8,6 +8,9 @@ from app.core.config import settings
 from app.core.security import decode_access_token
 from app.data.database import get_db
 from app.data.models.users import User
+from app.domain.benchmarks.catalog import UnknownBenchmarkError, get_benchmark
+from app.integrations.benchmarks.base import BenchmarkProvider
+from app.integrations.benchmarks.factory import build_benchmark_provider
 from app.integrations.fundamentals.base import FundamentalsProvider
 from app.integrations.fundamentals.factory import build_fundamentals_provider
 from app.integrations.market_data.base import MarketDataProvider
@@ -82,6 +85,36 @@ def get_fundamentals_provider() -> Generator[FundamentalsProvider, None, None]:
     instead of hitting the network.
     """
     provider = build_fundamentals_provider()
+    try:
+        yield provider
+    finally:
+        provider.close()
+
+
+def get_benchmark_provider(code: str) -> Generator[BenchmarkProvider, None, None]:
+    """Provide the `BenchmarkProvider` that serves the benchmark in the path.
+
+    Unlike the other two provider dependencies this one reads a path
+    parameter, because which source backs a benchmark is a property of
+    the benchmark rather than of the deployment: the CDI only exists at
+    the Banco Central, the Ibovespa only at a market data vendor. Routes
+    still depend solely on the abstract type (AGENTS.md rule 21), and
+    tests override this dependency with a fake.
+    """
+    try:
+        definition = get_benchmark(code)
+    except UnknownBenchmarkError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": {
+                    "code": "BENCHMARK_NOT_FOUND",
+                    "message": f"Unknown benchmark {code}.",
+                }
+            },
+        ) from exc
+
+    provider = build_benchmark_provider(definition.source)
     try:
         yield provider
     finally:

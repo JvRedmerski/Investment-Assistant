@@ -42,6 +42,16 @@ class Settings(BaseSettings):
     FUNDAMENTALS_MAX_RETRIES: int = 3
     FUNDAMENTALS_MIN_REQUEST_INTERVAL_SECONDS: float = 0.0
 
+    # Benchmarks (Wave 08). The CDI/IPCA/Selic come from the Banco
+    # Central's SGS API, which is open, needs no token and enforces no
+    # quota - but it is noticeably slower than Brapi, and a multi-decade
+    # backfill is split into one request per decade, so the timeout is
+    # more generous and throttling stays available.
+    BCB_SGS_BASE_URL: str = "https://api.bcb.gov.br/dados/serie"
+    BENCHMARK_TIMEOUT_SECONDS: float = 30.0
+    BENCHMARK_MAX_RETRIES: int = 3
+    BENCHMARK_MIN_REQUEST_INTERVAL_SECONDS: float = 0.0
+
     AI_PROVIDER: str = "gemini"
     GEMINI_API_KEY: str = ""
 

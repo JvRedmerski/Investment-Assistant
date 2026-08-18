@@ -75,9 +75,16 @@ class RetryingJsonClient:
     def __exit__(self, *exc_info: object) -> None:
         self.close()
 
-    def get_json(
-        self, path: str, params: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    def get_json(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        """The parsed JSON document at `path`.
+
+        Typed `Any` rather than `dict` because a JSON document is not
+        always an object: Brapi returns one, while the Banco Central's
+        SGS returns a bare array. Each provider narrows the shape it
+        expects and raises its own invalid-response error otherwise -
+        which is where that check belongs, since only the provider knows
+        what its source promises.
+        """
         query = {**self._default_params, **(params or {})}
 
         last_error: Exception | None = None

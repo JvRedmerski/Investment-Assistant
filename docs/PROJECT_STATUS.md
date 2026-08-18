@@ -10,16 +10,16 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 ---
 
 ## Current Phase
-- **Phase**: Wave 05 (Market Data Integration) -> Wave 06 (Fundamental Data)
-- **Status**: 🟡 IN_PROGRESS
+- **Phase**: Wave 08 (Benchmark Engine)
+- **Status**: 🟡 IN_PROGRESS — W08-001 concluída, W08-002 pendente
 
 ---
 
 ## Overall Progress
 - **Total Waves**: 33 (W00 a W32)
-- **Completed Waves**: 6 (W00, W01, W02, W03, W04, W05)
-- **In Progress Waves**: 0
-- **Pending Waves**: 27
+- **Completed Waves**: 8 (W00, W01, W02, W03, W04, W05, W06, W07)
+- **In Progress Waves**: 1 (W08)
+- **Pending Waves**: 24
 
 ---
 
@@ -240,9 +240,9 @@ Status: ⚪ NOT_STARTED
 ---
 
 ### Wave 08 — Benchmark Engine
-Status: ⚪ NOT_STARTED
+Status: 🟡 IN_PROGRESS
 
-- [ ] **W08-001**: Ingestão das Séries Históricas de CDI, IBOV e IPCA ⚪ NOT_STARTED
+- [x] **W08-001**: Ingestão das Séries Históricas de CDI, IBOV e IPCA 🟢 COMPLETED
 - [ ] **W08-002**: Comparativo de Rentabilidade Carteira vs Benchmarks ⚪ NOT_STARTED
 
 ---
@@ -477,11 +477,12 @@ Wave 07 — Quant Engine. `returns.py` (diário, semanal, mensal, trimestral, YT
 - **W06-005**: Correção do `adjusted_close` fabricado a partir do `close` (ADR-016) (🟢 COMPLETED)
 - **W07-001**: Quant Engine — módulo `returns.py` (diário, semanal, mensal, trimestral, YTD, anual, CAGR) (🟢 COMPLETED)
 - **W07-002**: Quant Engine — módulo `risk.py` (volatilidade, beta, max drawdown, Sharpe, Sortino) (🟢 COMPLETED) — **Wave 07 concluída**
+- **W08-001**: Benchmark Engine — ingestão de CDI, IBOV, IPCA e Selic (🟢 COMPLETED)
 
 ---
 
 ## In Progress
-Nenhuma tarefa em progresso no momento. Wave 05 concluída. Próxima: W06-001 (Wave 06 — Fundamental Data).
+**W08-002** — Comparativo de rentabilidade carteira × benchmarks. A ingestão (W08-001) está pronta e validada; falta o módulo de derivação de série (índice acumulado a partir da taxa) e a comparação em si.
 
 ---
 
@@ -493,6 +494,7 @@ Nenhuma tarefa bloqueada no momento.
 ## Known Issues
 - **5 dos 10 indicadores permanecem `None`**, cada um por motivo evidenciado: `pe`/`pb`/`dy` (a Brapi só oferece `sharesOutstanding` e `dividendYield` como snapshots atuais, sem data-fim de período — usá-los seria look-ahead) e `debt_ebitda`/`ebitda_margin` (`cleanEbitda` é cópia de `ebit`, não é EBITDA). Limita os sub-scores de Valuation na Wave 09.
 - 🔴 **Módulos de demonstrativos saíram do plano gratuito da Brapi.** `GET /quote/{ticker}?modules=incomeStatementHistory,balanceSheetHistory` retorna **HTTP 403**: *"Os módulos ... não estão no plano Gratuito. O plano Startup (R$ 119,99/mês) libera esses módulos. Módulos disponíveis hoje: summaryProfile."* Em 2026-08-17 (W06-003) a mesma chamada funcionou e trouxe 16 períodos. **A ingestão de fundamentals está inoperante — por plano, não por código.** O parser continua correto e testado; ele apenas não tem mais o que receber. Bloqueia reingestão de fundamentals e, por consequência, os sub-scores fundamentalistas da Wave 09. Decidir: assinar o plano, trocar de fonte (CVM/dados abertos) ou adiar a Wave 09.
+- 🔴 **O plano gratuito da Brapi só aceita `range` de até `3mo`** (verificado 2026-08-18, W08-001, HTTP 400: *"O range \"1y\" não está disponível no seu plano. Ranges permitidos: 1d, 5d, 1mo, 3mo"*, `code: INVALID_RANGE`). E o `range` da Brapi é **relativo a hoje** — não existe parâmetro de data inicial, então **não há como paginar histórico**: o teto de ~63 pregões é absoluto no plano gratuito. Consequências: (a) `_brapi_range_for` em `market_data/brapi.py` mapeia janelas > 90 dias para `6mo`/`1y`/`2y`/`5y`/`max`, todos recusados — ou seja, **`sync_daily_history` falha hoje para qualquer janela acima de 3 meses**, defeito pré-existente da W05 que só apareceu agora porque a validação da W06-004 usou `range=1mo`; (b) o IBOV fica limitado a ~3 meses, o que torna `beta` estatisticamente pobre; (c) impacta diretamente o backtesting da W13, que precisa de anos. Não é regressão da W08. O CDI/IPCA **não** são afetados: o SGS é aberto e aceita janela de 10 anos por requisição.
 - **Plano gratuito aceita no máximo 1 ativo por requisição** (`"Seu plano permite no máximo 1 ativo(s) por requisição. Você enviou 3."`). Não há batching: ingestão em lote custa **1 requisição por ticker**. Relevante para dimensionar a cota mensal.
 - ~~**`adjusted_close` pode ser congelado errado**~~ — **CORRIGIDO em 2026-08-18**, ver [ADR-016](decisions/ADR-016-unadjusted-bars-are-not-stored.md) e a decisão datada abaixo. O problema, para registro: a Brapi devolve `adjustedClose: null` para a sessão fechada mais recente (verificado em 2026-08-18: nulo em 2026-08-17 nos três ativos testados) e preenche depois. O parser cai para `close` ([`brapi.py:157-159`](../backend/app/integrations/market_data/brapi.py#L157-L159)) e `sync_daily_history` **nunca sobrescreve uma data já gravada** ([`service.py`](../backend/app/domain/market_data/service.py)). Uma barra ingerida enquanto o ajuste ainda é nulo guarda `close` como `adjusted_close` **permanentemente**. Se houve provento/desdobramento naquela data, todo retorno calculado sobre ela na W07 fica errado, em silêncio. Corrigir antes de ingestão em lote: ou não gravar a última sessão, ou permitir sobrescrita quando o valor gravado veio do fallback.
 - **`alembic check` acusa drift**: `assets` tem `assets_ticker_key` (UNIQUE CONSTRAINT) **e** `ix_assets_ticker` (UNIQUE INDEX) para a mesma coluna; idem `users.email`. Vem de a migration `001` declarar a constraint e o model declarar `unique=True, index=True`. Redundante, não incorreto — mas faz `alembic check` falhar, o que impede usá-lo como guarda de drift no CI.
@@ -602,9 +604,16 @@ Nenhuma tarefa bloqueada no momento.
 - **Nao implementado, de proposito**: volatilidade de carteira. Nao e a media das volatilidades dos ativos — precisa da matriz de covariancias e dos pesos das posicoes. Esta em Future Work; **nao aproximar por media** (regra 44).
 - **Status**: APPROVED. Registrado como adendo datado em `docs/decisions/ADR-017`.
 
+### Decision — 2026-08-18 (W08-001)
+- **Decision**: Benchmark de taxa (CDI, IPCA, Selic) é gravado **como a taxa publicada**, convertida de percentual para fração, e **nunca** como índice acumulado. O índice é derivado na leitura. Benchmark de nível (IBOV) é gravado como o nível publicado. Taxa livre de risco anualiza em **base 252**. Observação cujo **período ainda não terminou** é rejeitada, não gravada. Catálogo de benchmarks vive em código, não em tabela.
+- **Reason**: Acumular é operação com parâmetro — o índice depende da data-base, que é diferente para cada carteira e cada janela de tela; gravar um índice congela uma data-base que ninguém pediu e perde a taxa diária, que não é recuperável. A base 252 **foi verificada contra a própria fonte**, não deduzida: compor a série 12 do SGS (CDI diário) em 252 reproduz a série 4389 (CDI anualizado) na precisão publicada — 0,043739% → 11,6499% contra 11,65% em 2024-01-02, e 0,051660% → 13,8998% contra 13,90% em 2026-08-17. Isso também fecha sem resíduo com o `_periodic_rate` da W07, que de-anualiza com `PERIODS_PER_YEAR[DAILY] = 252`. A rejeição de período incompleto estende o ADR-016: a Brapi devolve a **sessão em curso** dentro de `historicalDataPrice` com `adjustedClose` preenchido (a guarda do ADR-016 não dispara), e três requisições ao `^BVSP` em poucos minutos devolveram 166851,5156 → 166978,9375 → 166923,3438 **para a mesma data** — como a ingestão nunca reescreve data gravada, o primeiro a chegar ficaria congelado como "o fechamento do Ibovespa".
+- **Status**: 🟢 APPROVED. Registrado em [ADR-018](decisions/ADR-018-benchmark-representation.md).
+
 ---
 
 ## Future Work
+- **Teto de 3 meses de histórico da Brapi no plano gratuito** (ver Known Issues): decidir entre assinar plano pago, trocar de fonte para o histórico do IBOV/ações, ou aceitar o teto e adiar o backtesting da W13. É a mesma decisão de produto já aberta para os fundamentals, e agora atinge também preços.
+- **`app/data/models/__init__.py` entra na lista de lint pré-existente**: `ruff` (I001, RUF022) e `black` já falhavam nele **antes** da W08-001 — confirmado rodando as ferramentas na versão do `HEAD`. A task tocou o arquivo apenas para registrar o novo model, mantendo o estilo existente; reformatá-lo é a task dedicada de lint cleanup (regra 134).
 - **Volatilidade de carteira** (nao a media das volatilidades dos ativos): exige matriz de covariancias entre os ativos e os pesos das posicoes, porque ativos pouco correlacionados cancelam risco. Depende dos pesos, que vem do motor de posicoes. **Nao aproximar por media.** Provavel W09/W11, e o primeiro lugar onde `numpy` pode voltar a ser uma pergunta legitima.
 - Cache com Redis para cotações em tempo real.
 - Suporte a WebSocket para streamings intraday.
@@ -620,10 +629,12 @@ Nenhuma tarefa bloqueada no momento.
 
 ## Last Execution
 - **Timestamp**: 2026-08-18T00:00:00-03:00
-- **Action**: W07-002 — `app/quant/risk.py`: `standard_deviation`, `downside_deviation`, `volatility`, `max_drawdown`, `beta`, `sharpe`, `sortino`. `PERIODS_PER_YEAR` local (252 diario), alinhamento por data antes de medir retornos no beta, taxa livre de risco de-anualizada geometricamente. Fronteira `Decimal -> float` resolvida como inexistente (adendo ao ADR-017). **Wave 07 concluida.**
+- **Action**: W08-001 — Benchmark Engine, ingestão. `BenchmarkProvider` abstrato + `BcbSgsProvider` (BCB/SGS, aberto e sem cota) + `BrapiIndexProvider` (delega ao `MarketDataProvider`, sem parser próprio) + factory; catálogo em código (CDI, SELIC, IPCA, IBOV); `benchmark_values` (`NUMERIC(24,12)`) + migration `005`; `validate_benchmark_series` com `INCOMPLETE_PERIOD`; `sync_benchmark_series` idempotente; endpoints de catálogo/sync/leitura. **Parsers validados contra as APIs reais antes de qualquer mock** (ADR-018).
+- **Result**: Sucesso. 391/391 testes (316 + 75 novos), `ruff`/`black` limpos nos arquivos alterados, migration `005` aplicada em PostgreSQL 16 real com round-trip `downgrade`/`upgrade`. Ingestão real executada: CDI 252 pregões (acumulado 14,67% no ano), IPCA 31 meses (2024 fecha em 4,83%, igual ao IBGE), IBOV 63 pregões com a sessão em curso corretamente rejeitada; segunda passada inseriu 0 e pulou 63 (idempotência). 3 requisições à Brapi.
+- **Action anterior**: W07-002 — `app/quant/risk.py`: `standard_deviation`, `downside_deviation`, `volatility`, `max_drawdown`, `beta`, `sharpe`, `sortino`. `PERIODS_PER_YEAR` local (252 diario), alinhamento por data antes de medir retornos no beta, taxa livre de risco de-anualizada geometricamente. Fronteira `Decimal -> float` resolvida como inexistente (adendo ao ADR-017). **Wave 07 concluida.**
 - **Result**: Sucesso. 316/316 testes passando (262 + 54 novos), `ruff` e `black` limpos nos arquivos alterados. Nenhuma regressao. Zero requisicoes externas.
 
 ---
 
 ## Next Action
-Wave 08 — Benchmark Engine (CDI, IBOV, IPCA). Desbloqueia `beta`, `sharpe` e `sortino`, que ja tem a assinatura pronta esperando a serie de referencia. Ver `docs/memory/CURRENT_TASK.md`.
+**W08-002** — Comparativo carteira × benchmark. Precisa de: derivação de índice acumulado a partir da série de taxa (`RATE` → `PricePoint`), taxa anualizada da janela para alimentar `sharpe`/`sortino`, e a comparação em si. Ver `docs/memory/CURRENT_TASK.md`.
