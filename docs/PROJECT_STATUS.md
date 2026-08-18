@@ -10,16 +10,16 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 ---
 
 ## Current Phase
-- **Phase**: Wave 08 (Benchmark Engine) concluída -> Wave 09 (Portfolio Recommendation Engine)
-- **Status**: 🟢 W08 COMPLETED
+- **Phase**: Wave 09 (Portfolio Recommendation Engine)
+- **Status**: 🟡 IN_PROGRESS — W09-001 e W09-002 concluídas, W09-003 (alocação) pendente
 
 ---
 
 ## Overall Progress
 - **Total Waves**: 33 (W00 a W32)
 - **Completed Waves**: 9 (W00 a W08)
-- **In Progress Waves**: 0
-- **Pending Waves**: 24
+- **In Progress Waves**: 1 (W09)
+- **Pending Waves**: 23
 
 ---
 
@@ -248,10 +248,16 @@ Status: 🟢 COMPLETED
 ---
 
 ### Wave 09 — Portfolio Recommendation Engine
-Status: ⚪ NOT_STARTED
+Status: 🟡 IN_PROGRESS
 
-- [ ] **W09-001**: Sub-scores Quantitativos (Quality, Valuation, Growth, Risk, Diversification) ⚪ NOT_STARTED
-- [ ] **W09-002**: Algoritmo de Alocação de Aporte Mensal (~R$ 1.000) ⚪ NOT_STARTED
+- [x] **W09-001**: Sub-scores Quantitativos (Quality, Valuation, Growth, Risk, Diversification) 🟢 COMPLETED
+- [x] **W09-002**: Fonte CVM para demonstrativos, com a Brapi fazendo a ponte ticker→CNPJ 🟢 COMPLETED
+- [ ] **W09-003**: Algoritmo de Alocação de Aporte Mensal (~R$ 1.000) ⚪ NOT_STARTED
+
+> **Renumeração deliberada.** O plano original tinha só duas tasks, com a alocação em W09-002.
+> A ingestão da CVM foi inserida como W09-002 porque é o que destrava três dos cinco sub-scores
+> da W09-001 — sem ela, metade do pipeline ficaria permanentemente ausente. A alocação passou
+> a W09-003.
 
 ---
 
@@ -479,11 +485,13 @@ Wave 07 — Quant Engine. `returns.py` (diário, semanal, mensal, trimestral, YT
 - **W07-002**: Quant Engine — módulo `risk.py` (volatilidade, beta, max drawdown, Sharpe, Sortino) (🟢 COMPLETED) — **Wave 07 concluída**
 - **W08-001**: Benchmark Engine — ingestão de CDI, IBOV, IPCA e Selic (🟢 COMPLETED)
 - **W08-002**: Comparativo carteira/ativo × benchmark, com índice de performance time-weighted (🟢 COMPLETED) — **Wave 08 concluída**
+- **W09-001**: Sub-scores decomponíveis (Quality, Valuation, Growth, Risk, Diversification) com ausência de primeira classe (🟢 COMPLETED)
+- **W09-002**: CVM como fonte primária de demonstrativos, com a Brapi fazendo a ponte ticker→CNPJ (🟢 COMPLETED)
 
 ---
 
 ## In Progress
-Nenhuma tarefa em progresso. Wave 08 concluída. Próxima: **Wave 09 — Portfolio Recommendation Engine**, hoje parcialmente bloqueada pelos fundamentals fora do plano gratuito da Brapi (ver Known Issues).
+**W09-003** — Algoritmo de alocação do aporte mensal. Os sub-scores estão prontos e, com a fonte da CVM no ar, Quality e Growth deixaram de ser ausentes. Falta transformar score em alocação (roadmap §21, AGENTS.md §31/§32/§33).
 
 ---
 
@@ -494,6 +502,7 @@ Nenhuma tarefa bloqueada no momento.
 
 ## Known Issues
 - **5 dos 10 indicadores permanecem `None`**, cada um por motivo evidenciado: `pe`/`pb`/`dy` (a Brapi só oferece `sharesOutstanding` e `dividendYield` como snapshots atuais, sem data-fim de período — usá-los seria look-ahead) e `debt_ebitda`/`ebitda_margin` (`cleanEbitda` é cópia de `ebit`, não é EBITDA). Limita os sub-scores de Valuation na Wave 09.
+- ✅ ~~**Módulos de demonstrativos saíram do plano gratuito da Brapi**~~ — **CONTORNADO em 2026-08-18** (W09-002, [ADR-020](decisions/ADR-020-cvm-primary-fundamentals-source.md)). A fonte primária passou a ser os **dados abertos da CVM**, que são o arquivo entregue ao regulador: aberto, sem token, sem cota e com mais histórico do que o fornecedor dava. A Brapi continua no projeto fazendo a ponte que a CVM não faz — o `summaryProfile`, ainda gratuito, traz o CNPJ, e os arquivos da CVM não têm coluna de ticker. Validado ao vivo com 6 exercícios da PETR4 batendo com o publicado. O texto original fica abaixo para registro.
 - 🔴 **Módulos de demonstrativos saíram do plano gratuito da Brapi.** `GET /quote/{ticker}?modules=incomeStatementHistory,balanceSheetHistory` retorna **HTTP 403**: *"Os módulos ... não estão no plano Gratuito. O plano Startup (R$ 119,99/mês) libera esses módulos. Módulos disponíveis hoje: summaryProfile."* Em 2026-08-17 (W06-003) a mesma chamada funcionou e trouxe 16 períodos. **A ingestão de fundamentals está inoperante — por plano, não por código.** O parser continua correto e testado; ele apenas não tem mais o que receber. Bloqueia reingestão de fundamentals e, por consequência, os sub-scores fundamentalistas da Wave 09. Decidir: assinar o plano, trocar de fonte (CVM/dados abertos) ou adiar a Wave 09.
 - 🔴 **O plano gratuito da Brapi só aceita `range` de até `3mo`** (verificado 2026-08-18, W08-001, HTTP 400: *"O range \"1y\" não está disponível no seu plano. Ranges permitidos: 1d, 5d, 1mo, 3mo"*, `code: INVALID_RANGE`). E o `range` da Brapi é **relativo a hoje** — não existe parâmetro de data inicial, então **não há como paginar histórico**: o teto de ~63 pregões é absoluto no plano gratuito. Consequências: (a) `_brapi_range_for` em `market_data/brapi.py` mapeia janelas > 90 dias para `6mo`/`1y`/`2y`/`5y`/`max`, todos recusados — ou seja, **`sync_daily_history` falha hoje para qualquer janela acima de 3 meses**, defeito pré-existente da W05 que só apareceu agora porque a validação da W06-004 usou `range=1mo`; (b) o IBOV fica limitado a ~3 meses, o que torna `beta` estatisticamente pobre; (c) impacta diretamente o backtesting da W13, que precisa de anos. Não é regressão da W08. O CDI/IPCA **não** são afetados: o SGS é aberto e aceita janela de 10 anos por requisição.
 - **Plano gratuito aceita no máximo 1 ativo por requisição** (`"Seu plano permite no máximo 1 ativo(s) por requisição. Você enviou 3."`). Não há batching: ingestão em lote custa **1 requisição por ticker**. Relevante para dimensionar a cota mensal.
@@ -605,6 +614,16 @@ Nenhuma tarefa bloqueada no momento.
 - **Nao implementado, de proposito**: volatilidade de carteira. Nao e a media das volatilidades dos ativos — precisa da matriz de covariancias e dos pesos das posicoes. Esta em Future Work; **nao aproximar por media** (regra 44).
 - **Status**: APPROVED. Registrado como adendo datado em `docs/decisions/ADR-017`.
 
+### Decision — 2026-08-18 (W09-002)
+- **Decision**: Dados abertos da **CVM** como fonte primária de demonstrativos; a **Brapi** permanece fazendo a ponte ticker→CNPJ (`summaryProfile`, ainda gratuito) e cobrindo BDR/ETF. Composição por **período inteiro** — campos nunca são misturados entre fontes. Falha de infraestrutura **não** cai para a outra fonte.
+- **Reason**: A CVM é a peça entregue ao regulador, aberta e sem cota, mas seus arquivos não têm coluna de ticker — só CNPJ. A Brapi conhece ticker e expõe o CNPJ no módulo que continuou gratuito. Nenhuma das duas responde sozinha. Mesclar campo a campo foi rejeitado porque duas fontes discordam sobre consolidado versus controladora, sobre o que é dívida e sobre qual linha é "receita" num banco: emendar produziria uma linha que **nenhum arquivo reportou**, e nada a jusante perceberia. Cair para a outra fonte em timeout transformaria indisponibilidade em **troca silenciosa de fonte**. Mapeamento conferido contra números públicos da PETR4 antes de qualquer mock: `net_income` é `3.11.01` (R$ 36,6 bi) e não `3.11` (R$ 37,0 bi, com minoritários), com o patrimônio líquido dos minoritários pela mesma razão — numerador e denominador precisam descrever os mesmos donos, e o ROE resultante dá os 10,0% publicados.
+- **Status**: 🟢 APPROVED. Registrado em [ADR-020](decisions/ADR-020-cvm-primary-fundamentals-source.md).
+
+### Decision — 2026-08-18 (W09-001)
+- **Decision**: Sub-score sem dado é **ausente**, nunca zero nem 50 "neutro", e fica de fora da média em vez de puxá-la para baixo. O score final renormaliza sobre os pilares existentes e **reporta `coverage`**; exige no mínimo dois pilares. A fórmula é versionada (`SCORING_FORMULA_VERSION`) e todo limiar é constante nomeada.
+- **Reason**: Um Quality Score fabricado **não parece errado — parece uma empresa ruim**, e depois desaparece dentro do score final. A cobertura é leitura obrigatória e não diagnóstico: um ativo pontuado só em Risco e outro pontuado nos cinco pilares voltam ambos como número entre 0 e 100 e **não são comparáveis**. Mínimo de dois pilares porque um composto de um só é esse um com outro nome. Ausência não é estado temporário do projeto: um FII ou ETF nunca terá demonstrativo para pontuar Quality.
+- **Status**: 🟢 APPROVED. Documentada no docstring de `app/domain/recommendations/scoring.py`, onde vive junto dos pesos e limiares que ela governa — sem ADR próprio porque não há alternativa arquitetural em disputa, só a aplicação do ADR-014 um nível acima.
+
 ### Decision — 2026-08-18 (W08-002)
 - **Decision**: A carteira entra na comparação como **índice de performance time-weighted** (valor de cota, base 100), não como valor patrimonial. `beta` é reportado **apenas** contra benchmark do tipo `INDEX`. `return_ratio` ("% do CDI") só é reportada quando **ambos** os retornos são estritamente positivos.
 - **Reason**: (a) Sem time-weighting, uma carteira que recebe aporte mensal apareceria batendo qualquer benchmark num ano em que o investidor perdeu dinheiro — o aporte entra como se fosse rentabilidade (regra 26). Entregar o resultado como `PricePoint` faz todo o `app.quant` da W07 ler a carteira sem adaptador. (b) Beta contra o CDI não é uma grandeza: o CDI quase não varia, então `cov/var` divide por quase-zero. Pior, **não** sairia `None` sozinho — a variância não é exatamente zero, então a guarda dentro de `beta` não dispara e um número enorme e instável seria reportado com cara de fato. (c) A razão foi restringida **por evidência de dado real**: o IBOV caindo 5,96% contra um IPCA de +0,07% na janela produziu razão **-85,16**, e contra um CDI de +3,32% produziu **-1,80** ("-180% do CDI" não significa nada para quem lê). `excess_return` é correto nos três casos e é o número a mostrar.
@@ -636,7 +655,9 @@ Nenhuma tarefa bloqueada no momento.
 
 ## Last Execution
 - **Timestamp**: 2026-08-18T00:00:00-03:00
-- **Action**: W08-002 — Comparativo carteira/ativo × benchmark. `benchmarks/series.py` (taxa → índice acumulado, taxa anualizada da janela), `portfolio/performance.py` (índice time-weighted a partir do ledger + `asset_prices`), `benchmarks/comparison.py` (puro, só orquestra o `app.quant`), assembly em `benchmarks/service.py`, endpoints `GET /assets/{ticker}/benchmarks/{code}` e `GET /portfolios/{id}/benchmarks/{code}`. **`beta`, `sharpe` e `sortino` deixaram de retornar `None` — o objetivo da wave.**
+- **Action**: W09-001 (motor de sub-scores) + W09-002 (fonte CVM). `app/domain/recommendations/{scoring,service,schemas}.py` com cinco pilares decomponíveis e ausência de primeira classe; `GET /portfolios/{id}/scores`. `app/integrations/fundamentals/{cvm,identity,composite}.py` + `app/domain/fundamentals/identity.py` + migration `006` (`assets.cnpj`).
+- **Result**: Sucesso. 542/542 testes (449 → 499 → 542), `ruff`/`black` limpos nos arquivos alterados, migration `006` aplicada em PostgreSQL 16 real. Validado ao vivo: 6 exercícios da PETR4 pela CVM batendo com o publicado (lucro R$ 188,3 bi em 2022, R$ 36,6 bi em 2024; ROE 10,0%). **Medido no banco real, Quality e Growth foram de ausentes para 97,8 e 76,7 e a cobertura do score de 40% para 55%, sem uma linha alterada em `scoring.py`.** Os testes escritos à mão pegaram de novo um defeito meu: numa escala invertida, um P/L negativo clampava no extremo *bom* e marcaria 100.
+- **Action anterior**: W08-002 — Comparativo carteira/ativo × benchmark. `benchmarks/series.py` (taxa → índice acumulado, taxa anualizada da janela), `portfolio/performance.py` (índice time-weighted a partir do ledger + `asset_prices`), `benchmarks/comparison.py` (puro, só orquestra o `app.quant`), assembly em `benchmarks/service.py`, endpoints `GET /assets/{ticker}/benchmarks/{code}` e `GET /portfolios/{id}/benchmarks/{code}`. **`beta`, `sharpe` e `sortino` deixaram de retornar `None` — o objetivo da wave.**
 - **Result**: Sucesso. 449/449 testes (391 + 58 novos), `ruff`/`black` limpos nos arquivos alterados. Validado contra o dado real já ingerido: IBOV × CDI na janela 2026-05-20..2026-08-17 dá -5,96% contra +3,32% (excesso -9,28 p.p., Sharpe -2,34, CDI anualizado 14,20% a.a.), e IBOV × IBOV dá excesso 0,00% com **beta exatamente 1,0000** — a sanidade mais forte possível para o alinhamento por data. Um teste escrito à mão pegou um defeito real no `performance_index`: eventos do ledger em datas sem preço eram ignorados por completo (quantidades **e** fluxos), corrigido com varredura por ponteiro.
 - **Action anterior**: W08-001 — Benchmark Engine, ingestão. `BenchmarkProvider` abstrato + `BcbSgsProvider` (BCB/SGS, aberto e sem cota) + `BrapiIndexProvider` (delega ao `MarketDataProvider`, sem parser próprio) + factory; catálogo em código (CDI, SELIC, IPCA, IBOV); `benchmark_values` (`NUMERIC(24,12)`) + migration `005`; `validate_benchmark_series` com `INCOMPLETE_PERIOD`; `sync_benchmark_series` idempotente; endpoints de catálogo/sync/leitura. **Parsers validados contra as APIs reais antes de qualquer mock** (ADR-018).
 - **Result**: Sucesso. 391/391 testes (316 + 75 novos), `ruff`/`black` limpos nos arquivos alterados, migration `005` aplicada em PostgreSQL 16 real com round-trip `downgrade`/`upgrade`. Ingestão real executada: CDI 252 pregões (acumulado 14,67% no ano), IPCA 31 meses (2024 fecha em 4,83%, igual ao IBGE), IBOV 63 pregões com a sessão em curso corretamente rejeitada; segunda passada inseriu 0 e pulou 63 (idempotência). 3 requisições à Brapi.
@@ -646,4 +667,6 @@ Nenhuma tarefa bloqueada no momento.
 ---
 
 ## Next Action
-**Wave 09 — Portfolio Recommendation Engine.** Antes de começar é preciso uma **decisão de produto**: os sub-scores fundamentalistas dependem de demonstrativos, e os módulos da Brapi saíram do plano gratuito. Opções: assinar o plano Startup, migrar para dados abertos da CVM, ou entregar a W09 só com os scores que os dados disponíveis sustentam (risco e diversificação, que a W07/W08 já habilitam). Ver `docs/memory/CURRENT_TASK.md`.
+**W09-003 — Algoritmo de alocação do aporte mensal** (roadmap §21, AGENTS.md §31/§32/§33). Ver `docs/memory/CURRENT_TASK.md`.
+
+Antes dele, um passo curto e de alto retorno: **ações em circulação por período**, que o mesmo arquivo DFP já traz em `composicao_capital` (com ações em tesouraria). É o que falta para `pe`/`pb`/`dy` e destravaria o pilar de Valuation inteiro — o último ainda ausente.

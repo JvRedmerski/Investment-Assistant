@@ -2,95 +2,108 @@
 
 ## Task
 
-**W09-001 — Portfolio Recommendation Engine** (Wave 09)
+**W09-003 — Algoritmo de Alocação de Aporte Mensal** (Wave 09)
+
+> ⚠️ **Renumeração deliberada.** O plano original tinha duas tasks na W09, com a alocação em
+> W09-002. A ingestão da CVM foi inserida como W09-002 porque era o que destravava três dos
+> cinco sub-scores; a alocação virou W09-003.
 
 ## Status
 
-⚪ Not Started — **começa com uma decisão de produto, não com código**
+⚪ Not Started
 
 ## Objective
 
-Pipeline determinístico de scores que responda *onde colocar o próximo R$ 1.000*
-(`docs/roadmap.md` §21, AGENTS.md §30):
+Transformar score em decisão: *onde colocar o próximo R$ 1.000?*
+(`docs/roadmap.md` §21, AGENTS.md §31/§32/§33).
 
-```
-Dados → Quality → Valuation → Growth → Risk → Diversification → Portfolio Fit → Final Score → Allocation
-```
+A pergunta do sistema é **"qual novo aporte melhora minha carteira atual?"** — explicitamente
+**não** "qual ativo tem maior score" (§31). O score já é relativo à carteira; a alocação precisa
+respeitar restrições.
 
-O score deve ser **decomponível** (§30) e o resultado **determinístico** (§113).
+## O que já está pronto — não reimplemente
 
-## ⚠️ Leia isto antes de escrever qualquer código
+- `app/domain/recommendations/scoring.py` — cinco pilares decomponíveis, fórmula versionada,
+  ausência de primeira classe. **Combine, não recalcule.**
+- `app/domain/recommendations/service.py` — `score_universe(db, portfolio)` já devolve todo o
+  universo pontuado contra a carteira, ordenado, com os não-pontuáveis por último.
+- `app/quant/{returns,risk}.py` — retorno, volatilidade, drawdown, beta, Sharpe, Sortino.
+- `app/domain/benchmarks/` e `app/domain/portfolio/performance.py`.
+- `app/integrations/fundamentals/{cvm,identity,composite}.py` — demonstrativos da CVM funcionando.
 
-### A wave está parcialmente bloqueada, e a decisão é de produto
+## ⚠️ Duas coisas que a alocação precisa respeitar
 
-O pipeline acima tem seis sub-scores. **Três dependem de demonstrativos financeiros**
-(Quality, Valuation, Growth) — e a ingestão de fundamentals está **inoperante desde
-2026-08-18**, não por bug, mas porque os módulos saíram do plano gratuito da Brapi
-(HTTP 403). O parser continua correto e testado; ele não tem mais o que receber.
+### 1. `coverage` não é decoração — e a alocação é onde isso morde
 
-Some-se a isso que **5 dos 10 indicadores já retornavam `None`** por limitação
-evidenciada da fonte (`pe`/`pb`/`dy` são snapshots atuais sem data-fim de período,
-usá-los sobre um balanço antigo seria look-ahead; `cleanEbitda` é cópia literal de
-`ebit`, não é EBITDA).
+Dois ativos com coberturas diferentes **não são comparáveis**, mesmo ambos voltando número entre
+0 e 100. Um ativo pontuado só em Risco e Diversificação (40%) contra outro pontuado nos cinco
+pilares não estão medindo a mesma coisa.
 
-Os outros três sub-scores (**Risk, Diversification, Portfolio Fit**) **estão
-desbloqueados**: a W07 entregou volatilidade/drawdown/beta/Sharpe/Sortino e a W08
-entregou as séries de referência que faltavam.
+Ordenar o universo por `final_score` e distribuir o aporte de cima para baixo **ignora isso** e
+favorece sistematicamente quem tem menos dado. A alocação tem que, no mínimo, exigir cobertura
+mínima ou agrupar por cobertura — e dizer qual escolheu.
 
-**Escolha uma das três antes de começar** — e registre em ADR:
+### 2. "Conservador" é restrição quantitativa, não adjetivo (§32)
 
-1. **Assinar o plano Startup da Brapi** (R$ 119,99/mês) — destrava tudo, custa dinheiro recorrente.
-2. **Migrar para dados abertos da CVM** — sem custo e é a fonte primária, mas é uma
-   integração nova inteira (formato DFP/ITR, CSV zipado, sem API REST). Provavelmente
-   uma wave própria.
-3. **Entregar a W09 com o que há** — Risk + Diversification + Portfolio Fit, com os
-   sub-scores fundamentalistas explicitamente ausentes em vez de estimados.
-   **Nunca preencher com valor default** (regra 44 / ADR-014): um Quality Score
-   inventado contamina o Final Score e some dentro dele.
+Limite por ativo, por setor, de renda variável, de volatilidade; preferência por liquidez;
+menor concentração. **Os pesos devem ser configuráveis** — §32 diz explicitamente para não assumir
+que todo conservador tem a mesma alocação.
 
-A opção 3 é a única que não depende de decisão externa e não viola a regra de uma
-wave por vez. É a recomendação, se a decisão travar.
-
-### O que já está pronto e não deve ser reimplementado
-
-- `app/quant/returns.py` e `app/quant/risk.py` — retorno, volatilidade, drawdown, beta, Sharpe, Sortino. **Puros e testados.**
-- `app/domain/benchmarks/` — catálogo, ingestão, série (taxa → índice), comparação.
-- `app/domain/portfolio/performance.py` — índice time-weighted da carteira, já em formato `PricePoint`.
-- `app/domain/portfolio/service.py` — posições consolidadas derivadas do ledger.
-- `app/domain/fundamentals/indicators.py` — as 10 fórmulas, das quais 5 produzem valor.
-
-O Score não calcula nada disso de novo. Ele **combina** o que já existe.
+Os tetos já usados pelo pilar de Diversification são 20% por ativo e 40% por setor
+(`ASSET_WEIGHT_SCALE` / `SECTOR_WEIGHT_SCALE`). A alocação deve usar **os mesmos números**, não
+uma segunda cópia que possa divergir.
 
 ## Relevant Files
 
-- `docs/roadmap.md` §21 (Wave 9), `AGENTS.md` §30 (score decomponível), §44 (não inventar dado)
-- [ADR-014](../decisions/ADR-014-indicator-missing-data-policy.md) — `None` significa "não computável", nunca zero. É a regra que decide o que fazer com um sub-score sem dado.
-- [ADR-018](../decisions/ADR-018-benchmark-representation.md) — representação de benchmark, base 252, período incompleto
-- `backend/app/domain/benchmarks/comparison.py` — molde de "módulo puro que só orquestra o `app.quant`"
+- `docs/roadmap.md` §21, `AGENTS.md` §31 (recomendação), §32 (perfil conservador), §33 (aporte mensal)
+- `backend/app/domain/recommendations/` — scoring, service, schemas
+- `backend/app/data/models/recommendations.py` — model `Recommendation`, ainda sem uso
+- `backend/app/data/models/users.py` — `InvestorProfile` (`monthly_contribution` ainda em `Float`, ver Known Issues)
+- [ADR-014](../decisions/ADR-014-indicator-missing-data-policy.md) — `None` é "não computável", nunca zero
 
 ## Definition of Done
 
-- [ ] Decisão sobre fundamentals registrada em ADR
-- [ ] Sub-scores implementados como funções puras e testáveis isoladamente
-- [ ] Score final **decomponível** — o consumidor vê a contribuição de cada parte
-- [ ] Sub-score sem dado é **ausente**, nunca estimado (ADR-014)
-- [ ] Determinístico: mesma entrada, mesma saída (§113)
-- [ ] Testes com valores conhecidos + casos de dado faltante
-- [ ] `pytest` verde (baseline 449 + novos)
+- [ ] Alocação determinística (§113): mesma carteira e mesmo universo, mesma resposta
+- [ ] Respeita limites por ativo e por setor, reutilizando as constantes do scoring
+- [ ] Trata `coverage` explicitamente — nunca compara scores de coberturas diferentes em silêncio
+- [ ] Pesos e limites configuráveis (§32)
+- [ ] Explica a decisão: qual ativo, quanto, e **por quê** — decomponível como o score
+- [ ] Testes com valores conhecidos + carteira vazia + universo sem ativo pontuável
+- [ ] `pytest` verde (baseline 542 + novos)
 - [ ] `ruff check` e `black --check` limpos nos arquivos alterados
 - [ ] `docs/PROJECT_STATUS.md` e a memória atualizados
 
 ---
 
+## 🎯 Antes da alocação: um passo curto de alto retorno
+
+**Ações em circulação por período.** É o único item que falta para `pe`, `pb` e `dy`, e
+destravaria o pilar de **Valuation** inteiro — o último ainda ausente. Levaria a cobertura do
+score de **55% para 75%**.
+
+O dado já está no arquivo que o projeto **já baixa**: `dfp_cia_aberta_composicao_capital_{ano}.csv`
+traz `QT_ACAO_TOTAL_CAP_INTEGR` e `QT_ACAO_TOTAL_TESOURO` por `DT_REFER`. Ações em circulação =
+integralizadas − tesouraria.
+
+O que falta: coluna `shares_outstanding` em `fundamentals` (migration), o campo no
+`FinancialStatement`, o parse no `CvmFundamentalsProvider`, e passar adiante em
+`IndicatorInputs` — que **já tem o campo** e cujo `compute_indicators` **já sabe** usá-lo para
+`pe`/`pb`. O preço point-in-time já é resolvido por `_price_on_or_before`.
+
+Estimativa: bem menor que a ingestão da CVM, porque toda a infraestrutura já existe.
+
+---
+
 ## Estado do ambiente (verificado 2026-08-18)
 
-- **PostgreSQL 16 no ar**, schema em `005`, e agora **com dado real**: CDI (252 pregões,
-  2025-08-18 a 2026-08-17), IPCA (31 meses desde 2024-01) e IBOV (63 pregões desde
-  2026-05-20). `docker compose up -d postgres` se estiver parado.
-- Alembic a partir do host precisa da URL sobrescrita (o `.env` aponta para o host `postgres` da rede Docker):
+- **PostgreSQL 16 no ar**, schema em `006`, com dado real: CDI (252 pregões), IPCA (31 meses),
+  IBOV (63 pregões), e **PETR4 com 6 exercícios de demonstrativos e indicadores da CVM**.
+  `docker compose up -d postgres` se estiver parado.
+- Alembic do host precisa da URL sobrescrita (o `.env` aponta para o host `postgres` da rede Docker):
   `DATABASE_URL="postgresql://investment_user:investment_pass_dev@localhost:5432/investment_assistant" .venv/Scripts/python.exe -m alembic upgrade head`
 - Rodar Python de `backend/` **não** carrega o `.env` da raiz e `BRAPI_TOKEN` fica vazio em silêncio.
+- **Cache da CVM em `var/cvm/`** (gitignored), ~13 MB por exercício. Já tem 2020–2025.
 - **`alembic check` falha** por drift pré-existente em `assets.ticker` e `users.email` — não é regressão.
-- 🔴 **A Brapi limita o `range` a 3 meses no plano gratuito**, e o `range` é relativo a hoje.
-  Não há histórico de ações/IBOV além de ~63 pregões hoje. Isso já quebra
-  `sync_daily_history` para janelas acima de 3 meses e vai limitar a W13.
+- 🔴 **A Brapi limita o `range` a 3 meses** no plano gratuito, e o `range` é relativo a hoje.
+  Não há histórico de preços além de ~63 pregões. Já quebra `sync_daily_history` acima de 3 meses.
+  **Não afeta fundamentals** — esses vêm da CVM agora.

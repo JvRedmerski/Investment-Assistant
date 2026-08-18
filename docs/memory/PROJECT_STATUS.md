@@ -6,24 +6,24 @@
 
 ## Current Phase
 
-**Wave 08 concluída.** Próxima: **Wave 09 — Portfolio Recommendation Engine**.
+**Wave 09 em andamento**: W09-001 (sub-scores) e W09-002 (fonte CVM) concluídas; falta **W09-003 — algoritmo de alocação do aporte mensal**.
 9 de 33 waves concluídas (W00–W08).
 
-⚠️ **Duas restrições externas, ambas do plano gratuito da Brapi, ambas verificadas ao vivo em 2026-08-18:**
-1. Os módulos de demonstrativos saíram do plano (HTTP 403) — a ingestão de fundamentals está inoperante **por plano, não por código**. Bloqueia parcialmente a W09.
-2. O `range` está limitado a `3mo` (HTTP 400, `INVALID_RANGE`) e é **relativo a hoje**, sem parâmetro de data inicial — então não há como paginar histórico. Teto absoluto de ~63 pregões para preços de ações e para o IBOV. Já quebra `sync_daily_history` em janelas acima de 3 meses e limita a W13.
+✅ **O bloqueio de fundamentals foi contornado em 2026-08-18** ([ADR-020](../decisions/ADR-020-cvm-primary-fundamentals-source.md)). A fonte primária passou a ser os **dados abertos da CVM** — o arquivo entregue ao regulador, aberto, sem token, sem cota e com mais histórico do que o fornecedor dava. A **Brapi continua no projeto** fazendo a ponte que a CVM não faz: seus arquivos não têm coluna de ticker, e o `summaryProfile` (ainda gratuito) traz o CNPJ.
 
-O CDI e o IPCA **não** são afetados: vêm do Banco Central (SGS), que é aberto e sem cota.
+⚠️ **Restrição externa que permanece**: o `range` da Brapi está limitado a `3mo` (HTTP 400, `INVALID_RANGE`) e é **relativo a hoje**, sem parâmetro de data inicial — não há como paginar histórico. Teto absoluto de ~63 pregões para preços de ações e para o IBOV. Já quebra `sync_daily_history` em janelas acima de 3 meses e limita a W13.
+
+CDI e IPCA **não** são afetados: vêm do Banco Central (SGS), aberto e sem cota.
 
 ## Overall Status
 
 | | |
 |---|---|
 | **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine · W08 Benchmark Engine |
-| **In Progress** | — nenhuma |
+| **In Progress** | W09 Recommendation Engine — W09-001 e W09-002 feitas, W09-003 (alocação) pendente |
 | **Blocked** | — nenhuma |
 
-Baseline atual: `pytest` → **449 passed** (backend/.venv).
+Baseline atual: `pytest` → **542 passed** (backend/.venv).
 
 ## Completed Work (nível wave)
 
@@ -47,15 +47,19 @@ Baseline atual: `pytest` → **449 passed** (backend/.venv).
 
 - **W08-002** (2026-08-18) — Comparativo. `benchmarks/series.py` (taxa → índice acumulado; taxa anualizada da janela), `portfolio/performance.py` (índice **time-weighted** da carteira, em formato `PricePoint`), `benchmarks/comparison.py` (puro, só orquestra o `app.quant`). Endpoints `GET /assets/{ticker}/benchmarks/{code}` e `GET /portfolios/{id}/benchmarks/{code}`. **`beta`, `sharpe` e `sortino` deixaram de retornar `None`.** Decisões em [ADR-018](../decisions/ADR-018-benchmark-representation.md) e [ADR-019](../decisions/ADR-019-portfolio-return-is-time-weighted.md).
 
+- **W09-001** (2026-08-18) — Motor de sub-scores. Cinco pilares (Quality, Valuation, Growth, Risk, Diversification) em `app/domain/recommendations/scoring.py`, puro e determinístico. **Ausência é resposta de primeira classe**: pilar sem dado é `None`, nunca zero nem 50 "neutro", e fica de fora da média. O score final renormaliza sobre o que existe e **reporta `coverage`** — dois scores com cobertura diferente não são comparáveis. Fórmula versionada, todo limiar é constante nomeada (§30). Score é **relativo à carteira** (§31). `GET /portfolios/{id}/scores`.
+
+- **W09-002** (2026-08-18) — **Fonte CVM + ponte Brapi**. `CvmFundamentalsProvider` lê os DFP de dados.cvm.gov.br (ZIP por exercício, cache em disco); `BrapiCnpjResolver` + `StoredCnpjResolver` resolvem ticker→CNPJ e gravam em `assets.cnpj` (migration `006`); `CompositeFundamentalsProvider` põe a CVM na frente e a Brapi atrás. **Período inteiro vem de uma fonte só** — campos nunca são misturados. Validado ao vivo com 6 exercícios da PETR4. Decisões em [ADR-020](../decisions/ADR-020-cvm-primary-fundamentals-source.md).
+
 Detalhe por task: [../history/COMPLETED_TASKS.md](../history/COMPLETED_TASKS.md).
 
 ## Current Work
 
-Nada em execução. Wave 08 fechada.
+**W09-003 — algoritmo de alocação do aporte mensal.** Os sub-scores estão prontos e a fonte de demonstrativos voltou a funcionar.
 
 ## Next Recommended Step
 
-**Wave 09 — Portfolio Recommendation Engine** — mas ela **começa por uma decisão de produto, não por código**. Três dos seis sub-scores (Quality, Valuation, Growth) dependem de demonstrativos, que estão inoperantes por plano. Os outros três (Risk, Diversification, Portfolio Fit) estão desbloqueados pela W07+W08. Opções: assinar o plano Startup da Brapi, migrar para dados abertos da CVM, ou entregar a wave com os sub-scores disponíveis e os demais **explicitamente ausentes** (nunca estimados — regra 44/ADR-014). Ver [CURRENT_TASK.md](CURRENT_TASK.md).
+Antes da alocação, um passo curto e de alto retorno: **ações em circulação por período**. O mesmo arquivo DFP já traz `composicao_capital` (com ações em tesouraria), e é só isso que falta para `pe`/`pb`/`dy` — destravaria o pilar de **Valuation**, o último ainda ausente, levando a cobertura do score de 55% para 75%. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ## Known Issues
 
@@ -71,7 +75,8 @@ Problemas reais, verificados no código (2026-08-18).
 6. **Lint pré-existente sujo no backend.** `ruff check` acusa findings em arquivos não tocados desde a Wave 02 (`data/models/users.py`, `daytrade.py`, `recommendations.py`, `core/logging.py`, `data/database.py`, `api/routes/health.py`, `tests/test_health.py`) — import-sorting e `Optional[X]`/`List[X]` → `X | None`/`list[X]`. Deliberadamente fora de escopo até uma task dedicada de cleanup. (`data/models/fundamentals.py` saiu da lista: foi reescrito e está limpo.)
 7. **Colunas monetárias ainda em `Float`** (dívida conhecida, conversão adiada para a wave que as usar): `intraday_prices` OHLC (W15), `portfolio_snapshots.total_value/cash_value` (W11), `investor_profiles.monthly_contribution` (W09).
 8. **`PriceSyncRequest` documenta que `end` não pode ser futura, mas o validador não verifica isso** — apenas `start <= end`.
-9. **5 dos 10 indicadores permanecem `None`**, cada um por motivo **evidenciado** contra a API real: `pe`/`pb`/`dy` — a Brapi só expõe `sharesOutstanding` e `dividendYield` como snapshots atuais, sem data-fim de período; aplicá-los a um balanço de 2010 seria look-ahead (§108/§109). `debt_ebitda`/`ebitda_margin` — `cleanEbitda` é cópia literal de `ebit` em 16/16 períodos, não é EBITDA. **Limita os sub-scores de Valuation na Wave 09.**
+9. **3 dos 10 indicadores permanecem `None`** (eram 5) — `pe`/`pb`/`dy`. **`ebitda_margin` e `debt_ebitda` foram destravados em 2026-08-18** pela fonte da CVM: o fornecedor copiava `ebit` em `cleanEbitda`, enquanto a CVM permite derivar EBITDA de verdade (`EBIT + |D&A|`, com D&A em `7.04.01` da DVA). Os três restantes precisam de **ações em circulação por período** — que o próprio DFP traz em `composicao_capital`, ainda não ingerido. Registro do estado anterior:
+9b. ~~5 dos 10 indicadores permanecem `None`~~, cada um por motivo **evidenciado** contra a API real: `pe`/`pb`/`dy` — a Brapi só expõe `sharesOutstanding` e `dividendYield` como snapshots atuais, sem data-fim de período; aplicá-los a um balanço de 2010 seria look-ahead (§108/§109). `debt_ebitda`/`ebitda_margin` — `cleanEbitda` é cópia literal de `ebit` em 16/16 períodos, não é EBITDA. **Limita os sub-scores de Valuation na Wave 09.**
 10. ~~Indicadores gravados antes da W06-003 estão errados~~ — **PENDÊNCIA ANULADA em 2026-08-18.** Nunca existiu banco: sem container, sem volume Docker, sem arquivo SQLite. Ao subir o Postgres o volume foi criado do zero e todas as tabelas vieram com **0 linhas** (`assets`, `asset_prices`, `fundamentals`, `financial_indicators`, `users`, `transactions`). Não há nada gravado para recomputar. A pendência havia sido registrada por hipótese, não por observação do estado real.
 11. **Reexpressões (restatements) de demonstrativos são invisíveis**: o primeiro valor gravado para um `reference_date` nunca é substituído. Corrigir exige schema versionado por período. (Indicadores derivados, ao contrário, podem ser recomputados — [ADR-015](../decisions/ADR-015-indicator-recomputation.md).)
 12. **Demonstrativos trimestrais não são ingeridos** — o parser filtra `type == "yearly"`, porque `fundamentals` não tem coluna de período para distingui-los de um exercício anual com a mesma data-fim ([ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md)).
@@ -83,6 +88,9 @@ Problemas reais, verificados no código (2026-08-18).
 18. **`env_file=".env"` é relativo ao cwd.** Rodando de `backend/`, o `.env` da raiz não é lido e `BRAPI_TOKEN` fica vazio **silenciosamente**. Sob `docker compose` não afeta.
 19. **Aproximação conhecida no `performance_index`**: um fluxo (compra/venda) que cai numa data sem preço armazenado é neutralizado na próxima data valorável, o que credita ao capital pré-existente o que as ações novas ganharam no intervalo. Só ocorre quando a data da operação não pode ser valorada; quando pode — o caso normal — não há distorção alguma. As alternativas seriam fabricar um fechamento (regra 44), esconder movimento real, ou descartar o histórico inteiro após uma lacuna. Correção verdadeira é a montante: ingerir os preços faltantes.
 20. **`app/data/models/__init__.py` entrou na lista de lint pré-existente** — `ruff` (I001, RUF022) e `black` já falhavam nele antes da W08 (confirmado rodando as ferramentas na versão do `HEAD`). Não corrigido por estar fora de escopo (regra 134).
+21. **Bancos e seguradoras usam plano de contas diferente no DFP.** `3.01` do Banco do Brasil é "Receitas de Intermediação Financeira", não receita de vendas, e `2.01.04` (empréstimos) pode não existir. O mapeamento aceita o que houver e deixa `None` no resto, mas os números de uma instituição financeira merecem conferência antes de virarem score. Validação feita contra PETR4 e VALE3 (industriais).
+22. **Cobertura da CVM é só companhia aberta brasileira.** FII, ETF e BDR não arquivam DFP e nunca arquivarão — para eles os pilares fundamentalistas ficam permanentemente ausentes, o que o motor de score já trata como estado normal (não como falha).
+23. **Um exercício já em cache nunca é rebaixado.** A CVM republica um ano conforme empresas corrigem; pegar a correção exige apagar o ZIP em `var/cvm/`. Deliberado — nenhum caminho de leitura dispara isso sozinho.
 
 ## Inconsistências documentação × código
 

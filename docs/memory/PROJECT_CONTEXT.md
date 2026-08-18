@@ -36,11 +36,14 @@ O produto final deve responder: *Como está minha carteira? Estou batendo o CDI?
 - **Benchmarks**: CDI, IPCA e Selic pelo Banco Central (SGS, aberto e sem cota) e IBOV pelo provedor de market data, atrás de interface abstrata. Ingestão idempotente, com rejeição de período ainda não encerrado.
 - **Comparativo carteira × benchmark**: a carteira vira um índice **time-weighted** (valor de cota) derivado do ledger, o que neutraliza aportes e a torna comparável a um índice. Responde "estou batendo o CDI?" com retorno, excesso, volatilidade, drawdown, beta, Sharpe e Sortino.
 
+- **Demonstrativos financeiros pelos dados abertos da CVM** — a peça entregue ao regulador, aberta e sem cota — com a Brapi fazendo a ponte ticker→CNPJ que a CVM não faz. Fontes compostas: um período vem inteiro de uma fonte só, nunca campo a campo.
+- **Sub-scores de ativo decomponíveis** (Quality, Valuation, Growth, Risk, Diversification), relativos à carteira, com fórmula versionada e **ausência de primeira classe**: pilar sem dado é ausente, nunca estimado, e o score reporta que fração da fórmula ele cobre.
+
 ### Em desenvolvimento
-- Nada em progresso. Wave 08 fechada; Wave 09 (Recommendation Engine) é a próxima.
+- **Wave 09** — sub-scores e fonte CVM entregues; falta o algoritmo de alocação do aporte mensal.
 
 ### Planejado (não existe código)
-Recommendation Engine → Rebalanceamento → Dashboard → AI Engine → Backtesting/Walk-forward → Day Trade (intraday, setups, risco, paper trading) → Observabilidade/Segurança/CI-CD/Deploy.
+Alocação do aporte → Rebalanceamento → Dashboard → AI Engine → Backtesting/Walk-forward → Day Trade (intraday, setups, risco, paper trading) → Observabilidade/Segurança/CI-CD/Deploy.
 Ver [../planning/ROADMAP.md](../planning/ROADMAP.md).
 
 **O frontend continua sendo apenas scaffold** — nenhuma dessas capacidades está exposta em tela. A primeira wave de frontend real é a W11.
@@ -75,7 +78,7 @@ PostgreSQL  ←  Alembic migrations
 
 Domínios conceituais (AGENTS.md §4):
 `Market Data → Quant Engine → Portfolio Engine → Recommendation Engine → AI Engine (só explicação)`.
-Os três primeiros existem; Recommendation Engine e AI Engine ainda não.
+Os quatro primeiros existem (Recommendation em construção); AI Engine ainda não.
 
 ## Documentos-âncora do projeto
 

@@ -16,13 +16,13 @@ backend/
 │   │   ├── config.py           Settings (pydantic-settings, lê .env) → singleton `settings`
 │   │   ├── security.py         hash/verify de senha (bcrypt) · create/decode de JWT (PyJWT)
 │   │   └── logging.py          setup_logging()
-│   ├── domain/                 users · portfolio · assets · market_data · fundamentals · benchmarks
+│   ├── domain/                 users · portfolio · assets · market_data · fundamentals · benchmarks · recommendations
 │   │   └── <área>/             schemas.py (Pydantic) + service.py (regra de negócio)
 │   ├── quant/                  returns.py · risk.py — puro, sem I/O, tudo em Decimal
 │   ├── integrations/
 │   │   ├── http.py             RetryingJsonClient — transporte compartilhado (retry/throttle)
 │   │   ├── market_data/        base · schemas · exceptions · brapi · factory · data_quality
-│   │   ├── fundamentals/       mesma estrutura de cinco peças
+│   │   ├── fundamentals/       base · schemas · exceptions · factory · brapi · cvm · identity · composite
 │   │   └── benchmarks/         base · schemas · exceptions · bcb · brapi_index · factory
 │   └── data/
 │       ├── database.py         engine · SessionLocal · Base · get_db · utc_now

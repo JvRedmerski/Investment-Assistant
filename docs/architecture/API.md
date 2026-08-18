@@ -86,6 +86,7 @@ Unidades dos indicadores: margens, crescimento, ROE, ROIC e DY são **frações*
 | GET | `/{id}/transactions` | ordenado por `transaction_date`, `id` |
 | GET | `/{id}/positions` | posições consolidadas + totais; **sem valor de mercado** (depende de precificação, ainda não integrada) |
 | GET | `/{id}/benchmarks/{code}` | compara a carteira com um benchmark; a carteira entra como índice **time-weighted**, então aporte não conta como rentabilidade; lê **só** do banco |
+| GET | `/{id}/scores` | pontua todo ativo acompanhado **contra esta carteira**; lê **só** do banco. Ler `coverage` antes de comparar dois scores |
 
 ### Benchmarks — `/api/v1/benchmarks` (todos autenticados)
 | Método | Rota | Nota |

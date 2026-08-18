@@ -19,6 +19,7 @@
   - `003_numeric_fundamentals_columns` — converte as sete colunas monetárias de `fundamentals` de `FLOAT` para `NUMERIC(24,4)`.
   - `004_fundamentals_income_detail` — adiciona `ebit`, `income_before_tax` e `income_tax_expense` a `fundamentals`.
   - `005_benchmark_values` — cria `benchmark_values` (séries de CDI/IBOV/IPCA/Selic) em `NUMERIC(24,12)`.
+  - `006_assets_cnpj` — adiciona `assets.cnpj`, o elo entre as duas fontes de demonstrativos.
 - Todas foram **escritas manualmente**, não por autogenerate.
 
 ```powershell
@@ -44,7 +45,7 @@ Agrupadas por domínio; `id` serial PK e `created_at` são universais e foram om
 ### Ativos e preços
 | Tabela | Campos-chave | Usada? |
 |---|---|---|
-| `assets` | `ticker` (unique, index), `name`, `asset_type`, `sector`, `currency`, `is_active` | ✅ |
+| `assets` | `ticker` (unique, index), `name`, `asset_type`, `sector`, `currency`, `is_active`, `cnpj` | ✅ |
 | `asset_prices` | `asset_id`, `date`, OHLC + `adjusted_close` (`NUMERIC`), `volume` (`Float`), `source` | ✅ |
 | `intraday_prices` | `asset_id`, `timestamp`, `timeframe` (1m/5m/15m), OHLCV (`Float`) | ❌ Wave 15 |
 

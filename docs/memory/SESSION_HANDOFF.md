@@ -6,150 +6,138 @@
 
 ## Last Completed Work
 
-**Wave 08 — Benchmark Engine — concluída.** Duas tasks, e é a wave que finalmente
-faz o Quant Engine da W07 produzir número em vez de `None`.
+**Wave 09 em andamento**: duas tasks entregues, e juntas elas destravaram o que estava parado
+desde que a Brapi fechou os demonstrativos.
 
-### W08-001 — Ingestão de benchmarks (`b2ba595`)
+### W09-001 — Motor de sub-scores (`26afb34`)
 
-`BenchmarkProvider` abstrato + factory, com duas implementações:
+Cinco pilares — Quality, Valuation, Growth, Risk, Diversification — compostos num score final,
+em `app/domain/recommendations/scoring.py`. Puro e determinístico.
 
-- **`BcbSgsProvider`** — CDI, IPCA e Selic pela API SGS do Banco Central. Aberta, sem
-  token, sem cota, e é a fonte **primária**: o CDI contra o qual um fundo se reporta é
-  o que o BC publica.
-- **`BrapiIndexProvider`** — IBOV. **Não escreve parser nenhum**: verificado ao vivo, a
-  Brapi devolve `^BVSP` exatamente na mesma forma de uma ação, então ele delega ao
-  `MarketDataProvider` já validado na W06 e só traduz o vocabulário de erro.
+- Cada pilar devolve **seus componentes** já na escala 0–100 e os nomes dos insumos que faltaram,
+  então "por que isso é 62?" se responde só olhando o resultado (§30).
+- Todo limiar é constante nomeada ao lado do motivo de ter aquele valor, e
+  `SCORING_FORMULA_VERSION` identifica o conjunto. Nada de peso escondido em prompt de IA.
+- **Ausência é resposta de primeira classe**: pilar sem dado é `None`, nunca zero nem 50
+  "neutro", e fica **de fora da média** em vez de puxá-la para baixo.
+- `compose` renormaliza sobre os pilares que existem e **reporta `coverage`**.
+- Score é **relativo à carteira** (§31): Diversification lê a concentração atual.
+- `GET /portfolios/{id}/scores`.
 
-Catálogo em **código** (`domain/benchmarks/catalog.py`), não em tabela — é o que a
-roadmap §20 pede por "outros benchmarks configuráveis", e evita seed migration.
-`benchmark_values` em `NUMERIC(24,12)` + migration `005`, aplicada em Postgres 16 real
-com round-trip `downgrade`/`upgrade`.
+### W09-002 — Fonte CVM, com a Brapi fazendo a ponte (`d92b93f`, [ADR-020](../decisions/ADR-020-cvm-primary-fundamentals-source.md))
 
-### W08-002 — Comparativo carteira/ativo × benchmark
+A ingestão de fundamentals **voltou a funcionar**, de graça e com mais histórico do que o
+fornecedor jamais deu.
 
-- `benchmarks/series.py` — taxa → índice acumulado; taxa anualizada da janela.
-- `portfolio/performance.py` — índice **time-weighted** da carteira (valor de cota),
-  derivado do ledger + `asset_prices`, entregue como `PricePoint`.
-- `benchmarks/comparison.py` — puro; **não calcula nada**, só orquestra o `app.quant`.
-- Endpoints `GET /assets/{ticker}/benchmarks/{code}` e `GET /portfolios/{id}/benchmarks/{code}`.
+- `CvmFundamentalsProvider` lê os DFP de dados.cvm.gov.br — a peça entregue ao regulador.
+- `CompositeFundamentalsProvider` põe a CVM na frente e a Brapi atrás (BDR, ETF, emissor estrangeiro).
+- `assets.cnpj` (migration `006`) + `StoredCnpjResolver`: o CNPJ é resolvido **uma vez**.
 
 ## Current State
 
-- `pytest` → **449 passed** (316 → 391 → 449). `ruff`/`black` limpos nos arquivos alterados.
-- **Wave 08 🟢 concluída.** 9 de 33 waves (W00–W08).
-- **PostgreSQL 16 no ar, schema `005`, e agora com dado real**: CDI 252 pregões
-  (2025-08-18 a 2026-08-17), IPCA 31 meses (desde 2024-01), IBOV 63 pregões
-  (desde 2026-05-20).
-- `beta`, `sharpe` e `sortino` **produzem número**. Era o objetivo da wave.
+- `pytest` → **542 passed** (449 → 499 → 542). `ruff`/`black` limpos nos arquivos alterados.
+- Wave 09: W09-001 🟢, W09-002 🟢, **W09-003 (alocação) pendente**.
+- **PostgreSQL 16 no ar, schema `006`**, com CDI/IPCA/IBOV **e** 6 exercícios de demonstrativos
+  e indicadores da PETR4 vindos da CVM.
+- Cache da CVM em `var/cvm/` (gitignored), exercícios 2020–2025.
 
 ## Important Details
 
-### As decisões estruturais da wave ([ADR-018](../decisions/ADR-018-benchmark-representation.md) e [ADR-019](../decisions/ADR-019-portfolio-return-is-time-weighted.md))
+### A fusão das duas APIs, e por que ela não é arbitrária
 
-**Benchmark de taxa guarda a taxa publicada, não o índice acumulado.** Acumular é uma
-operação **com parâmetro** — o índice depende da data-base, que é diferente para cada
-carteira e muda a cada janela que o usuário escolhe na tela. Gravar um índice congela
-uma data-base que ninguém pediu e joga fora a taxa diária, que não é recuperável do
-índice. A conversão acontece na leitura, em `series.py`.
+|  | CVM | Brapi |
+|---|---|---|
+| conhece ticker | **não** | sim |
+| conhece CNPJ | sim | sim |
+| entrega demonstrativo | sim, o arquivado | não, saiu do plano |
+| cobertura | só companhia aberta brasileira | BDR, ETF, emissor estrangeiro |
+| custo | livre, sem cota | cota limitada |
 
-**Taxa livre de risco anualiza em base 252, e isso foi verificado, não deduzido.** O SGS
-publica o CDI duas vezes: série 12 (diária) e série 4389 (já anualizada). Compor a 12 em
-252 tem que reproduzir a 4389 — e reproduz, nas duas janelas testadas:
+Os arquivos da CVM **não têm coluna de ticker** — só CNPJ. O `summaryProfile` da Brapi
+**continuou gratuito** (foram os módulos de demonstrativo que saíram) e traz exatamente esse CNPJ:
+`PETR4` → `33000167000101`, verificado ao vivo.
 
-| dia | série 12 | composta 252× | série 4389 |
-|---|---|---|---|
-| 2024-01-02 | 0,043739% | 11,6499% | 11,65% |
-| 2026-08-17 | 0,051660% | 13,8998% | 13,90% |
+Nenhuma das duas responde "o que a PETR4 reportou" sozinha. **Identidade pelo fornecedor, números
+pelo regulador.**
 
-Isso também fecha sem resíduo com o `_periodic_rate` da W07, que de-anualiza com
-`PERIODS_PER_YEAR[DAILY] = 252`. Se as duas pontas usassem bases diferentes, todo Sharpe
-sairia errado por um fator constante, **sem nada na saída denunciando**.
+### O que foi recusado, e por quê
 
-**Observação de período não terminado é rejeitada, nunca gravada** (extensão do ADR-016).
-A Brapi inclui a **sessão em curso** dentro de `historicalDataPrice` — e, ao contrário de
-uma ação, o índice vem com `adjustedClose` preenchido, então a guarda
-`MISSING_ADJUSTED_CLOSE` do ADR-016 **não** dispara. Três requisições ao `^BVSP` em
-poucos minutos devolveram, para a mesma data, 166851,5156 → 166978,9375 → 166923,3438.
-Como a ingestão nunca reescreve data gravada, o primeiro a chegar ficaria congelado como
-"o fechamento do Ibovespa".
+**Mesclar campo a campo entre as fontes.** Duas fontes discordam sobre consolidado versus
+controladora, sobre o que conta como dívida, sobre qual linha é "receita" num banco. Emendar o
+patrimônio de uma no resultado da outra produziria uma linha que **nenhum arquivo jamais
+reportou**, e nada a jusante perceberia. Um período vem inteiro de uma fonte só.
 
-**A carteira entra como índice time-weighted, não como valor patrimonial.** Sem isso, uma
-carteira com aporte mensal apareceria batendo qualquer benchmark num ano em que o
-investidor perdeu dinheiro — o aporte entraria como rentabilidade (regra 26).
+**Cair para a outra fonte quando a primeira falha.** "Não tenho esse ativo" é para isso que
+existe fallback. Timeout ou payload ilegível é a fonte quebrada, e usar a outra em silêncio
+transformaria indisponibilidade em **troca invisível de fonte**.
 
-**`beta` só contra benchmark do tipo `INDEX`.** Não é limitação a remover depois: o CDI
-quase não varia, então `cov/var` divide por quase-zero. E **não sairia `None` sozinho** —
-a variância não é exatamente zero, então a guarda dentro de `beta` não dispara e um
-número enorme e instável seria reportado com cara de fato.
+### Detalhes do DFP que mudam a resposta
 
-### O que a API real ensinou, e nenhum mock ensinaria
+- **`net_income` é `3.11.01`, não `3.11`.** O segundo inclui minoritários (R$ 37,0 bi na PETR4
+  contra R$ 36,6 bi), e cruzá-lo com patrimônio da controladora infla o ROE pela fatia que o
+  acionista não possui. O patrimônio é líquido dos minoritários pela mesma razão. O ROE dá os
+  **10,0% publicados**.
+- **`ESCALA_MOEDA`** é `MIL` na maioria e `UNIDADE` em 550 de 32.776 linhas. Ignorar subestima
+  em mil vezes.
+- **`ORDEM_EXERC`**: só `ÚLTIMO`. O `PENÚLTIMO` é a visão reexpressa, e o ano anterior tem o
+  arquivo dele.
+- **`VERSAO`**: vence a maior. Ler todas dobraria cada número.
+- **EBITDA é derivado** (`EBIT + |D&A|`, D&A em `7.04.01` da DVA). Nenhum arquivo reporta EBITDA.
+  O valor absoluto é deliberado: D&A chega negativo em 433 empresas e **positivo em 3**.
 
-A DoD exigia validar contra resposta real **antes** de escrever os mocks. Foi o que
-produziu tudo abaixo — nada disso está na documentação das APIs:
+### A prova de que o desenho da W09-001 estava certo
 
-- **HTTP 404 do SGS significa "janela sem observação"**, não "série inexistente": pedir o
-  CDI num fim de semana devolve 404. Tratado como resultado vazio; tratar como erro faria
-  todo sync falhar quando a janela pegasse só dias não úteis.
-- **Série inexistente devolve HTTP 200 com uma página HTML**, não JSON.
-- **O SGS recusa janela acima de 10 anos em série diária** (HTTP 406), com limite
-  inclusivo-exato: 18/08/2016→18/08/2026 passa, um dia a mais não. O provider fatia sozinho.
-- 🔴 **O plano gratuito da Brapi limita o `range` a `3mo`** (HTTP 400, `INVALID_RANGE`), e
-  o `range` é **relativo a hoje** — não há parâmetro de data inicial, então **não dá para
-  paginar histórico**. Isso **já quebra `sync_daily_history` da W05** para qualquer janela
-  acima de 3 meses; só não havia aparecido porque a validação da W06-004 usou `range=1mo`.
-  Não é regressão da W08, mas limita `beta` hoje e o backtesting da W13.
+Medido no banco real, depois de ingerir a CVM: **Quality e Growth foram de ausentes para 97,8 e
+76,7**, e a cobertura do score de **40% para 55%** — **sem uma linha alterada em `scoring.py`**.
+Era exatamente o que o desenho prometia.
+
+Também saíram do `None`: `ebitda_margin` e `debt_ebitda`. O fornecedor copiava `ebit` no campo de
+EBITDA; a CVM permite derivá-lo de verdade.
 
 ### Lições de método desta sessão
 
-- **O teste escrito à mão pegou um defeito real de novo.** `performance_index` ignorava
-  por completo eventos do ledger em datas sem preço — as quantidades **e** os fluxos —
-  porque indexava o ledger pela data de valoração. Uma compra feita num dia sem preço
-  simplesmente não existia. Corrigido com varredura por ponteiro. Um teste escrito a
-  partir da saída do código teria passado.
-- **Rodar contra dado real melhorou o código depois de tudo verde.** A comparação IBOV ×
-  IPCA devolveu razão **-85,16** (denominador de +0,07%), e IBOV × CDI devolveu **-1,80**
-  ("-180% do CDI" não significa nada). `return_ratio` passou a exigir que **ambos** os
-  retornos sejam positivos — a única situação que o idioma "115% do CDI" descreve.
-- **A melhor sanidade é comparar a série consigo mesma.** IBOV × IBOV com dado real deu
-  excesso 0,00% e **beta exatamente 1,0000**, o que valida o alinhamento por data e a
-  covariância de uma vez.
+- **O teste escrito à mão pegou um defeito meu de novo.** Numa escala **invertida**, um P/L
+  negativo é aritmeticamente *menor* que um barato, então clampava no extremo **bom** e marcaria
+  **100** — uma empresa que deu prejuízo classificada como a mais barata da bolsa. Clamp não
+  protege de inversão. Múltiplo não positivo agora é piso explícito.
+- **Validar contra número público é mais forte que validar contra schema.** O mapeamento de
+  contas foi conferido contra o que a Petrobras publicou, não contra a documentação da CVM: um
+  ROE de 10,0% é difícil de acertar por acidente com o campo errado.
+- **A API real ensinou o que nenhum mock ensinaria**, de novo: 404 do SGS significando "janela
+  vazia", série inexistente devolvendo HTML com HTTP 200, `range` da Brapi limitado a 3 meses, e
+  agora o sinal de D&A sendo convenção de apresentação.
 
 ## Pending Work
 
-**Wave 09 — Portfolio Recommendation Engine**, que **começa por uma decisão de produto**.
-Ver [CURRENT_TASK.md](CURRENT_TASK.md).
+**W09-003 — algoritmo de alocação do aporte mensal.** Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
-Três dos seis sub-scores (Quality, Valuation, Growth) dependem de demonstrativos, e a
-ingestão de fundamentals está inoperante desde 2026-08-18 porque os módulos saíram do
-plano gratuito da Brapi. Os outros três (Risk, Diversification, Portfolio Fit) estão
-**desbloqueados** pela W07+W08. Escolher entre: assinar o plano Startup (R$ 119,99/mês),
-migrar para dados abertos da CVM, ou entregar a wave com os sub-scores disponíveis e os
-demais **explicitamente ausentes** — nunca estimados (regra 44 / ADR-014), porque um
-Quality Score inventado contamina o Final Score e desaparece dentro dele.
+Duas armadilhas já registradas lá: `coverage` **morde na alocação** (ordenar por `final_score` e
+distribuir de cima para baixo favorece sistematicamente quem tem menos dado), e "conservador" é
+restrição quantitativa com pesos configuráveis (§32), reutilizando os tetos de 20%/40% que o
+pilar de Diversification já usa.
 
-Pendências de fundo, sem mudança: `alembic check` falha por drift em `assets.ticker` e
-`users.email`; lint pré-existente no backend (agora incluindo `data/models/__init__.py`);
-`get_quote()` implementado mas não exposto; ingestão de proventos nunca feita;
+**Antes dele, um passo curto de alto retorno**: ações em circulação por período. É o único item
+que falta para `pe`/`pb`/`dy`, o dado já está no arquivo que o projeto **já baixa**
+(`composicao_capital`), e `IndicatorInputs` **já tem o campo**. Levaria a cobertura de 55% para 75%.
+
+Pendências de fundo, sem mudança: `range` da Brapi limitado a 3 meses (quebra
+`sync_daily_history` acima disso e limita a W13); `alembic check` falha por drift;
+lint pré-existente; `get_quote()` não exposto; proventos nunca ingeridos;
 `npm run lint` quebrado no frontend.
 
-Aproximação conhecida e documentada: no `performance_index`, um fluxo que cai numa data
-sem preço é neutralizado na próxima data valorável, creditando ao capital pré-existente o
-que as ações novas ganharam no intervalo. Só ocorre nessa situação; a correção verdadeira
-é a montante, ingerir os preços faltantes.
+Novas, da fonte CVM: bancos e seguradoras usam plano de contas diferente e merecem conferência
+antes de virar score; FII/ETF/BDR não têm DFP e nunca terão; exercício em cache não é rebaixado.
 
 ## Next Step
 
-Ler [CURRENT_TASK.md](CURRENT_TASK.md), `docs/roadmap.md` §21 e `AGENTS.md` §30.
-Decidir o destino dos fundamentals **antes** de escrever código. Usar
-`app/domain/benchmarks/comparison.py` como molde de "módulo puro que só orquestra o
-`app.quant`" — o Score deve combinar o que já existe, não recalcular nada.
+Ler [CURRENT_TASK.md](CURRENT_TASK.md), `docs/roadmap.md` §21 e `AGENTS.md` §31/§32/§33.
+Usar `score_universe` como entrada — a alocação **combina** o que já existe, não recalcula nada.
 
 ## Relevant Files
 
-- `backend/app/domain/benchmarks/` — catálogo, ingestão, série, comparação
-- `backend/app/domain/portfolio/performance.py` — índice time-weighted da carteira
-- `backend/app/quant/{returns,risk}.py` — tudo que o Score deve reutilizar
-- `backend/app/domain/fundamentals/indicators.py` — as 10 fórmulas (5 produzem valor)
-- `backend/tests/test_bcb_benchmark_provider.py` — molde de teste de regressão contra resposta real
-- `docs/decisions/ADR-018-benchmark-representation.md` — representação de benchmark
-- `docs/decisions/ADR-019-portfolio-return-is-time-weighted.md` — rentabilidade de carteira (TWR), e por que a MWR/TIR fica pendente
+- `backend/app/domain/recommendations/{scoring,service,schemas}.py` — os cinco pilares
+- `backend/app/integrations/fundamentals/{cvm,identity,composite}.py` — a fusão das fontes
+- `backend/app/domain/fundamentals/identity.py` — memória do CNPJ
+- `backend/tests/test_asset_scoring.py` — molde de teste com valores à mão
+- `backend/tests/test_cvm_fundamentals_provider.py` — regressão contra o DFP real
+- `docs/decisions/ADR-020-cvm-primary-fundamentals-source.md`
