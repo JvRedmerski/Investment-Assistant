@@ -88,7 +88,7 @@
 - **A pendência de recomputar indicadores não existia**: não havia banco algum (sem container, sem volume, sem SQLite). Ao subir o Postgres o volume foi criado do zero e todas as tabelas vieram com 0 linhas. A pendência vinha de uma hipótese nunca conferida contra o estado real.
 - **O Alembic nunca havia executado**: `migrations/env.py` chamava `context.is_offline()` (inexistente; correto é `is_offline_mode()`) e abortava. `alembic heads`/`history` — a "validação estrutural" da W06-003 — não carregam o `env.py`, e por isso não pegaram. Corrigido; `001`→`004` aplicadas em PostgreSQL 16 real.
 - **Market data validado para FII (HGLG11), ETF (BOVA11) e banco (ITUB4)**: mesma forma de resposta da PETR4, 22 barras cada, 0 rejeitadas, 0 avisos. Fixado em teste de regressão.
-- **Fundamentals bloqueado por mudança de plano**: os módulos de demonstrativos saíram do plano gratuito da Brapi (403), um dia depois de funcionarem. Bloqueia a Wave 09.
+- **Fundamentals bloqueado por mudança de plano**: os módulos de demonstrativos saíram do plano gratuito da Brapi (403), um dia depois de funcionarem. Bloqueava a Wave 09 — **contornado depois, na W09-002**, adotando os dados abertos da CVM como fonte primária ([ADR-020](../decisions/ADR-020-cvm-primary-fundamentals-source.md)).
 - Descoberto que o plano gratuito aceita **1 ativo por requisição** — não há batching. Custo total: 5 requisições.
 - +6 testes (total 211)
 
