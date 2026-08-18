@@ -15,7 +15,9 @@ Criar `app/quant/`, o módulo que o AGENTS.md §24 define como o lugar de **todo
 - **`returns.py`** — retorno diário, semanal, mensal, trimestral, YTD, anual e CAGR.
 - **`risk.py`** — volatilidade, beta, maximum drawdown, Sharpe, Sortino.
 
-Sobre as séries de `asset_prices`, já ingeridas e disponíveis.
+Sobre as séries de `asset_prices`.
+
+⚠️ A tabela está **vazia** (verificado 2026-08-18): nunca houve ingestão. Como as funções devem ser **puras e sem I/O** (requisito 1), isso não bloqueia a implementação nem os testes, que usam séries construídas à mão. Mas não presuma dado disponível ao projetar, e planeje uma ingestão pequena se quiser conferir ponta a ponta — custa 1 requisição por ticker.
 
 ## Context
 
@@ -70,19 +72,21 @@ A Wave 06 fechou com 5 dos 10 indicadores fundamentalistas produzindo valor; os 
 - [ ] Convenção de anualização escolhida e justificada
 - [ ] Fronteira `Decimal` → `float` decidida e registrada
 - [ ] Testes com valores conhecidos calculados à mão + edge cases (série vazia, um ponto, gaps)
-- [ ] `pytest` verde (baseline 205 + novos), sem regressão
+- [ ] `pytest` verde (baseline 211 + novos), sem regressão
 - [ ] `ruff check` e `black --check` limpos nos arquivos alterados
 - [ ] `docs/PROJECT_STATUS.md` e a memória atualizados
 - [ ] Commit: `feat: add quant engine returns module (W07-001)`
 
 ---
 
-## Pendência operacional herdada da Wave 06
+## Alerta herdado da Wave 06 — leia antes de calcular retornos
 
-Indicadores gravados **antes** da W06-003 estão errados (`roe`/`roic` nulos por causa do bug de `equity`). Para cada ativo já processado:
+A pendência de recomputar indicadores **foi anulada** em 2026-08-18: nunca existiu banco nem dado gravado (ver [PROJECT_STATUS.md](PROJECT_STATUS.md), item 10). Não há nada a rodar.
 
-```
-POST /api/v1/assets/{ticker}/indicators/compute?recompute=true
-```
+No lugar dela, um defeito **evidenciado** que ataca exatamente o insumo desta wave:
 
-Não custa requisição externa.
+**`adjusted_close` pode estar congelado com o valor errado.** A Brapi devolve `adjustedClose: null` para a sessão fechada mais recente e só preenche depois (verificado em 2026-08-18: nulo em 2026-08-17 nos três ativos testados). O parser cai para `close` (`app/integrations/market_data/brapi.py:157-159`), e `sync_daily_history` **nunca sobrescreve** uma data já gravada. Logo, uma barra ingerida nessa janela guarda `close` como `adjusted_close` **permanentemente** — mesmo depois de a fonte publicar o ajuste real.
+
+Se houve provento ou desdobramento naquela data, **todo retorno calculado sobre ela nesta wave fica errado, em silêncio** — precisamente o modo de falha que o requisito 3 (usar `adjusted_close`, não `close`) existe para evitar.
+
+Não é escopo da W07 corrigir o serviço de ingestão (regra 134). Mas a wave não pode assumir que `adjusted_close` é confiável só porque a coluna está preenchida. Decidir e registrar como tratar isso — no mínimo, não deixar a suposição implícita.

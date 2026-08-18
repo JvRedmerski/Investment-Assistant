@@ -257,3 +257,124 @@ def test_min_request_interval_throttles_consecutive_requests():
     mock_sleep.assert_called_once()
     (slept_for,) = mock_sleep.call_args.args
     assert slept_for == pytest.approx(1.5)
+
+
+# -- regression against live responses, one per asset type -----------
+#
+# W06-003 validated the mapping against PETR4 (a common stock) only,
+# leaving open whether other B3 asset classes come back in a different
+# shape. These three payloads are verbatim rows from live
+# `GET /quote/{ticker}?range=1mo&interval=1d` responses captured on
+# 2026-08-18 — one FII, one ETF and one bank. All three parse through
+# the same mapping as PETR4, so the shape is asset-class agnostic.
+#
+# Each also pins the real-world null `adjustedClose`: the source leaves
+# the most recently closed session unadjusted for a while (2026-08-17 in
+# all three), filling it in later.
+
+_LIVE_RESPONSES = {
+    # (FII) Patria Log FII
+    "HGLG11": {
+        "market_price": 144.15,
+        "market_time": "2026-08-18T16:02:30.000Z",
+        "bars": [
+            (1784516400, 149.14, 149.29, 148.45, 148.5, 104317, 147.3214),
+            (1786935600, 146.29, 146.78, 143.39, 145.11, 167550, None),
+            (1787022000, 145.11, 145.22, 143.51, 144.15, 69232, 144.15),
+        ],
+    },
+    # (ETF) iShares Ibovespa
+    "BOVA11": {
+        "market_price": 163.98,
+        "market_time": "2026-08-18T16:02:30.000Z",
+        "bars": [
+            (1784516400, 170.7, 171.4, 170.16, 170.3, 2648578, 170.3),
+            (1786935600, 164.11, 165.19, 163.64, 163.8, 2971451, None),
+            (1787022000, 164.05, 165.62, 163.9, 163.98, 636506, 163.98),
+        ],
+    },
+    # (bank) Itau Unibanco PN
+    "ITUB4": {
+        "market_price": 38.48,
+        "market_time": "2026-08-18T16:04:30.000Z",
+        "bars": [
+            (1784516400, 42.14, 42.53, 42.1, 42.3, 12612200, 42.2821),
+            (1786935600, 38.92, 38.98, 38.17, 38.38, 21823400, None),
+            (1787022000, 38.48, 38.74, 38.26, 38.48, 5440800, 38.48),
+        ],
+    },
+}
+
+
+#: `regularMarketTime` comes back as an ISO-8601 string with a trailing
+#: Z, unlike the epoch integers used inside `historicalDataPrice`.
+_EXPECTED_QUOTE_TIME = {
+    "HGLG11": datetime(2026, 8, 18, 16, 2, 30, tzinfo=UTC),
+    "BOVA11": datetime(2026, 8, 18, 16, 2, 30, tzinfo=UTC),
+    "ITUB4": datetime(2026, 8, 18, 16, 4, 30, tzinfo=UTC),
+}
+
+
+def _live_payload(ticker):
+    live = _LIVE_RESPONSES[ticker]
+    return {
+        "results": [
+            {
+                "symbol": ticker,
+                "currency": "BRL",
+                "regularMarketPrice": live["market_price"],
+                "regularMarketTime": live["market_time"],
+                "historicalDataPrice": [
+                    {
+                        "date": epoch,
+                        "open": open_,
+                        "high": high,
+                        "low": low,
+                        "close": close,
+                        "volume": volume,
+                        "adjustedClose": adjusted,
+                    }
+                    for epoch, open_, high, low, close, volume, adjusted in live["bars"]
+                ],
+            }
+        ]
+    }
+
+
+@pytest.mark.parametrize("ticker", sorted(_LIVE_RESPONSES))
+def test_regression_against_real_responses_per_asset_type(ticker):
+    """FIIs, ETFs and banks use the same response shape as a stock."""
+    provider = _provider(
+        lambda request: httpx.Response(200, json=_live_payload(ticker))
+    )
+
+    bars = provider.get_daily_history(ticker, date(2026, 7, 20), date(2026, 8, 18))
+
+    assert [bar.date for bar in bars] == [
+        date(2026, 7, 20),
+        date(2026, 8, 17),
+        date(2026, 8, 18),
+    ]
+    expected = _LIVE_RESPONSES[ticker]["bars"]
+    for bar, (_, open_, high, low, close, volume, adjusted) in zip(bars, expected):
+        assert bar.open == Decimal(str(open_))
+        assert bar.high == Decimal(str(high))
+        assert bar.low == Decimal(str(low))
+        assert bar.close == Decimal(str(close))
+        assert bar.volume == Decimal(str(volume))
+        # A null adjustedClose falls back to close (see _parse_bar).
+        assert bar.adjusted_close == Decimal(str(adjusted if adjusted else close))
+
+
+@pytest.mark.parametrize("ticker", sorted(_LIVE_RESPONSES))
+def test_get_quote_parses_real_responses_per_asset_type(ticker):
+    provider = _provider(
+        lambda request: httpx.Response(200, json=_live_payload(ticker))
+    )
+
+    quote = provider.get_quote(ticker)
+
+    assert quote.ticker == ticker
+    assert quote.price == Decimal(str(_LIVE_RESPONSES[ticker]["market_price"]))
+    assert quote.currency == "BRL"
+    assert quote.as_of == _EXPECTED_QUOTE_TIME[ticker]

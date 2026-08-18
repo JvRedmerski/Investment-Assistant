@@ -472,6 +472,7 @@ Wave 07 — Quant Engine. `returns.py` (diário, semanal, mensal, trimestral, YT
 - **W06-001**: Ingestão de Demonstrativos Financeiros (🟢 COMPLETED)
 - **W06-002**: Cálculo e Normalização de Indicadores Fundamentalistas (🟢 COMPLETED)
 - **W06-003**: Validação contra a API real, correção do mapeamento e captação de insumos (🟢 COMPLETED)
+- **W06-004**: Manutenção pré-Wave 07 — ambiente Postgres real, migrations aplicadas, validação multi-tipo do parser (🟢 COMPLETED)
 
 ---
 
@@ -487,9 +488,13 @@ Nenhuma tarefa bloqueada no momento.
 
 ## Known Issues
 - **5 dos 10 indicadores permanecem `None`**, cada um por motivo evidenciado: `pe`/`pb`/`dy` (a Brapi só oferece `sharesOutstanding` e `dividendYield` como snapshots atuais, sem data-fim de período — usá-los seria look-ahead) e `debt_ebitda`/`ebitda_margin` (`cleanEbitda` é cópia de `ebit`, não é EBITDA). Limita os sub-scores de Valuation na Wave 09.
-- **Indicadores gravados antes da W06-003 estão errados** (`roe`/`roic` nulos por causa do bug de `equity`). Rodar `POST /assets/{ticker}/indicators/compute?recompute=true` em cada ativo já processado.
+- 🔴 **Módulos de demonstrativos saíram do plano gratuito da Brapi.** `GET /quote/{ticker}?modules=incomeStatementHistory,balanceSheetHistory` retorna **HTTP 403**: *"Os módulos ... não estão no plano Gratuito. O plano Startup (R$ 119,99/mês) libera esses módulos. Módulos disponíveis hoje: summaryProfile."* Em 2026-08-17 (W06-003) a mesma chamada funcionou e trouxe 16 períodos. **A ingestão de fundamentals está inoperante — por plano, não por código.** O parser continua correto e testado; ele apenas não tem mais o que receber. Bloqueia reingestão de fundamentals e, por consequência, os sub-scores fundamentalistas da Wave 09. Decidir: assinar o plano, trocar de fonte (CVM/dados abertos) ou adiar a Wave 09.
+- **Plano gratuito aceita no máximo 1 ativo por requisição** (`"Seu plano permite no máximo 1 ativo(s) por requisição. Você enviou 3."`). Não há batching: ingestão em lote custa **1 requisição por ticker**. Relevante para dimensionar a cota mensal.
+- **`adjusted_close` pode ser congelado errado — ameaça direta à Wave 07.** A Brapi devolve `adjustedClose: null` para a sessão fechada mais recente (verificado em 2026-08-18: nulo em 2026-08-17 nos três ativos testados) e preenche depois. O parser cai para `close` ([`brapi.py:157-159`](../backend/app/integrations/market_data/brapi.py#L157-L159)) e `sync_daily_history` **nunca sobrescreve uma data já gravada** ([`service.py`](../backend/app/domain/market_data/service.py)). Uma barra ingerida enquanto o ajuste ainda é nulo guarda `close` como `adjusted_close` **permanentemente**. Se houve provento/desdobramento naquela data, todo retorno calculado sobre ela na W07 fica errado, em silêncio. Corrigir antes de ingestão em lote: ou não gravar a última sessão, ou permitir sobrescrita quando o valor gravado veio do fallback.
+- **`alembic check` acusa drift**: `assets` tem `assets_ticker_key` (UNIQUE CONSTRAINT) **e** `ix_assets_ticker` (UNIQUE INDEX) para a mesma coluna; idem `users.email`. Vem de a migration `001` declarar a constraint e o model declarar `unique=True, index=True`. Redundante, não incorreto — mas faz `alembic check` falhar, o que impede usá-lo como guarda de drift no CI.
+- **`env_file=".env"` é relativo ao cwd** (`app/core/config.py`). Rodando de `backend/`, o `.env` da raiz não é lido e `BRAPI_TOKEN` fica vazio **silenciosamente** — as chamadas saem sem token. Sob `docker compose` não afeta (as env vars são injetadas explicitamente).
 - **Throttle de requisições desligado por padrão**: `MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS` e `FUNDAMENTALS_MIN_REQUEST_INTERVAL_SECONDS` têm default `0.0`, ou seja, sem espaçamento entre chamadas. A Brapi tem cota mensal limitada no plano gratuito. Definir um intervalo no `.env` antes de qualquer ingestão em lote.
-- **Só a PETR4 foi usada na validação.** O mapeamento pode divergir para FIIs, ETFs, BDRs ou bancos (o balanço traz linhas específicas de seguradora/banco). Validar com um ticker de cada tipo quando for ingerir em lote — cada um custa 1 requisição.
+- ~~**Só a PETR4 foi usada na validação.**~~ **RESOLVIDO em 2026-08-18 para market data** (FII/ETF/banco validados, ver W06-004). **Continua aberto para fundamentals**: BDRs e o balanço específico de bancos/seguradoras seguem sem validação, agora bloqueados pelo plano gratuito (ver primeiro item).
 
 ---
 
@@ -561,13 +566,24 @@ Nenhuma tarefa bloqueada no momento.
 - **Reason**: Um indicador é `f(insumos, versão do código)`, não um fato reportado. Quando a fórmula é corrigida, o valor antigo é simplesmente um bug preservado. Os demonstrativos crus continuam imutáveis, então nada do que a fonte publicou se perde.
 - **Status**: 🟢 APPROVED. Registrado como `docs/decisions/ADR-015`.
 
+### Decision — 2026-08-18 — Manutenção pré-Wave 07 (W06-004)
+- **Contexto**: duas pendências herdadas da Wave 06 — recomputar indicadores desatualizados e validar o parser com FII/ETF/banco.
+- **A recomputação era um não-problema.** Não existia banco algum: sem container, sem volume, sem arquivo SQLite. Ao subir o Postgres, o volume foi **criado do zero** e todas as tabelas vieram com 0 linhas. Não havia indicador gravado para recomputar — a pendência tinha sido registrada por hipótese, não por observação. Lição: pendência operacional deve ser verificada contra o estado real antes de ser propagada de handoff em handoff.
+- **`alembic upgrade head` nunca havia rodado.** `migrations/env.py` chamava `context.is_offline()`, que não existe na API do Alembic (o correto é `is_offline_mode()`), e o comando abortava com `AttributeError`. Passou despercebido porque `alembic heads`/`history` — a "validação estrutural" registrada na W06-003 — leem o diretório de scripts e **não carregam `env.py`**. Corrigido; as migrations `001`→`004` foram aplicadas em PostgreSQL 16 real, com sucesso.
+- **Custo em cota: 5 requisições.** Tentei batelar os 3 tickers numa só (1 req) — o plano gratuito recusa mais de 1 ativo por requisição. A segunda descobriu o 403 dos módulos de demonstrativos. As 3 restantes validaram as séries de preço.
+- **Resultado da validação**: o parser de market data está **correto para FII, ETF e banco** — 22 barras cada, 0 rejeitadas, 0 avisos, `get_quote` correto. A forma da resposta é a mesma da PETR4, não varia por classe de ativo. Fixado em `test_regression_against_real_responses_per_asset_type`.
+- **O parser de fundamentals não pôde ser validado**: os módulos saíram do plano gratuito (ver Known Issues).
+- **Status**: 🟢 APPROVED
+
 ---
 
 ## Future Work
 - Cache com Redis para cotações em tempo real.
 - Suporte a WebSocket para streamings intraday.
 - Modelos avançados de otimização de portfólio (Markowitz / Black-Litterman).
-- Verificar/aplicar `alembic upgrade head` (migration `002_numeric_money_columns`) contra um PostgreSQL real assim que o Docker/`docker compose up` estiver disponível — não foi possível validar neste ambiente (Docker Desktop parado).
+- ~~Verificar/aplicar `alembic upgrade head` contra um PostgreSQL real~~ — **FEITO em 2026-08-18** (W06-004): `001`→`004` aplicadas em PostgreSQL 16, após corrigir `context.is_offline()` → `is_offline_mode()` em `migrations/env.py`.
+- Resolver o drift que faz `alembic check` falhar (unique constraint + unique index duplicados em `assets.ticker` e `users.email`), para poder usá-lo como guarda de drift no CI (Wave 26).
+- Decidir o destino da ingestão de fundamentals agora que os módulos saíram do plano gratuito da Brapi: assinar o plano Startup, migrar para dados abertos da CVM, ou adiar a Wave 09.
 - Converter `intraday_prices` OHLC para `NUMERIC` na Wave 15; `portfolio_snapshots.total_value/cash_value` na Wave 11; `investor_profiles.monthly_contribution` na Wave 09 (mesma motivação da regra 17 do AGENTS.md, deliberadamente fora do escopo da correção de 2026-08-16).
 - Validar `BrapiProvider` (`backend/app/integrations/market_data/brapi.py`) contra uma resposta real da API assim que houver acesso de rede — os nomes de campo (`regularMarketPrice`, `historicalDataPrice`, etc.) foram inferidos da documentação pública, não de uma chamada real.
 - Lint: `ruff check` aponta findings pré-existentes (anteriores a esta sessão) em arquivos não tocados nas Waves 03/04/05 (`app/data/models/fundamentals.py`, `users.py`, `daytrade.py`, `recommendations.py`, `app/core/logging.py`, `app/data/database.py`, `app/api/routes/health.py`, `tests/test_health.py`) — majoritariamente import-sorting e `Optional`/`List` → `X | None`/`list`. Além disso, os `__init__.py` vazios do projeto (`app/domain/__init__.py`, `app/domain/users/__init__.py`, e agora `app/integrations/__init__.py`, `app/integrations/market_data/__init__.py`) usam `""` como conteúdo, o que dispara `D419`/reformatação do `black` — padrão pré-existente replicado por consistência. Não corrigido agora por estar fora do escopo das tasks em andamento (regra 134 do AGENTS.md); considerar uma task dedicada de lint cleanup.
@@ -575,9 +591,9 @@ Nenhuma tarefa bloqueada no momento.
 ---
 
 ## Last Execution
-- **Timestamp**: 2026-08-17T00:00:00-03:00
-- **Action**: W06-003 (Wave 06) — validação dos parsers contra a API real da Brapi (1 requisição), correção de dois bugs silenciosos de mapeamento (`equity`, `debt`), ingestão de `ebit`/`income_before_tax`/`income_tax_expense` (migration `004`), ROIC com alíquota efetiva derivada, guarda para alíquota absurda, filtro `type == "yearly"`, política de recomputação (ADR-015). **Wave 06 concluída.**
-- **Result**: Sucesso. 205/205 testes passando (`pytest`), `ruff check` e `black --check` limpos. Nenhuma regressão. **1 requisição à API da Brapi no total.**
+- **Timestamp**: 2026-08-18T00:00:00-03:00
+- **Action**: W06-004 — manutenção pré-Wave 07. Subida do PostgreSQL real, correção de `migrations/env.py` (`is_offline()` → `is_offline_mode()`), aplicação das migrations `001`→`004`, verificação de que não havia dado gravado (pendência de recomputação anulada), e validação do parser de market data contra respostas reais de FII (HGLG11), ETF (BOVA11) e banco (ITUB4).
+- **Result**: Sucesso parcial. 211/211 testes passando (205 baseline + 6 novos), `ruff`/`black` limpos nos arquivos alterados. Market data validado para as três classes de ativo. **Fundamentals ficou bloqueado**: os módulos de demonstrativos saíram do plano gratuito da Brapi (HTTP 403). **5 requisições à API no total.**
 
 ---
 

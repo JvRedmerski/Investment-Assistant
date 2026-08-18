@@ -2,12 +2,14 @@
 
 > Camada 1 da memória: **onde o projeto está**, em uma página.
 > Ledger detalhado task-a-task (histórico completo, notas de implementação, decisões datadas): [../PROJECT_STATUS.md](../PROJECT_STATUS.md).
-> Última verificação contra o código: **2026-08-17**.
+> Última verificação contra o código: **2026-08-18**.
 
 ## Current Phase
 
-**Wave 06 concluída.** Próxima: **Wave 07 — Quant Engine**.
+**Wave 06 concluída** + manutenção W06-004. Próxima: **Wave 07 — Quant Engine**.
 7 de 33 waves concluídas (W00–W06).
+
+⚠️ **Mudança externa relevante**: os módulos de demonstrativos da Brapi saíram do plano gratuito (403 em 2026-08-18). A ingestão de fundamentals está inoperante por plano. Não bloqueia a W07, que só consome `asset_prices`; bloqueia a W09.
 
 ## Overall Status
 
@@ -17,7 +19,7 @@
 | **In Progress** | — nenhuma |
 | **Blocked** | — nenhuma |
 
-Baseline atual: `pytest` → **205 passed** (backend/.venv).
+Baseline atual: `pytest` → **211 passed** (backend/.venv).
 
 ## Completed Work (nível wave)
 
@@ -33,11 +35,13 @@ Baseline atual: `pytest` → **205 passed** (backend/.venv).
 
 - **W06-003** — **parsers validados contra a API real da Brapi** (1 requisição). Market data estava correto; fundamentals tinha dois campos errados (`equity`, `debt`) que deixavam `roe` silenciosamente `None`. ROIC destravado com alíquota efetiva derivada por período; migration `004`; política de recomputação ([ADR-015](../decisions/ADR-015-indicator-recomputation.md)).
 
+- **W06-004** (manutenção, 2026-08-18) — PostgreSQL real no ar; migrations `001`→`004` aplicadas de fato, após corrigir um `AttributeError` que impedia o Alembic de rodar. Confirmado que **não havia banco nem dado algum** — a pendência de recomputar indicadores era hipotética. Parser de market data validado contra FII/ETF/banco reais. Fundamentals bloqueado por mudança de plano da Brapi. Custo: 5 requisições.
+
 Detalhe por task: [../history/COMPLETED_TASKS.md](../history/COMPLETED_TASKS.md).
 
 ## Current Work
 
-Nada em execução. Wave 06 fechada.
+Nada em execução. Wave 06 fechada; pendências operacionais herdadas resolvidas na W06-004 (2026-08-18).
 
 ## Next Recommended Step
 
@@ -45,10 +49,10 @@ Nada em execução. Wave 06 fechada.
 
 ## Known Issues
 
-Problemas reais, verificados no código (2026-08-17):
+Problemas reais, verificados no código (2026-08-18):
 
-1. ~~Parsers da Brapi nunca validados~~ — **RESOLVIDO na W06-003.** Ambos validados contra resposta real; dois bugs corrigidos no de fundamentals. Pendência residual: só a **PETR4** foi usada. FIIs, ETFs, BDRs e bancos podem trazer linhas de balanço diferentes — validar um ticker de cada tipo (1 requisição cada) antes de ingestão em lote.
-2. **Migrations `002`, `003` e `004` nunca aplicadas em PostgreSQL real.** Validadas apenas estruturalmente (`alembic heads`/`history`) e contra SQLite in-memory (Docker Desktop parado). `alembic upgrade head` contra Postgres é obrigatório antes de confiar nelas.
+1. ~~Parsers da Brapi nunca validados~~ — **RESOLVIDO** (W06-003 + W06-004). Market data validado contra resposta real de ação, **FII, ETF e banco**: mesma forma de resposta nas quatro classes, 0 barras rejeitadas. Fundamentals validado só com PETR4 e agora **impossível de reexaminar** no plano gratuito (item 14).
+2. ~~Migrations `002`, `003` e `004` nunca aplicadas em PostgreSQL real~~ — **RESOLVIDO em 2026-08-18.** `001`→`004` aplicadas em PostgreSQL 16 real. Para isso foi preciso corrigir `migrations/env.py`, que chamava `context.is_offline()` (inexistente; o correto é `is_offline_mode()`) e abortava com `AttributeError` — ou seja, **o Alembic nunca havia executado**. `alembic heads`/`history` não carregam `env.py`, e por isso a "validação estrutural" anterior não pegou o erro.
 3. **`get_quote()` implementado mas não exposto.** Existe no provider e é testado, mas nenhum endpoint o consome — cotação atual não chega ao usuário.
 4. **Ingestão de dividendos (proventos) não implementada**, embora o roadmap a liste como entregável da Wave 5 (`docs/roadmap.md` §17). A Wave 05 foi marcada como concluída sem ela.
 5. **`npm run lint` quebrado no frontend.** O script chama `eslint` mas não há `eslint` nas `devDependencies` nem arquivo de config.
@@ -56,10 +60,15 @@ Problemas reais, verificados no código (2026-08-17):
 7. **Colunas monetárias ainda em `Float`** (dívida conhecida, conversão adiada para a wave que as usar): `intraday_prices` OHLC (W15), `portfolio_snapshots.total_value/cash_value` (W11), `investor_profiles.monthly_contribution` (W09).
 8. **`PriceSyncRequest` documenta que `end` não pode ser futura, mas o validador não verifica isso** — apenas `start <= end`.
 9. **5 dos 10 indicadores permanecem `None`**, cada um por motivo **evidenciado** contra a API real: `pe`/`pb`/`dy` — a Brapi só expõe `sharesOutstanding` e `dividendYield` como snapshots atuais, sem data-fim de período; aplicá-los a um balanço de 2010 seria look-ahead (§108/§109). `debt_ebitda`/`ebitda_margin` — `cleanEbitda` é cópia literal de `ebit` em 16/16 períodos, não é EBITDA. **Limita os sub-scores de Valuation na Wave 09.**
-10. **Indicadores gravados antes da W06-003 estão errados** (`roe`/`roic` nulos pelo bug de `equity`). Rodar `POST /assets/{ticker}/indicators/compute?recompute=true` em cada ativo já processado — não custa requisição externa.
+10. ~~Indicadores gravados antes da W06-003 estão errados~~ — **PENDÊNCIA ANULADA em 2026-08-18.** Nunca existiu banco: sem container, sem volume Docker, sem arquivo SQLite. Ao subir o Postgres o volume foi criado do zero e todas as tabelas vieram com **0 linhas** (`assets`, `asset_prices`, `fundamentals`, `financial_indicators`, `users`, `transactions`). Não há nada gravado para recomputar. A pendência havia sido registrada por hipótese, não por observação do estado real.
 11. **Reexpressões (restatements) de demonstrativos são invisíveis**: o primeiro valor gravado para um `reference_date` nunca é substituído. Corrigir exige schema versionado por período. (Indicadores derivados, ao contrário, podem ser recomputados — [ADR-015](../decisions/ADR-015-indicator-recomputation.md).)
 12. **Demonstrativos trimestrais não são ingeridos** — o parser filtra `type == "yearly"`, porque `fundamentals` não tem coluna de período para distingui-los de um exercício anual com a mesma data-fim ([ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md)).
 13. **Throttle de requisições desligado por padrão.** `MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS` e `FUNDAMENTALS_MIN_REQUEST_INTERVAL_SECONDS` têm default `0.0` — nenhum espaçamento entre chamadas. A Brapi tem **cota mensal limitada** no plano gratuito. Definir um intervalo no `.env` antes de qualquer ingestão em lote.
+14. 🔴 **Módulos de demonstrativos saíram do plano gratuito da Brapi** (verificado 2026-08-18, HTTP 403: *"Módulos disponíveis hoje: summaryProfile"*). Em 2026-08-17 a mesma chamada trouxe 16 períodos. **A ingestão de fundamentals está inoperante — por plano, não por código**; o parser segue correto e testado. Não afeta a W07 (que só usa `asset_prices`); **bloqueia a W09**. Decidir entre assinar o plano Startup, migrar para dados abertos da CVM, ou adiar a W09.
+15. **Plano gratuito aceita no máximo 1 ativo por requisição.** Não há batching — ingestão em lote custa 1 requisição por ticker. Dimensionar a cota mensal por aí.
+16. 🔴 **`adjusted_close` pode ser congelado errado — ameaça direta à W07.** A Brapi devolve `adjustedClose: null` para a sessão fechada mais recente (nulo em 2026-08-17 nos três ativos testados) e preenche depois. O parser cai para `close`, e `sync_daily_history` **nunca sobrescreve** uma data já gravada. Uma barra ingerida nessa janela guarda `close` como `adjusted_close` permanentemente; se houve provento naquela data, todo retorno da W07 sobre ela fica errado em silêncio. Corrigir antes de ingestão em lote.
+17. **`alembic check` falha por drift**: unique constraint + unique index duplicados em `assets.ticker` e `users.email` (a migration `001` declara a constraint, o model declara `unique=True, index=True`). Redundante, não incorreto — mas impede usar `alembic check` como guarda de drift no CI.
+18. **`env_file=".env"` é relativo ao cwd.** Rodando de `backend/`, o `.env` da raiz não é lido e `BRAPI_TOKEN` fica vazio **silenciosamente**. Sob `docker compose` não afeta.
 
 ## Inconsistências documentação × código
 
