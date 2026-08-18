@@ -7,6 +7,10 @@ from decimal import Decimal
 from app.integrations.market_data.data_quality import validate_daily_bars
 from app.integrations.market_data.schemas import DailyBar
 
+#: Sentinel for `_bar(adjusted_close=...)`: distinguishes "caller did not
+#: specify, mirror the close" from "the source reported no adjustment".
+_UNSET = object()
+
 
 def _bar(
     day: int,
@@ -14,16 +18,20 @@ def _bar(
     high="39.0",
     low="37.5",
     close="38.5",
-    adjusted_close=None,
+    adjusted_close=_UNSET,
     volume="1000000",
 ) -> DailyBar:
+    if adjusted_close is _UNSET:
+        adjusted_close = close
     return DailyBar(
         date=date(2026, 1, day),
         open=Decimal(open_),
         high=Decimal(high),
         low=Decimal(low),
         close=Decimal(close),
-        adjusted_close=Decimal(adjusted_close if adjusted_close is not None else close),
+        adjusted_close=(
+            Decimal(adjusted_close) if adjusted_close is not None else None
+        ),
         volume=Decimal(volume),
     )
 
@@ -138,3 +146,40 @@ def test_empty_input_is_valid_and_produces_nothing():
     assert report.is_valid
     assert report.valid_bars == []
     assert report.warnings == []
+
+
+def test_bar_without_an_adjusted_close_is_rejected_not_backfilled_from_close():
+    """A bar the source did not adjust must not reach storage.
+
+    Returns (Wave 07) are computed from `adjusted_close`, the column is
+    `NOT NULL`, and `sync_daily_history` never rewrites a stored date. So
+    accepting this bar would mean freezing a fabricated adjustment
+    permanently. Rejecting leaves the date absent, and a later sync
+    inserts it once the source publishes the real figure.
+
+    Verified against live data on 2026-08-18: Brapi returned
+    `adjustedClose: null` for the most recently closed session on
+    HGLG11, BOVA11 and ITUB4 alike.
+    """
+    bars = [_bar(2), _bar(3, adjusted_close=None)]
+
+    report = validate_daily_bars(bars)
+
+    assert not report.is_valid
+    assert report.rejected_count == 1
+    assert [bar.date for bar in report.valid_bars] == [date(2026, 1, 2)]
+    (issue,) = report.errors
+    assert issue.code == "MISSING_ADJUSTED_CLOSE"
+    assert issue.bar_date == date(2026, 1, 3)
+
+
+def test_an_adjusted_close_differing_from_close_is_kept_as_reported():
+    # The normal ex-dividend case: the adjustment is real and must survive
+    # untouched, which is exactly what the fabricated fallback destroyed.
+    bars = [_bar(2, close="38.5", adjusted_close="37.9")]
+
+    report = validate_daily_bars(bars)
+
+    assert report.is_valid
+    assert report.valid_bars[0].adjusted_close == Decimal("37.9")
+    assert report.valid_bars[0].close == Decimal("38.5")

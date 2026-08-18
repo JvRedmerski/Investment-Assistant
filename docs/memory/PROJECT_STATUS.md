@@ -19,7 +19,7 @@
 | **In Progress** | — nenhuma |
 | **Blocked** | — nenhuma |
 
-Baseline atual: `pytest` → **211 passed** (backend/.venv).
+Baseline atual: `pytest` → **215 passed** (backend/.venv).
 
 ## Completed Work (nível wave)
 
@@ -66,7 +66,7 @@ Problemas reais, verificados no código (2026-08-18):
 13. **Throttle de requisições desligado por padrão.** `MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS` e `FUNDAMENTALS_MIN_REQUEST_INTERVAL_SECONDS` têm default `0.0` — nenhum espaçamento entre chamadas. A Brapi tem **cota mensal limitada** no plano gratuito. Definir um intervalo no `.env` antes de qualquer ingestão em lote.
 14. 🔴 **Módulos de demonstrativos saíram do plano gratuito da Brapi** (verificado 2026-08-18, HTTP 403: *"Módulos disponíveis hoje: summaryProfile"*). Em 2026-08-17 a mesma chamada trouxe 16 períodos. **A ingestão de fundamentals está inoperante — por plano, não por código**; o parser segue correto e testado. Não afeta a W07 (que só usa `asset_prices`); **bloqueia a W09**. Decidir entre assinar o plano Startup, migrar para dados abertos da CVM, ou adiar a W09.
 15. **Plano gratuito aceita no máximo 1 ativo por requisição.** Não há batching — ingestão em lote custa 1 requisição por ticker. Dimensionar a cota mensal por aí.
-16. 🔴 **`adjusted_close` pode ser congelado errado — ameaça direta à W07.** A Brapi devolve `adjustedClose: null` para a sessão fechada mais recente (nulo em 2026-08-17 nos três ativos testados) e preenche depois. O parser cai para `close`, e `sync_daily_history` **nunca sobrescreve** uma data já gravada. Uma barra ingerida nessa janela guarda `close` como `adjusted_close` permanentemente; se houve provento naquela data, todo retorno da W07 sobre ela fica errado em silêncio. Corrigir antes de ingestão em lote.
+16. ~~`adjusted_close` pode ser congelado errado~~ — **CORRIGIDO em 2026-08-18** ([ADR-016](../decisions/ADR-016-unadjusted-bars-are-not-stored.md)). O parser não fabrica mais o ajuste a partir do `close`; `adjusted_close` é `Decimal | None` refletindo o que a fonte reportou, e `validate_daily_bars` rejeita a barra sem ajuste (`MISSING_ADJUSTED_CLOSE`). Autocorretivo: a data não é gravada, então o sync seguinte a insere quando a fonte publicar. Corrigido **antes** de qualquer ingestão — o banco estava vazio, então não há linha contaminada. Efeito colateral esperado: a sessão fechada mais recente pode faltar por ~1 dia, e `rejected: 1` no sync diário é rotina.
 17. **`alembic check` falha por drift**: unique constraint + unique index duplicados em `assets.ticker` e `users.email` (a migration `001` declara a constraint, o model declara `unique=True, index=True`). Redundante, não incorreto — mas impede usar `alembic check` como guarda de drift no CI.
 18. **`env_file=".env"` é relativo ao cwd.** Rodando de `backend/`, o `.env` da raiz não é lido e `BRAPI_TOKEN` fica vazio **silenciosamente**. Sob `docker compose` não afeta.
 

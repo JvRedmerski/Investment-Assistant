@@ -10,6 +10,7 @@ import httpx
 import pytest
 
 from app.integrations.market_data.brapi import BrapiProvider
+from app.integrations.market_data.data_quality import validate_daily_bars
 from app.integrations.market_data.exceptions import (
     InvalidMarketDataResponseError,
     MarketDataUnavailableError,
@@ -151,7 +152,17 @@ def test_get_daily_history_parses_and_filters_by_date():
     assert bar.volume == Decimal(1000000)
 
 
-def test_get_daily_history_defaults_adjusted_close_to_close_when_absent():
+def test_absent_adjusted_close_is_reported_as_none_never_defaulted_to_close():
+    """The adjusted close is not fabricated from the raw close.
+
+    They are different quantities — the adjusted close nets out dividends
+    and splits — so substituting one for the other invents an adjustment
+    that does not exist (rule 44 / ADR-014). The bar is later rejected by
+    `validate_daily_bars`, so the fabrication would not merely be wrong,
+    it would be frozen forever: `sync_daily_history` never rewrites a
+    stored date.
+    """
+
     def handler(request: httpx.Request) -> httpx.Response:
         payload = _history_payload()
         del payload["results"][0]["historicalDataPrice"][0]["adjustedClose"]
@@ -160,7 +171,21 @@ def test_get_daily_history_defaults_adjusted_close_to_close_when_absent():
     provider = _provider(handler)
     bars = provider.get_daily_history("PETR4", date(2026, 1, 2), date(2026, 1, 2))
 
-    assert bars[0].adjusted_close == bars[0].close
+    assert bars[0].adjusted_close is None
+    assert bars[0].close == Decimal("38.5")
+
+
+def test_explicit_null_adjusted_close_is_also_reported_as_none():
+    # The live API sends an explicit `null`, not an absent key.
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = _history_payload()
+        payload["results"][0]["historicalDataPrice"][0]["adjustedClose"] = None
+        return httpx.Response(200, json=payload)
+
+    provider = _provider(handler)
+    bars = provider.get_daily_history("PETR4", date(2026, 1, 2), date(2026, 1, 2))
+
+    assert bars[0].adjusted_close is None
 
 
 def test_get_daily_history_raises_when_history_field_is_missing():
@@ -362,8 +387,22 @@ def test_regression_against_real_responses_per_asset_type(ticker):
         assert bar.low == Decimal(str(low))
         assert bar.close == Decimal(str(close))
         assert bar.volume == Decimal(str(volume))
-        # A null adjustedClose falls back to close (see _parse_bar).
-        assert bar.adjusted_close == Decimal(str(adjusted if adjusted else close))
+        assert bar.adjusted_close == (
+            Decimal(str(adjusted)) if adjusted is not None else None
+        )
+
+    # 2026-08-17 came back unadjusted from the live API in all three
+    # tickers: preserved as None here, and dropped before storage.
+    unadjusted = next(bar for bar in bars if bar.date == date(2026, 8, 17))
+    assert unadjusted.adjusted_close is None
+
+    report = validate_daily_bars(bars)
+
+    assert [bar.date for bar in report.valid_bars] == [
+        date(2026, 7, 20),
+        date(2026, 8, 18),
+    ]
+    assert [issue.code for issue in report.errors] == ["MISSING_ADJUSTED_CLOSE"]
 
 
 @pytest.mark.parametrize("ticker", sorted(_LIVE_RESPONSES))

@@ -79,14 +79,15 @@ A Wave 06 fechou com 5 dos 10 indicadores fundamentalistas produzindo valor; os 
 
 ---
 
-## Alerta herdado da Wave 06 — leia antes de calcular retornos
+## Estado do insumo desta wave (atualizado 2026-08-18)
 
-A pendência de recomputar indicadores **foi anulada** em 2026-08-18: nunca existiu banco nem dado gravado (ver [PROJECT_STATUS.md](PROJECT_STATUS.md), item 10). Não há nada a rodar.
+A pendência de recomputar indicadores **foi anulada**: nunca existiu banco nem dado gravado.
 
-No lugar dela, um defeito **evidenciado** que ataca exatamente o insumo desta wave:
+O defeito que ameaçava esta wave — `adjusted_close` fabricado a partir do `close` e congelado para sempre — **foi corrigido antes de começar**, ver [ADR-016](../decisions/ADR-016-unadjusted-bars-are-not-stored.md). Agora vale um invariante útil para o design das funções de retorno:
 
-**`adjusted_close` pode estar congelado com o valor errado.** A Brapi devolve `adjustedClose: null` para a sessão fechada mais recente e só preenche depois (verificado em 2026-08-18: nulo em 2026-08-17 nos três ativos testados). O parser cai para `close` (`app/integrations/market_data/brapi.py:157-159`), e `sync_daily_history` **nunca sobrescreve** uma data já gravada. Logo, uma barra ingerida nessa janela guarda `close` como `adjusted_close` **permanentemente** — mesmo depois de a fonte publicar o ajuste real.
+- **Todo `adjusted_close` gravado foi reportado pela fonte.** Nenhum é derivado do `close`. A coluna segue `NOT NULL`.
+- **Em troca, a série pode ter buracos**: a sessão fechada mais recente costuma faltar por ~1 dia (a fonte publica o ajuste com atraso), e uma data cujo ajuste nunca seja publicado fica permanentemente ausente.
 
-Se houve provento ou desdobramento naquela data, **todo retorno calculado sobre ela nesta wave fica errado, em silêncio** — precisamente o modo de falha que o requisito 3 (usar `adjusted_close`, não `close`) existe para evitar.
+Ou seja: as funções **não** precisam desconfiar do valor de `adjusted_close`, mas **precisam** tratar lacunas na série — datas ausentes, séries com furos, pregões não consecutivos. Isso já estava previsto como edge case na DoD; agora é um requisito com motivo concreto.
 
-Não é escopo da W07 corrigir o serviço de ingestão (regra 134). Mas a wave não pode assumir que `adjusted_close` é confiável só porque a coluna está preenchida. Decidir e registrar como tratar isso — no mínimo, não deixar a suposição implícita.
+A tabela `asset_prices` está **vazia** (nenhuma ingestão foi feita). Como as funções devem ser puras e sem I/O, isso não bloqueia nada: os testes usam séries construídas à mão.

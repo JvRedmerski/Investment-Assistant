@@ -154,16 +154,25 @@ class BrapiProvider(MarketDataProvider):
             )
         try:
             bar_date = _parse_timestamp(raw["date"]).date()
+            # Passed through as reported, `None` included. Brapi leaves
+            # `adjustedClose` null on the most recently closed session and
+            # backfills it later (verified 2026-08-18: null for 2026-08-17
+            # on HGLG11, BOVA11 and ITUB4 alike). Defaulting it to `close`
+            # would fabricate an adjustment that does not exist, and since
+            # `sync_daily_history` never rewrites a stored date, that wrong
+            # value would be frozen in permanently. `validate_daily_bars`
+            # rejects the bar instead, so a later sync stores it once the
+            # source publishes the real figure.
             adjusted_close = raw.get("adjustedClose")
-            if adjusted_close is None:
-                adjusted_close = raw["close"]
             return DailyBar(
                 date=bar_date,
                 open=Decimal(str(raw["open"])),
                 high=Decimal(str(raw["high"])),
                 low=Decimal(str(raw["low"])),
                 close=Decimal(str(raw["close"])),
-                adjusted_close=Decimal(str(adjusted_close)),
+                adjusted_close=(
+                    Decimal(str(adjusted_close)) if adjusted_close is not None else None
+                ),
                 volume=Decimal(str(raw["volume"])),
             )
         except (InvalidOperation, ValueError) as exc:

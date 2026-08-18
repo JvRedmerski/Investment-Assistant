@@ -8,6 +8,10 @@ duplicate dates, bars given out of chronological order, or a
 day-over-day move so large it is more likely a data error than a real
 price. That is this module's job.
 
+It also enforces one storage invariant: every bar in `valid_bars` has an
+`adjusted_close` the source actually reported. Callers may therefore
+store it into the `NOT NULL` column without a further check.
+
 This is a small, pure, deterministic function with no I/O (AGENTS.md rule
 68 — testable with known input/output), so it can be unit tested in
 isolation and reused wherever bars need validating before being trusted.
@@ -110,6 +114,24 @@ def _validate_single_bar(bar: DailyBar, duplicate_dates: set[date]) -> BarIssue 
             bar_date=bar.date,
             code="DUPLICATE_DATE",
             message=f"Date {bar.date} appears more than once in the batch.",
+        )
+
+    # A bar the source did not adjust is not storable. Returns are
+    # computed from `adjusted_close` (Wave 07), and `adjusted_close` is
+    # `NOT NULL`, so the only alternatives would be to fabricate it from
+    # `close` — forbidden by rule 44 / ADR-014 — or to store a wrong
+    # number permanently, since `sync_daily_history` never rewrites a
+    # stored date. Rejecting leaves the date absent instead, and a later
+    # sync inserts it once the source publishes the adjustment. In
+    # practice this defers only the most recently closed session.
+    if bar.adjusted_close is None:
+        return BarIssue(
+            bar_date=bar.date,
+            code="MISSING_ADJUSTED_CLOSE",
+            message=(
+                f"Bar for {bar.date} has no adjusted close reported by the "
+                f"source; storing it would require fabricating one."
+            ),
         )
 
     prices = (bar.open, bar.high, bar.low, bar.close, bar.adjusted_close)

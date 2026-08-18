@@ -156,3 +156,56 @@ def test_sync_rejects_bars_that_fail_data_quality_and_does_not_store_them(
     stored = db_session.query(AssetPrice).filter(AssetPrice.asset_id == asset.id).all()
     assert len(stored) == 1
     assert stored[0].date == date(2026, 1, 2)
+
+
+def test_unadjusted_bar_is_not_stored_and_lands_on_a_later_sync(db_session, asset):
+    """The self-healing property that makes rejecting the bar safe.
+
+    Brapi leaves `adjustedClose` null on the most recently closed session
+    and backfills it later (verified live on 2026-08-18). Since
+    `sync_daily_history` never rewrites a stored date, storing a
+    close-derived stand-in would freeze a wrong adjusted close forever.
+    Instead the date is skipped, and the next sync — once the source has
+    published the adjustment — inserts it normally.
+    """
+    pending = DailyBar(
+        date=date(2026, 1, 3),
+        open=Decimal("38.50"),
+        high=Decimal("38.50"),
+        low=Decimal("38.50"),
+        close=Decimal("38.50"),
+        adjusted_close=None,
+        volume=Decimal(1000),
+    )
+    first = sync_daily_history(
+        db_session,
+        FakeProvider([_bar(2), pending]),
+        asset,
+        date(2026, 1, 2),
+        date(2026, 1, 3),
+    )
+
+    assert first.inserted == 1
+    assert first.rejected == 1
+    stored = {row.date for row in db_session.query(AssetPrice.date)}
+    assert stored == {date(2026, 1, 2)}
+
+    # Same window, but the source now reports the real adjustment — which
+    # differs from the close, as it would after a dividend.
+    published = pending.model_copy(update={"adjusted_close": Decimal("37.90")})
+    second = sync_daily_history(
+        db_session,
+        FakeProvider([_bar(2), published]),
+        asset,
+        date(2026, 1, 2),
+        date(2026, 1, 3),
+    )
+
+    assert second.inserted == 1
+    assert second.rejected == 0
+    assert second.skipped_existing == 1
+    backfilled = (
+        db_session.query(AssetPrice).filter(AssetPrice.date == date(2026, 1, 3)).one()
+    )
+    assert backfilled.adjusted_close == Decimal("37.90")
+    assert backfilled.close == Decimal("38.50")
