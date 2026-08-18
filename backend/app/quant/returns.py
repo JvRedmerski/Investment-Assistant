@@ -197,7 +197,7 @@ def period_returns(
     Nothing after `as_of` is read (rule 108). The result is ordered oldest
     to newest.
     """
-    points = _usable(series, as_of)
+    points = usable_series(series, as_of)
     if periodicity is not Periodicity.DAILY:
         points = _bucket_ends(points, periodicity)
 
@@ -218,7 +218,7 @@ def total_return(
 
     `None` when fewer than two usable observations exist.
     """
-    points = _usable(series, as_of)
+    points = usable_series(series, as_of)
     if len(points) < 2:
         return None
     return _as_period_return(points[0], points[-1])
@@ -243,7 +243,7 @@ def ytd_return(
     `None` when the year holds no usable observation, or holds only the
     base.
     """
-    points = _usable(series, as_of)
+    points = usable_series(series, as_of)
     if not points:
         return None
 
@@ -274,7 +274,7 @@ def cagr(series: list[PricePoint], as_of: date | None = None) -> Decimal | None:
     span less than `MIN_ANNUALISATION_DAYS`; see that constant for why a
     two-day CAGR is noise rather than a rate.
     """
-    points = _usable(series, as_of)
+    points = usable_series(series, as_of)
     if len(points) < 2:
         return None
 
@@ -283,18 +283,26 @@ def cagr(series: list[PricePoint], as_of: date | None = None) -> Decimal | None:
     if elapsed < MIN_ANNUALISATION_DAYS:
         return None
 
-    # `_usable` guarantees both prices are positive, so the growth factor
+    # `usable_series` guarantees both prices are positive, so the growth factor
     # is positive and its fractional power is well defined.
     growth = last.adjusted_close / first.adjusted_close
     years = Decimal(elapsed) / DAYS_PER_YEAR
     return growth ** (Decimal(1) / years) - 1
 
 
-# -- helpers ---------------------------------------------------------
+# -- series preparation, shared with `risk.py` -----------------------
 
 
-def _usable(series: list[PricePoint], as_of: date | None) -> list[PricePoint]:
+def usable_series(
+    series: list[PricePoint], as_of: date | None = None
+) -> list[PricePoint]:
     """The series as the calculations may rely on it.
+
+    Public because `risk.py` needs exactly these preconditions before it
+    can align an asset against a benchmark: alignment has to happen after
+    unusable observations are dropped, or a price discarded from one
+    series alone would silently re-introduce the mismatch it is meant to
+    prevent.
 
     Sorted oldest first, truncated at `as_of`, one observation per date,
     and free of non-positive prices.
@@ -318,6 +326,9 @@ def _usable(series: list[PricePoint], as_of: date | None) -> list[PricePoint]:
         if point.adjusted_close > 0:
             by_date[point.date] = point
     return list(by_date.values())
+
+
+# -- helpers ---------------------------------------------------------
 
 
 def _bucket_ends(
@@ -350,12 +361,12 @@ def _bucket_key(day: date, periodicity: Periodicity) -> tuple[int, ...]:
 def _as_period_return(start: PricePoint, end: PricePoint) -> PeriodReturn:
     """Build a `PeriodReturn` from two observations known to be usable.
 
-    `_usable` has already guaranteed a positive base price, so the ratio is
+    `usable_series` has already guaranteed a positive base price, so the ratio is
     always defined here; `simple_return` stays the single implementation of
     the formula rather than being inlined.
     """
     value = simple_return(start.adjusted_close, end.adjusted_close)
-    if value is None:  # pragma: no cover - unreachable after _usable
+    if value is None:  # pragma: no cover - unreachable after usable_series
         raise AssertionError("usable observations must yield a return")
     return PeriodReturn(
         start_date=start.date,

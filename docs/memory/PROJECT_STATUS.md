@@ -6,8 +6,8 @@
 
 ## Current Phase
 
-**Wave 07 em andamento** — W07-001 (`returns.py`) concluída; W07-002 (`risk.py`) é a próxima.
-7 de 33 waves concluídas (W00–W06).
+**Wave 07 concluída.** Próxima: **Wave 08 — Benchmark Engine**.
+8 de 33 waves concluídas (W00–W07).
 
 ⚠️ **Mudança externa relevante**: os módulos de demonstrativos da Brapi saíram do plano gratuito (403 em 2026-08-18). A ingestão de fundamentals está inoperante por plano. Não bloqueia a W07, que só consome `asset_prices`; bloqueia a W09.
 
@@ -15,11 +15,11 @@
 
 | | |
 |---|---|
-| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data |
+| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine |
 | **In Progress** | — nenhuma |
 | **Blocked** | — nenhuma |
 
-Baseline atual: `pytest` → **262 passed** (backend/.venv).
+Baseline atual: `pytest` → **316 passed** (backend/.venv).
 
 ## Completed Work (nível wave)
 
@@ -35,17 +35,19 @@ Baseline atual: `pytest` → **262 passed** (backend/.venv).
 
 - **W06-003** — **parsers validados contra a API real da Brapi** (1 requisição). Market data estava correto; fundamentals tinha dois campos errados (`equity`, `debt`) que deixavam `roe` silenciosamente `None`. ROIC destravado com alíquota efetiva derivada por período; migration `004`; política de recomputação ([ADR-015](../decisions/ADR-015-indicator-recomputation.md)).
 
+- **W07** (2026-08-18) — `app/quant/returns.py` (`simple_return`, `period_returns` diário/semanal ISO/mensal/trimestral/anual, `total_return`, `ytd_return`, `cagr`) e `app/quant/risk.py` (`standard_deviation`, `downside_deviation`, `volatility`, `max_drawdown`, `beta`, `sharpe`, `sortino`). Puras, sem I/O, **inteiramente em `Decimal` — `numpy` não foi importado**. 101 testes com valores calculados à mão. Anualização (365 p/ retorno, 252 p/ dispersão) e tipo numérico em [ADR-017](../decisions/ADR-017-annualisation-and-numeric-type.md).
+
 - **W06-004** (manutenção, 2026-08-18) — PostgreSQL real no ar; migrations `001`→`004` aplicadas de fato, após corrigir um `AttributeError` que impedia o Alembic de rodar. Confirmado que **não havia banco nem dado algum** — a pendência de recomputar indicadores era hipotética. Parser de market data validado contra FII/ETF/banco reais. Fundamentals bloqueado por mudança de plano da Brapi. Custo: 5 requisições.
 
 Detalhe por task: [../history/COMPLETED_TASKS.md](../history/COMPLETED_TASKS.md).
 
 ## Current Work
 
-**Wave 07 — Quant Engine.** `app/quant/returns.py` entregue (W07-001), com anualização e tipo numérico decididos em [ADR-017](../decisions/ADR-017-annualisation-and-numeric-type.md). Falta `risk.py` (W07-002).
+Nada em execução. Wave 07 fechada.
 
 ## Next Recommended Step
 
-**W07-002 — `app/quant/risk.py`**: volatilidade, beta, max drawdown, Sharpe, Sortino. Duas amarras deixadas por [ADR-017](../decisions/ADR-017-annualisation-and-numeric-type.md): definir um `TRADING_DAYS_PER_YEAR = 252` **próprio** (reutilizar `DAYS_PER_YEAR = 365` corromperia o Sharpe por ~1,20) e registrar a fronteira `Decimal → float`, que ali é real. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
+**Wave 08 — Benchmark Engine** (CDI, IBOV, IPCA). É o que **desbloqueia `beta`, `sharpe` e `sortino`**: as três já têm a assinatura pronta recebendo a série de referência como parâmetro e retornam `None` sem ela. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ## Known Issues
 

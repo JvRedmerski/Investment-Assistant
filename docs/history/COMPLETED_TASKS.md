@@ -82,9 +82,42 @@
 
 **Resultado da wave: 🟢 concluída.** Cinco indicadores produzem valor (`roe`, `roic`, `net_margin`, `revenue_growth`, `profit_growth`); os cinco restantes têm limitação **evidenciada** contra a API, não suposta.
 
-## Wave 07 — Quant Engine ⚪
+## Wave 06.5 — Manutenção pré-Wave 07 🟢 (não prevista no roadmap)
 
-Próxima. Ver [../memory/CURRENT_TASK.md](../memory/CURRENT_TASK.md).
+**W06-004 — Ambiente Postgres real e validação multi-tipo do parser** 🟢
+- **A pendência de recomputar indicadores não existia**: não havia banco algum (sem container, sem volume, sem SQLite). Ao subir o Postgres o volume foi criado do zero e todas as tabelas vieram com 0 linhas. A pendência vinha de uma hipótese nunca conferida contra o estado real.
+- **O Alembic nunca havia executado**: `migrations/env.py` chamava `context.is_offline()` (inexistente; correto é `is_offline_mode()`) e abortava. `alembic heads`/`history` — a "validação estrutural" da W06-003 — não carregam o `env.py`, e por isso não pegaram. Corrigido; `001`→`004` aplicadas em PostgreSQL 16 real.
+- **Market data validado para FII (HGLG11), ETF (BOVA11) e banco (ITUB4)**: mesma forma de resposta da PETR4, 22 barras cada, 0 rejeitadas, 0 avisos. Fixado em teste de regressão.
+- **Fundamentals bloqueado por mudança de plano**: os módulos de demonstrativos saíram do plano gratuito da Brapi (403), um dia depois de funcionarem. Bloqueia a Wave 09.
+- Descoberto que o plano gratuito aceita **1 ativo por requisição** — não há batching. Custo total: 5 requisições.
+- +6 testes (total 211)
+
+**W06-005 — Correção do `adjusted_close` fabricado** 🟢 ([ADR-016](../decisions/ADR-016-unadjusted-bars-are-not-stored.md))
+- A Brapi deixa `adjustedClose: null` na sessão fechada mais recente; o parser preenchia com o `close`. Combinado com a idempotência de `sync_daily_history` (nunca sobrescreve data gravada), isso **congelaria um ajuste inventado para sempre** — e a Wave 07 calcula todo retorno dessa coluna.
+- Corrigido **antes de qualquer ingestão**, com o banco vazio. Depois exigiria identificar linhas suspeitas, o que é impossível com segurança: `adjustedClose == close` é comum e legítimo em dia sem provento.
+- Agora o parser reporta `None` e `validate_daily_bars` rejeita a barra (`MISSING_ADJUSTED_CLOSE`). Autocorretivo: a data entra no sync seguinte.
+- +4 testes (total 215)
+
+## Wave 07 — Quant Engine 🟢
+
+**W07-001 — `app/quant/returns.py`** 🟢
+- `simple_return` (primitiva), `period_returns` (diário, semanal **ISO**, mensal, trimestral, anual), `total_return`, `ytd_return`, `cagr`
+- `PeriodReturn` carrega o intervalo que realmente mediu — necessário porque lacunas são normais ([ADR-016](../decisions/ADR-016-unadjusted-bars-are-not-stored.md)) e um retorno "mensal" pode legitimamente cobrir dois meses
+- Buckets fechados pela **última observação que de fato contêm**, o que torna feriados e sessões ausentes inofensivos em vez de casos especiais
+- YTD ancora no **último fechamento do ano anterior**, não no primeiro de janeiro (que descartaria a virada do ano)
+- CAGR retorna `None` abaixo de 30 dias corridos: anualizar dois dias de +3% dá ~+25.000%
+- +47 testes (total 262)
+
+**W07-002 — `app/quant/risk.py`** 🟢
+- `standard_deviation` e `downside_deviation` (primitivas), `volatility`, `max_drawdown`, `beta`, `sharpe`, `sortino`
+- `PERIODS_PER_YEAR` local (252 diário), **não** importado de `returns.py` — com teste que falha se alguém trocar
+- **`beta` alinha as duas séries por data antes de medir retornos.** Sem isso, um retorno do ativo que cobre 2 dias (por lacuna) seria regredido contra um intervalo diferente do benchmark
+- `beta`/`sharpe`/`sortino` recebem a referência externa como parâmetro e retornam `None` sem ela — a série de CDI/IBOV é da Wave 08, e não foi antecipada
+- Taxa livre de risco de-anualizada **geometricamente**, não dividida por 252
+- Volatilidade de carteira **não** implementada: exige matriz de covariâncias e pesos. Em Future Work, com a instrução de não aproximar por média
+- +54 testes (total 316)
+
+**Resultado da wave: 🟢 concluída.** Duas decisões estruturais em [ADR-017](../decisions/ADR-017-annualisation-and-numeric-type.md): anualização em **365 dias corridos para retorno** e **252 pregões para dispersão** (misturá-las corromperia todo Sharpe por ~1,20 sem sintoma visível), e o Quant Engine **inteiramente em `Decimal`** — `numpy`/`scipy` seguem sem nenhum import no projeto, porque nenhuma das métricas exige uma operação que `Decimal` não cubra.
 
 ---
 

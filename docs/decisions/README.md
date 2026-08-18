@@ -24,7 +24,7 @@ Um ADR existe aqui porque a decisão (a) teve alternativas reais, (b) afeta arqu
 | [014](ADR-014-indicator-missing-data-policy.md) | Indicadores: `None` = não-computável, nunca zero | Accepted | indicadores, scoring (W09), quant |
 | [015](ADR-015-indicator-recomputation.md) | Derivados podem ser recomputados; fatos reportados não | Accepted | indicadores, correção de fórmula, W09 |
 | [016](ADR-016-unadjusted-bars-are-not-stored.md) | Barra sem `adjusted_close` reportado não é armazenada | Accepted | market data, ingestão, retornos (W07) |
-| [017](ADR-017-annualisation-and-numeric-type.md) | Anualização em dias corridos; `Decimal` puro em `returns.py` | Accepted | quant engine, retornos, risco (W07-002), Sharpe |
+| [017](ADR-017-annualisation-and-numeric-type.md) | Anualização: 365 p/ retorno, 252 p/ dispersão; `Decimal` puro, sem `numpy` | Accepted | quant engine, retornos, risco, Sharpe, numpy |
 
 ## Template
 

@@ -1,8 +1,8 @@
-# ADR-017 — Anualização em dias corridos, e `Decimal` sem fronteira `float` no módulo de retornos
+# ADR-017 — Anualização em dias corridos, e `Decimal` sem fronteira `float` no Quant Engine
 
 ## Status
 
-Accepted (2026-08-18, Wave 07 / W07-001)
+Accepted (2026-08-18, Wave 07 / W07-001), estendido por adendo em 2026-08-18 (W07-002)
 
 ## Context
 
@@ -47,6 +47,8 @@ A conversão para `float` continua acontecendo onde o número é **persistido ou
 
 A fronteira `float` **será** necessária em `risk.py`, para desvio-padrão, covariância (beta) e as raízes quadradas de Sharpe/Sortino. Essa decisão pertence à W07-002, onde a necessidade é real e pode ser justificada com o cálculo concreto em mãos. Antecipá-la aqui seria importar `numpy` para satisfazer uma expectativa documentada, não uma necessidade.
 
+> ⚠️ **Esta previsão não se confirmou.** A W07-002 levantou operação por operação e concluiu que `Decimal` cobre todas as cinco métricas de risco. Ver o [adendo de 2026-08-18](#adendo--2026-08-18-w07-002-a-fronteira-decimal--float-não-existe) ao final; o parágrafo acima fica como registro do que se esperava, não como orientação.
+
 ## Evidence
 
 - `backend/app/quant/returns.py` — `DAYS_PER_YEAR` e `MIN_ANNUALISATION_DAYS`, cada um com a justificativa na própria docstring; seção "`Decimal`, and why there is no `float` here".
@@ -66,6 +68,32 @@ A fronteira `float` **será** necessária em `risk.py`, para desvio-padrão, cov
 
 - ✅ Retorno e volatilidade anualizam em relógios explicitamente escolhidos, com o motivo escrito onde a constante vive — o erro de Sharpe por relógios misturados fica difícil de cometer sem ler a justificativa contrária.
 - ✅ Nenhuma perda de precisão em `returns.py`, e nenhuma dependência nova.
-- ⚠️ **`risk.py` (W07-002) precisa definir seu próprio `TRADING_DAYS_PER_YEAR = 252`** e **não** reutilizar `DAYS_PER_YEAR`. Se um Sharpe futuro parecer estranho por um fator ~1,2, é aqui que se olha primeiro.
-- ⚠️ A fronteira `Decimal → float` continua **em aberto** para a W07-002, que deve registrá-la (a regra 17 exige documentação, e este ADR não a cobre — cobre apenas a ausência dela em retornos).
+- ✅ ~~`risk.py` precisa definir seu próprio 252~~ — **cumprido na W07-002**: `PERIODS_PER_YEAR` mora em `risk.py` e há um teste (`test_dispersion_annualises_on_trading_sessions_not_calendar_days`) que falha se alguém trocá-lo por `DAYS_PER_YEAR`.
+- ✅ ~~A fronteira `Decimal → float` continua em aberto~~ — **resolvida no adendo abaixo (2026-08-18)**: não existe fronteira; o Quant Engine inteiro fica em `Decimal`.
 - ⚠️ CAGR sobre janelas menores que 30 dias corridos retorna `None`. Um consumidor que queira "retorno do mês" deve usar `period_returns(..., MONTHLY)` ou `total_return`, que não anualizam.
+
+---
+
+## Adendo — 2026-08-18 (W07-002): a fronteira `Decimal → float` não existe
+
+Este ADR previu que `risk.py` precisaria de `float`, porque desvio-padrão, covariância e raiz quadrada são "estatística", e a regra 17 abre essa porta desde que a decisão seja registrada. A decisão foi tomada com o cálculo em mãos, e é a oposta da esperada.
+
+**Nenhuma das cinco métricas exige `float`.** Levantando operação por operação:
+
+| métrica | operações necessárias | `Decimal` cobre? |
+|---|---|---|
+| volatilidade | somas, subtrações, divisão, `sqrt` | sim |
+| maximum drawdown | comparações, divisão | sim |
+| beta | somas, produtos, divisão | sim |
+| Sharpe | as de volatilidade + potência fracionária (de-anualizar a taxa) | sim |
+| Sortino | idem, filtrando as observações abaixo do alvo | sim |
+
+`Decimal.sqrt()` existe e é corretamente arredondado; potência fracionária já havia sido verificada na W07-001. Não há matriz, não há inversão, não há função transcendental. Nada aqui pede `numpy`.
+
+**Então o Quant Engine fica inteiramente em `Decimal`, e `numpy`/`scipy` seguem sem nenhum import no projeto.**
+
+O argumento decisivo não é precisão de dinheiro — são frações adimensionais, e `float` daria conta da magnitude. É **determinismo** (regra 113): uma soma em `float` depende da ordem dos termos, então a mesma série somada em ordem diferente pode divergir no último bit, e essa divergência atravessa uma raiz quadrada e uma divisão até virar um Sharpe que não reproduz. `Decimal` a 28 dígitos significativos não deriva ao longo de alguns milhares de observações. Quando o determinismo é grátis, não há motivo para abrir mão dele.
+
+Consequência para as waves seguintes: **a expectativa de "usar numpy no quant" deve ser considerada revogada**, não pendente. Se uma wave futura precisar de álgebra matricial de verdade — a matriz de covariância para volatilidade de carteira, ou otimização de Markowitz — aí a fronteira volta a ser uma pergunta legítima, e deve ser decidida naquele momento com o mesmo critério: qual operação concreta `Decimal` não cobre.
+
+Registra-se também o que **não** foi implementado: **volatilidade de carteira**. Ela não é a média das volatilidades dos ativos — precisa da matriz de covariâncias e dos pesos das posições, porque ativos pouco correlacionados cancelam risco entre si. Depende dos pesos, que vêm do motor de posições, então pertence à análise de carteira e não a este módulo. Está em Future Work. **Não aproximar por média** — seria inventar um número (regra 44).

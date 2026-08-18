@@ -425,9 +425,9 @@ Status: ⚪ NOT_STARTED
 
 ## Current Task
 
-Wave: 07
-Task ID: W07-002
-Task Name: Quant Engine — módulo `risk.py`
+Wave: 08
+Task ID: W08-001
+Task Name: Benchmark Engine — CDI / IBOV / IPCA
 Status: ⚪ NOT_STARTED
 
 Completed:
@@ -441,6 +441,7 @@ Completed:
 - W06-001 (Ingestão de Demonstrativos Financeiros) concluída — `FundamentalsProvider`/`BrapiFundamentalsProvider`, transporte HTTP compartilhado, ingestão anual idempotente, data quality de demonstrativos, migration `003`. 45 testes novos passando.
 - W06-002 (Indicadores Fundamentalistas) concluída — `compute_indicators` puro com as 10 fórmulas, seleção de preço sem look-ahead, persistência idempotente, endpoints de compute/leitura. 44 testes novos passando.
 - W06-003 (Validação real e correção do mapeamento) concluída — parsers validados contra a API, dois bugs corrigidos, ROIC destravado, política de recomputação. 21 testes novos passando. **Wave 06 concluída.**
+- Wave 07 (Quant Engine) concluída — `app/quant/returns.py` e `app/quant/risk.py`, funções puras e determinísticas, inteiramente em `Decimal`. 101 testes novos passando. Anualização e tipo numérico em ADR-017.
 
 Next Action:
 Wave 07 — Quant Engine. `returns.py` (diário, semanal, mensal, trimestral, YTD, anual, CAGR) e `risk.py` (volatilidade, beta, max drawdown, Sharpe, Sortino) sobre `asset_prices`. Ver `docs/memory/CURRENT_TASK.md`.
@@ -475,6 +476,7 @@ Wave 07 — Quant Engine. `returns.py` (diário, semanal, mensal, trimestral, YT
 - **W06-004**: Manutenção pré-Wave 07 — ambiente Postgres real, migrations aplicadas, validação multi-tipo do parser (🟢 COMPLETED)
 - **W06-005**: Correção do `adjusted_close` fabricado a partir do `close` (ADR-016) (🟢 COMPLETED)
 - **W07-001**: Quant Engine — módulo `returns.py` (diário, semanal, mensal, trimestral, YTD, anual, CAGR) (🟢 COMPLETED)
+- **W07-002**: Quant Engine — módulo `risk.py` (volatilidade, beta, max drawdown, Sharpe, Sortino) (🟢 COMPLETED) — **Wave 07 concluída**
 
 ---
 
@@ -592,9 +594,18 @@ Nenhuma tarefa bloqueada no momento.
 - **Nota de validação**: o caso conhecido de CAGR foi escrito assumindo 730 dias entre 2024-01-01 e 2026-01-01. Sao 731 — 2024 e bissexto. O teste falhou e o intervalo foi corrigido. Evidencia de que os valores sao calculados a mao e conferidos, nao ajustados ao que o codigo devolveu.
 - **Status**: APPROVED. Registrado como `docs/decisions/ADR-017`.
 
+### Decision — 2026-08-18 — A fronteira `Decimal -> float` nao existe; `numpy` nao entra no Quant Engine (adendo ao ADR-017)
+- **Decision**: `risk.py` fica inteiramente em `Decimal`, como `returns.py`. `numpy`/`scipy` seguem sem nenhum import no projeto.
+- **Contexto**: o ADR-017 previu que esta task precisaria de `float`, porque desvio-padrao, covariancia e raiz quadrada sao "estatistica" e a regra 17 abre essa porta. Levantando operacao por operacao, nenhuma das cinco metricas exige: `Decimal.sqrt()` existe, potencia fracionaria ja havia sido verificada, e nao ha matriz, inversao nem funcao transcendental.
+- **O argumento decisivo e determinismo (regra 113)**, nao magnitude: soma em `float` depende da ordem dos termos, e essa divergencia atravessa uma raiz e uma divisao ate virar um Sharpe que nao reproduz. Quando o determinismo e gratis, nao se abre mao dele.
+- **A expectativa de "usar numpy no quant" fica revogada, nao pendente.** Se uma wave futura precisar de algebra matricial de verdade (matriz de covariancia para volatilidade de carteira, Markowitz), a pergunta volta e deve ser decidida ali, com o mesmo criterio: qual operacao concreta `Decimal` nao cobre.
+- **Nao implementado, de proposito**: volatilidade de carteira. Nao e a media das volatilidades dos ativos — precisa da matriz de covariancias e dos pesos das posicoes. Esta em Future Work; **nao aproximar por media** (regra 44).
+- **Status**: APPROVED. Registrado como adendo datado em `docs/decisions/ADR-017`.
+
 ---
 
 ## Future Work
+- **Volatilidade de carteira** (nao a media das volatilidades dos ativos): exige matriz de covariancias entre os ativos e os pesos das posicoes, porque ativos pouco correlacionados cancelam risco. Depende dos pesos, que vem do motor de posicoes. **Nao aproximar por media.** Provavel W09/W11, e o primeiro lugar onde `numpy` pode voltar a ser uma pergunta legitima.
 - Cache com Redis para cotações em tempo real.
 - Suporte a WebSocket para streamings intraday.
 - Modelos avançados de otimização de portfólio (Markowitz / Black-Litterman).
@@ -609,10 +620,10 @@ Nenhuma tarefa bloqueada no momento.
 
 ## Last Execution
 - **Timestamp**: 2026-08-18T00:00:00-03:00
-- **Action**: W07-001 — `app/quant/returns.py`: `simple_return`, `period_returns` (diario/semanal ISO/mensal/trimestral/anual), `total_return`, `ytd_return`, `cagr`. Funcoes puras, sem I/O, tudo em `Decimal`. Convencao de anualizacao e tipo numerico registrados em ADR-017. Precedido pela correcao do `adjusted_close` (ADR-016), feita antes por o banco estar vazio.
-- **Result**: Sucesso. 262/262 testes passando (215 + 47 novos), `ruff` e `black` limpos nos arquivos alterados. Nenhuma regressao.
+- **Action**: W07-002 — `app/quant/risk.py`: `standard_deviation`, `downside_deviation`, `volatility`, `max_drawdown`, `beta`, `sharpe`, `sortino`. `PERIODS_PER_YEAR` local (252 diario), alinhamento por data antes de medir retornos no beta, taxa livre de risco de-anualizada geometricamente. Fronteira `Decimal -> float` resolvida como inexistente (adendo ao ADR-017). **Wave 07 concluida.**
+- **Result**: Sucesso. 316/316 testes passando (262 + 54 novos), `ruff` e `black` limpos nos arquivos alterados. Nenhuma regressao. Zero requisicoes externas.
 
 ---
 
 ## Next Action
-W07-002 — `app/quant/risk.py` (volatilidade, beta, max drawdown, Sharpe, Sortino). Definir `TRADING_DAYS_PER_YEAR = 252` **proprio**, nao reutilizar `DAYS_PER_YEAR`, e registrar a fronteira `Decimal -> float` (ADR-017 deixa essa parte explicitamente em aberto). Ver `docs/memory/CURRENT_TASK.md`.
+Wave 08 — Benchmark Engine (CDI, IBOV, IPCA). Desbloqueia `beta`, `sharpe` e `sortino`, que ja tem a assinatura pronta esperando a serie de referencia. Ver `docs/memory/CURRENT_TASK.md`.
