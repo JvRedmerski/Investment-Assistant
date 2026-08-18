@@ -37,10 +37,26 @@ class Settings(BaseSettings):
     # Fundamentals ingestion is far lower-frequency than price ingestion
     # (statements change quarterly, not daily), but it shares the same
     # provider and therefore the same rate limit — hence its own knobs.
-    FUNDAMENTALS_PROVIDER: str = "brapi"
+    # "cvm_then_brapi" merges both: the CVM leads, the vendor backs it
+    # up for assets the CVM has no filer for. "cvm" and "brapi" select
+    # a single source.
+    FUNDAMENTALS_PROVIDER: str = "cvm_then_brapi"
     FUNDAMENTALS_TIMEOUT_SECONDS: float = 15.0
     FUNDAMENTALS_MAX_RETRIES: int = 3
     FUNDAMENTALS_MIN_REQUEST_INTERVAL_SECONDS: float = 0.0
+
+    # Fundamentals from the CVM open data portal (Wave 09). Free, no
+    # token, no quota - but delivered as one ~13 MB ZIP per fiscal year
+    # covering every listed company, so the archive is cached on disk and
+    # a year is downloaded at most once.
+    CVM_DFP_BASE_URL: str = "https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/DFP/DADOS"
+    CVM_CACHE_DIR: str = "var/cvm"
+    CVM_TIMEOUT_SECONDS: float = 180.0
+    CVM_MAX_RETRIES: int = 3
+    # Earliest fiscal year to read. Each additional year is another
+    # download and another ~13 MB on disk; five years is enough for the
+    # growth indicators, which compare consecutive periods.
+    CVM_FIRST_YEAR: int = 2020
 
     # Benchmarks (Wave 08). The CDI/IPCA/Selic come from the Banco
     # Central's SGS API, which is open, needs no token and enforces no

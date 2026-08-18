@@ -27,6 +27,7 @@ Um ADR existe aqui porque a decisão (a) teve alternativas reais, (b) afeta arqu
 | [017](ADR-017-annualisation-and-numeric-type.md) | Anualização: 365 p/ retorno, 252 p/ dispersão; `Decimal` puro, sem `numpy` | Accepted | quant engine, retornos, risco, Sharpe, numpy |
 | [018](ADR-018-benchmark-representation.md) | Benchmark de taxa guarda a taxa publicada (fração), não índice acumulado; CDI anualiza em 252; período incompleto não é gravado | Accepted | benchmarks, CDI, IBOV, IPCA, BCB SGS, Sharpe, beta |
 | [019](ADR-019-portfolio-return-is-time-weighted.md) | Rentabilidade de carteira é TWR entregue como índice de cota; beta só contra `INDEX`; razão "% do CDI" só com ambos positivos | Accepted | carteira, rentabilidade, TWR, MWR, aporte, comparação, beta |
+| [020](ADR-020-cvm-primary-fundamentals-source.md) | Dados abertos da CVM como fonte primária de demonstrativos; Brapi faz a ponte ticker→CNPJ; composição por período inteiro, nunca campo a campo | Accepted | fundamentals, CVM, Brapi, CNPJ, DFP, EBITDA, composite |
 
 ## Template
 

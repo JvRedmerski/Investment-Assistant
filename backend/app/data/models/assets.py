@@ -33,6 +33,13 @@ class Asset(Base):
         String(50), nullable=False
     )  # STOCK, FII, ETF, FIXED_INCOME, BDR
     sector: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # The CVM files statements by CNPJ and has no ticker column, while the
+    # market data vendor knows tickers and exposes the CNPJ on its free
+    # profile module. This is where the two are joined, resolved once and
+    # kept so a sync does not spend a quota-limited request re-asking.
+    # NULL means "not resolved yet" or "no filer" - a BDR or an ETF has
+    # none, and never will.
+    cnpj: Mapped[str | None] = mapped_column(String(20), nullable=True)
     currency: Mapped[str] = mapped_column(String(10), default="BRL", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

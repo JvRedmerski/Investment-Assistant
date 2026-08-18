@@ -9,10 +9,12 @@ from app.core.security import decode_access_token
 from app.data.database import get_db
 from app.data.models.users import User
 from app.domain.benchmarks.catalog import UnknownBenchmarkError, get_benchmark
+from app.domain.fundamentals.identity import StoredCnpjResolver
 from app.integrations.benchmarks.base import BenchmarkProvider
 from app.integrations.benchmarks.factory import build_benchmark_provider
 from app.integrations.fundamentals.base import FundamentalsProvider
 from app.integrations.fundamentals.factory import build_fundamentals_provider
+from app.integrations.fundamentals.identity import BrapiCnpjResolver
 from app.integrations.market_data.base import MarketDataProvider
 from app.integrations.market_data.factory import build_market_data_provider
 
@@ -77,14 +79,24 @@ def get_market_data_provider() -> Generator[MarketDataProvider, None, None]:
         provider.close()
 
 
-def get_fundamentals_provider() -> Generator[FundamentalsProvider, None, None]:
+def get_fundamentals_provider(
+    db: Session = Depends(get_db),
+) -> Generator[FundamentalsProvider, None, None]:
     """Provide a `FundamentalsProvider` instance for a single request.
 
     Same contract as `get_market_data_provider`: routes depend only on
     the abstract type, and tests override this dependency with a fake
     instead of hitting the network.
+
+    Unlike the other two, this one takes a session, because the default
+    provider reads CVM files keyed by CNPJ and the mapping from a ticker
+    lives on `assets.cnpj`. Resolving through the database first is what
+    keeps a sync from spending a quota-limited request per asset on a
+    value that never changes.
     """
-    provider = build_fundamentals_provider()
+    provider = build_fundamentals_provider(
+        resolve_cnpj=StoredCnpjResolver(db, BrapiCnpjResolver())
+    )
     try:
         yield provider
     finally:
