@@ -73,7 +73,12 @@ class AssetPrice(Base):
     high: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
     low: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
     close: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
-    adjusted_close: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    # NULL means the source that supplied this bar does not publish an
+    # adjusted close - B3's COTAHIST prints traded prices and has none.
+    # It is never derived from `close`: the two are different quantities
+    # (rule 44, ADR-016, ADR-023). Return series are built through
+    # `app.domain.market_data.series`, which keeps only adjusted rows.
+    adjusted_close: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
     volume: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     source: Mapped[str] = mapped_column(String(50), default="brapi", nullable=False)
     created_at: Mapped[datetime] = mapped_column(

@@ -44,6 +44,8 @@ logger = logging.getLogger("investment_assistant.market_data.brapi")
 class BrapiProvider(MarketDataProvider):
     """`MarketDataProvider` backed by https://brapi.dev/api."""
 
+    source_name = "brapi"
+
     def __init__(
         self,
         base_url: str | None = None,

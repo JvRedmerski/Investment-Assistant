@@ -382,6 +382,8 @@ class B3CotahistProvider(DailyHistoryProvider):
     a quote. `MarketDataProvider` stays the interface for that.
     """
 
+    source_name = "b3_cotahist"
+
     #: COTAHIST prints traded prices; nothing in it is adjusted.
     reports_adjusted_close = False
 

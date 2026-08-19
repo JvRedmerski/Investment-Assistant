@@ -44,6 +44,7 @@ from app.data.models.portfolio import Portfolio, Transaction
 from app.data.models.users import InvestorProfile
 from app.domain.benchmarks.catalog import IBOVESPA
 from app.domain.benchmarks.service import benchmark_price_points, risk_free_rate_for
+from app.domain.market_data.series import adjusted_price_points
 from app.domain.portfolio.service import compute_positions
 from app.domain.recommendations.allocation import (
     DEFAULT_POLICY,
@@ -336,10 +337,7 @@ def _price_series(
         query = query.filter(AssetPrice.date >= start)
     if as_of is not None:
         query = query.filter(AssetPrice.date <= as_of)
-    return [
-        PricePoint(date=row.date, adjusted_close=row.adjusted_close)
-        for row in query.order_by(AssetPrice.date)
-    ]
+    return adjusted_price_points(query.order_by(AssetPrice.date))
 
 
 def _latest_indicator(

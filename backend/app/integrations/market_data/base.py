@@ -35,6 +35,11 @@ class DailyHistoryProvider(ABC):
     #: Defaults to `True`, so a provider that adjusts need not say so.
     reports_adjusted_close: bool = True
 
+    #: Stamped onto every bar this source supplies, so a stored row says
+    #: where it came from. That matters more now that two sources feed
+    #: the same table and only one of them adjusts (ADR-023).
+    source_name: str = "unknown"
+
     @abstractmethod
     def get_daily_history(self, ticker: str, start: date, end: date) -> list[DailyBar]:
         """Fetch daily OHLCV bars for `ticker` within [start, end] (inclusive).

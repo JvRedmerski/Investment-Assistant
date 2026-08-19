@@ -21,9 +21,8 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.data.models.assets import Asset, AssetPrice
-from app.integrations.market_data.base import MarketDataProvider
+from app.integrations.market_data.base import DailyHistoryProvider
 from app.integrations.market_data.data_quality import validate_daily_bars
 
 logger = logging.getLogger("investment_assistant.market_data.ingestion")
@@ -42,17 +41,23 @@ class PriceSyncResult:
 
 def sync_daily_history(
     db: Session,
-    provider: MarketDataProvider,
+    provider: DailyHistoryProvider,
     asset: Asset,
     start: date,
     end: date,
 ) -> PriceSyncResult:
     """Fetch [start, end] daily bars for `asset`, validate them, and insert
     the ones that are both valid and not already stored.
+
+    Takes a `DailyHistoryProvider`, not a `MarketDataProvider`: ingestion
+    needs closed bars and nothing else, so B3's open archive — which
+    cannot quote — is as valid an input here as the vendor API.
     """
     bars = provider.get_daily_history(asset.ticker, start, end)
 
-    quality_report = validate_daily_bars(bars)
+    quality_report = validate_daily_bars(
+        bars, source_reports_adjusted_close=provider.reports_adjusted_close
+    )
     for issue in quality_report.errors:
         logger.warning(
             "Rejected daily bar for %s on %s: %s (%s)",
@@ -96,7 +101,7 @@ def sync_daily_history(
                 close=bar.close,
                 adjusted_close=bar.adjusted_close,
                 volume=bar.volume,
-                source=settings.MARKET_DATA_PROVIDER,
+                source=provider.source_name,
             )
         )
         inserted += 1

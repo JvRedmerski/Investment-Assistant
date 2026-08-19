@@ -8,9 +8,11 @@ duplicate dates, bars given out of chronological order, or a
 day-over-day move so large it is more likely a data error than a real
 price. That is this module's job.
 
-It also enforces one storage invariant: every bar in `valid_bars` has an
-`adjusted_close` the source actually reported. Callers may therefore
-store it into the `NOT NULL` column without a further check.
+It also enforces one storage invariant, conditional on the source: when
+the provider does publish an adjusted close, every bar in `valid_bars`
+has one. When it does not (B3's COTAHIST prints traded prices), the
+absence is passed through rather than rejected — see ADR-023 and the
+`source_reports_adjusted_close` argument.
 
 This is a small, pure, deterministic function with no I/O (AGENTS.md rule
 68 — testable with known input/output), so it can be unit tested in
@@ -54,13 +56,24 @@ class DataQualityReport:
         return len(self.errors)
 
 
-def validate_daily_bars(bars: list[DailyBar]) -> DataQualityReport:
+def validate_daily_bars(
+    bars: list[DailyBar], *, source_reports_adjusted_close: bool = True
+) -> DataQualityReport:
     """Validate a batch of daily bars for one asset.
 
     Returns a report separating bars safe to store (`valid_bars`) from
     the ones rejected (`errors`) and the ones stored but worth flagging
     (`warnings`). Input order is not assumed to be chronological; the
     report itself does not reorder `valid_bars` relative to the input.
+
+    `source_reports_adjusted_close` is the provider's own
+    `reports_adjusted_close`, and it decides what a missing adjusted
+    close means. When the source does adjust, a `None` is a publication
+    lag and the bar is rejected so a later sync can pick it up complete
+    (ADR-016). When it does not — B3's COTAHIST prints traded prices and
+    computes nothing — `None` is permanent, and rejecting on it would
+    throw away the entire series to guard against a lag that source does
+    not have (ADR-023).
     """
     report = DataQualityReport()
 
@@ -80,7 +93,9 @@ def validate_daily_bars(bars: list[DailyBar]) -> DataQualityReport:
 
     accepted: list[DailyBar] = []
     for bar in bars:
-        error = _validate_single_bar(bar, duplicate_dates)
+        error = _validate_single_bar(
+            bar, duplicate_dates, source_reports_adjusted_close
+        )
         if error is not None:
             report.errors.append(error)
             continue
@@ -108,7 +123,11 @@ def validate_daily_bars(bars: list[DailyBar]) -> DataQualityReport:
     return report
 
 
-def _validate_single_bar(bar: DailyBar, duplicate_dates: set[date]) -> BarIssue | None:
+def _validate_single_bar(
+    bar: DailyBar,
+    duplicate_dates: set[date],
+    source_reports_adjusted_close: bool,
+) -> BarIssue | None:
     if bar.date in duplicate_dates:
         return BarIssue(
             bar_date=bar.date,
@@ -116,15 +135,18 @@ def _validate_single_bar(bar: DailyBar, duplicate_dates: set[date]) -> BarIssue 
             message=f"Date {bar.date} appears more than once in the batch.",
         )
 
-    # A bar the source did not adjust is not storable. Returns are
-    # computed from `adjusted_close` (Wave 07), and `adjusted_close` is
-    # `NOT NULL`, so the only alternatives would be to fabricate it from
-    # `close` — forbidden by rule 44 / ADR-014 — or to store a wrong
-    # number permanently, since `sync_daily_history` never rewrites a
-    # stored date. Rejecting leaves the date absent instead, and a later
-    # sync inserts it once the source publishes the adjustment. In
-    # practice this defers only the most recently closed session.
-    if bar.adjusted_close is None:
+    # A source that *does* adjust but has not yet published the
+    # adjustment is reporting a lag, not a fact. Storing the bar would
+    # freeze the gap forever, since `sync_daily_history` never rewrites a
+    # stored date, and filling it from `close` would fabricate a number
+    # (rule 44 / ADR-014). Rejecting leaves the date absent, and the next
+    # sync inserts it complete — in practice a one-session deferral
+    # (ADR-016).
+    #
+    # A source that never adjusts is a different statement, and gets a
+    # different answer: the bar is stored with `adjusted_close` NULL
+    # (ADR-023). Rejecting there would discard the whole series.
+    if bar.adjusted_close is None and source_reports_adjusted_close:
         return BarIssue(
             bar_date=bar.date,
             code="MISSING_ADJUSTED_CLOSE",
@@ -134,7 +156,9 @@ def _validate_single_bar(bar: DailyBar, duplicate_dates: set[date]) -> BarIssue 
             ),
         )
 
-    prices = (bar.open, bar.high, bar.low, bar.close, bar.adjusted_close)
+    prices = [bar.open, bar.high, bar.low, bar.close]
+    if bar.adjusted_close is not None:
+        prices.append(bar.adjusted_close)
     if any(price <= 0 for price in prices):
         return BarIssue(
             bar_date=bar.date,

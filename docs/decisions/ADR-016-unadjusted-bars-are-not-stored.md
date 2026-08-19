@@ -2,7 +2,21 @@
 
 ## Status
 
-Accepted (2026-08-18, manutenção pré-Wave 07)
+Accepted (2026-08-18, manutenção pré-Wave 07) — **emendado pelo
+[ADR-023](ADR-023-unadjusted-history-is-stored-as-unadjusted.md)**
+(2026-08-19).
+
+> A decisão abaixo **continua valendo para a fonte que ela descreve**: um
+> fornecedor que calcula ajuste e ainda não o publicou está reportando um
+> atraso, e a barra segue sendo rejeitada para que o sync seguinte a
+> insira completa. O que o ADR-023 acrescenta é uma fonte que a premissa
+> deste ADR não previa — o COTAHIST da B3 **nunca** publica ajuste, por
+> ser o registro de negociação da bolsa. Ali a ausência é permanente, e a
+> rejeição descartaria décadas de histórico aberto em vez de adiar um
+> pregão. A distinção passou a ser declarada pela fonte
+> (`reports_adjusted_close`), e a alternativa que este ADR rejeitou —
+> relaxar a coluna para `NULL` — foi aceita lá, com a objeção que ele
+> levantou respondida por um ponto único de passagem.
 
 ## Context
 

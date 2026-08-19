@@ -32,6 +32,10 @@ from app.domain.benchmarks.catalog import CDI, BenchmarkDefinition
 from app.domain.benchmarks.comparison import BenchmarkComparison, compare
 from app.domain.benchmarks.data_quality import validate_benchmark_series
 from app.domain.benchmarks.series import annualised_rate, to_price_points
+from app.domain.market_data.series import (
+    adjusted_closes_by_asset,
+    adjusted_price_points,
+)
 from app.domain.portfolio.performance import performance_index
 from app.integrations.benchmarks.base import BenchmarkProvider
 from app.quant.returns import Periodicity, PricePoint
@@ -197,10 +201,7 @@ def compare_asset_with_benchmark(
     if end is not None:
         query = query.filter(AssetPrice.date <= end)
 
-    subject = [
-        PricePoint(date=row.date, adjusted_close=row.adjusted_close)
-        for row in query.order_by(AssetPrice.date)
-    ]
+    subject = adjusted_price_points(query.order_by(AssetPrice.date))
     return _compare(db, subject, definition, start, end)
 
 
@@ -234,8 +235,7 @@ def compare_portfolio_with_benchmark(
             price_query = price_query.filter(AssetPrice.date >= start)
         if end is not None:
             price_query = price_query.filter(AssetPrice.date <= end)
-        for row in price_query:
-            prices.setdefault(row.asset_id, {})[row.date] = row.adjusted_close
+        prices = adjusted_closes_by_asset(price_query)
 
     subject = performance_index(transactions, prices, as_of=end)
     return _compare(db, subject, definition, start, end)
