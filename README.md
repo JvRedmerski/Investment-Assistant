@@ -159,8 +159,15 @@ cd backend
 .venv\Scripts\python.exe -m black --check .
 ```
 
-O frontend ainda não tem testes, e `npm run lint` está quebrado: o script chama `eslint`, que
-não está nas `devDependencies` nem tem arquivo de configuração.
+```bash
+# Frontend
+cd frontend
+npm install
+npm run lint      # ESLint 10 (flat config) + typescript-eslint + react-hooks
+npm run build     # tsc && vite build
+```
+
+O frontend ainda não tem testes automatizados.
 
 ---
 

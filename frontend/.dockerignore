@@ -1,0 +1,15 @@
+# Host build artefacts must never be copied into the image.
+#
+# `node_modules` is the one that actually breaks it: the tree installed on
+# the host carries platform-specific binaries and `.bin` shims (node.exe on
+# Windows), and `COPY . .` would overwrite the Linux tree that `npm ci`
+# just installed. The image then fails at exec time, not build time.
+node_modules
+dist
+dist-ssr
+
+# Secrets never belong in an image layer.
+.env
+.env.*
+
+*.log

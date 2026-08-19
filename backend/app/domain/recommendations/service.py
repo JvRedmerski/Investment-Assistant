@@ -310,9 +310,10 @@ def plan_contribution(
 def monthly_contribution_for(db: Session, portfolio: Portfolio) -> Decimal:
     """The owner's configured monthly contribution.
 
-    Stored as `float` (a pre-existing debt recorded in the project
-    status), so the conversion goes through `str` to take the decimal
-    value that was written rather than the binary expansion around it.
+    Stored as `NUMERIC(18, 6)` since migration 008, so the driver hands
+    back a `Decimal` and no conversion is needed. It used to be a `float`
+    laundered through `str` to recover the decimal value that was written
+    instead of the binary expansion around it.
     """
     profile = (
         db.query(InvestorProfile)
@@ -321,7 +322,7 @@ def monthly_contribution_for(db: Session, portfolio: Portfolio) -> Decimal:
     )
     if profile is None or profile.monthly_contribution is None:
         return DEFAULT_MONTHLY_CONTRIBUTION
-    return Decimal(str(profile.monthly_contribution))
+    return profile.monthly_contribution
 
 
 # -- helpers ---------------------------------------------------------

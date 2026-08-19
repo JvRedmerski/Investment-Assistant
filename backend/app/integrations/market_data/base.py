@@ -29,5 +29,7 @@ class MarketDataProvider(ABC):
     def get_daily_history(self, ticker: str, start: date, end: date) -> list[DailyBar]:
         """Fetch daily OHLCV bars for `ticker` within [start, end] (inclusive).
 
-        Raises the same exceptions as `get_quote`.
+        Raises the same exceptions as `get_quote`, plus:
+            HistoryWindowTooLargeError: the window reaches further back than
+                the provider (or the account's plan) will serve.
         """

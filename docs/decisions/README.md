@@ -29,6 +29,7 @@ Um ADR existe aqui porque a decisão (a) teve alternativas reais, (b) afeta arqu
 | [019](ADR-019-portfolio-return-is-time-weighted.md) | Rentabilidade de carteira é TWR entregue como índice de cota; beta só contra `INDEX`; razão "% do CDI" só com ambos positivos | Accepted | carteira, rentabilidade, TWR, MWR, aporte, comparação, beta |
 | [020](ADR-020-cvm-primary-fundamentals-source.md) | Dados abertos da CVM como fonte primária de demonstrativos; Brapi faz a ponte ticker→CNPJ; composição por período inteiro, nunca campo a campo | Accepted | fundamentals, CVM, Brapi, CNPJ, DFP, EBITDA, composite |
 | [021](ADR-021-allocation-ranks-by-coverage-tier.md) | A alocação do aporte ordena por faixa de cobertura antes do score, reusa os tetos do pilar de Diversification, e o plano é derivado a cada leitura | Accepted | recommendation, allocation, coverage, aporte, perfil conservador, rule 31/32/33 |
+| [022](ADR-022-provider-plan-limits-are-refused-locally.md) | O bucket de `range` da Brapi é medido de `start` até hoje (a API não aceita data inicial), e uma janela acima do teto do plano é recusada localmente com erro nomeado em vez de truncada em silêncio | Accepted | market data, Brapi, range, plano gratuito, ingestão, rule 32 |
 
 ## Template
 

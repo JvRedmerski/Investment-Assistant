@@ -14,6 +14,11 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+    /* `import.meta.env` (used by src/services/api.ts for VITE_API_URL) is
+       typed by Vite's client types; without this the build fails with
+       "Property 'env' does not exist on type 'ImportMeta'". */
+    "types": ["vite/client"],
+
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,

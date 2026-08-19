@@ -30,6 +30,7 @@ from app.domain.market_data.schemas import (
     AssetPriceResponse,
     PriceSyncRequest,
     PriceSyncResponse,
+    QuoteResponse,
 )
 from app.domain.market_data.service import sync_daily_history
 from app.integrations.fundamentals.base import FundamentalsProvider
@@ -40,6 +41,7 @@ from app.integrations.fundamentals.exceptions import (
 )
 from app.integrations.market_data.base import MarketDataProvider
 from app.integrations.market_data.exceptions import (
+    HistoryWindowTooLargeError,
     InvalidMarketDataResponseError,
     MarketDataUnavailableError,
     TickerNotFoundError,
@@ -137,6 +139,19 @@ def sync_asset_prices(
 
     try:
         result = sync_daily_history(db, provider, asset, start, end)
+    except HistoryWindowTooLargeError as exc:
+        # The caller asked for more history than the provider plan serves.
+        # 400, not 502: the request is the thing that has to change, and the
+        # message says by how much, in the standard envelope (rule 72).
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "code": "MARKET_DATA_WINDOW_TOO_LARGE",
+                    "message": str(exc),
+                }
+            },
+        ) from exc
     except TickerNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -176,6 +191,67 @@ def sync_asset_prices(
         inserted=result.inserted,
         skipped_existing=result.skipped_existing,
         rejected=result.rejected,
+    )
+
+
+@router.get("/{ticker}/quote", response_model=QuoteResponse)
+def get_asset_quote(
+    ticker: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    provider: MarketDataProvider = Depends(get_market_data_provider),
+) -> QuoteResponse:
+    """Fetch the latest quote for an asset from the market data provider.
+
+    This calls the external provider on every request, deliberately: a
+    quote that is served from cache is a stale number wearing a fresh
+    timestamp. It is also why nothing here is stored - `asset_prices` holds
+    closed daily sessions, and an intraday snapshot is a different quantity
+    (the same reasoning as ADR-016 on `adjusted_close`).
+
+    The asset must be registered first, so a typo cannot silently burn a
+    request against the provider's monthly quota.
+    """
+    asset = _get_asset_by_ticker(db, ticker)
+
+    try:
+        quote = provider.get_quote(asset.ticker)
+    except TickerNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": {
+                    "code": "MARKET_DATA_TICKER_NOT_FOUND",
+                    "message": f"Provider has no data for {asset.ticker}.",
+                }
+            },
+        ) from exc
+    except MarketDataUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": {
+                    "code": "MARKET_DATA_UNAVAILABLE",
+                    "message": "Market data provider is currently unavailable.",
+                }
+            },
+        ) from exc
+    except InvalidMarketDataResponseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error": {
+                    "code": "MARKET_DATA_INVALID_RESPONSE",
+                    "message": "Market data provider returned an unparseable response.",
+                }
+            },
+        ) from exc
+
+    return QuoteResponse(
+        ticker=quote.ticker,
+        price=quote.price,
+        currency=quote.currency,
+        as_of=quote.as_of,
     )
 
 

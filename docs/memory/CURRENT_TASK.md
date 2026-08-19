@@ -68,17 +68,27 @@ mesma carteira sem valor de mercado e sobre scores com o pilar de Risco ausente.
 
 ## Estado do ambiente (verificado 2026-08-19)
 
-- **PostgreSQL 16 no ar**, schema em `007`, com dado real: CDI (252 pregões), IPCA (31 meses),
-  IBOV (63 pregões), e **PETR4 com 6 exercícios de demonstrativos da CVM, agora com
+- **PostgreSQL 16 no ar**, schema em `009`, com dado real: CDI (252 pregões), IPCA (31 meses),
+  IBOV (63 pregões), e **PETR4 com 6 exercícios de demonstrativos da CVM, com
   `shares_outstanding`**. `docker compose up -d postgres` se estiver parado.
 - **`asset_prices` está vazia** — é por isso que o pilar de Risk e os múltiplos `pe`/`pb`
   aparecem ausentes numa consulta ao banco real. Não é defeito do código.
 - Alembic do host precisa da URL sobrescrita (o `.env` aponta para o host `postgres` da rede Docker):
   `DATABASE_URL="postgresql://investment_user:investment_pass_dev@localhost:5432/investment_assistant" .venv/Scripts/python.exe -m alembic upgrade head`
 - ⚠️ **`alembic_version.version_num` é `varchar(32)`** — um `revision` mais longo que isso
-  falha **depois** de aplicar o schema. Por isso a `007` chama-se `007_shares_outstanding`.
-- Rodar Python de `backend/` **não** carrega o `.env` da raiz e `BRAPI_TOKEN` fica vazio em silêncio.
+  falha **depois** de aplicar o schema. Por isso os nomes curtos (`009_drop_dup_uniques`).
+- ✅ **`alembic check` passa** desde a migration `009` — pode ser usado como guarda de drift.
+- ✅ **Rodar Python de `backend/` carrega o `.env` da raiz** desde 2026-08-19; `BRAPI_TOKEN`
+  não fica mais vazio em silêncio.
 - **Cache da CVM em `backend/var/cvm/`** (gitignored), ~13 MB por exercício. Já tem 2020–2026.
-- **`alembic check` falha** por drift pré-existente em `assets.ticker` e `users.email` — não é regressão.
-- 🔴 **A Brapi limita o `range` a 3 meses** no plano gratuito, e o `range` é relativo a hoje.
-  Não há histórico de preços além de ~63 pregões. Já quebra `sync_daily_history` acima de 3 meses.
+- **Frontend**: `npm install` já foi rodado (`node_modules/` existe, gitignored);
+  `npm run lint` e `npm run build` passam. **`package-lock.json` é versionado** e o
+  `Dockerfile` usa `npm ci` sobre ele.
+- **Imagens Docker reconstruídas e testadas** (2026-08-19): frontend em `node:20-alpine`
+  (o ESLint 10 não roda em Node 18), backend inalterado. Ambos os contextos agora têm
+  `.dockerignore` — sem ele o `COPY . .` levava `node_modules`/`.venv`/`var/cvm` do host
+  para dentro da imagem.
+- 🔴 **A Brapi limita o `range` a 3 meses** no plano gratuito, e o `range` é relativo a hoje —
+  não há histórico de preços além de ~63 pregões. `sync_daily_history` **não quebra mais** com
+  erro opaco acima disso: recusa localmente com `MARKET_DATA_WINDOW_TOO_LARGE` (HTTP 400) e o
+  teto é configurável em `BRAPI_MAX_RANGE`. A limitação em si continua sendo do plano.

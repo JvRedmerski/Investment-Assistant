@@ -1,4 +1,21 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# `.env` lives at the repository root, next to docker-compose.yml. Anchoring
+# it to this file instead of to the process working directory is deliberate:
+# a relative "env_file" is resolved against the cwd, so running anything from
+# `backend/` (pytest, alembic, a validation script) silently loaded no file at
+# all and left BRAPI_TOKEN empty - requests went out unauthenticated with no
+# error to show for it. Under docker compose the variables are injected into
+# the environment directly and no file is read either way.
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_ROOT_ENV_FILE = _PROJECT_ROOT / ".env"
+
+# A `.env` in the current directory still wins when one exists: later entries
+# take precedence in pydantic-settings, which keeps per-checkout overrides
+# working without reintroducing the silent-empty failure as the default.
+ENV_FILES: tuple[Path | str, ...] = (_ROOT_ENV_FILE, ".env")
 
 
 class Settings(BaseSettings):
@@ -33,6 +50,12 @@ class Settings(BaseSettings):
     # provider, to respect free-tier rate limits (AGENTS.md rule 22/23).
     # 0 disables throttling (default: local/dev usage).
     MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS: float = 0.0
+    # Largest history range the account's Brapi plan actually serves. The
+    # free plan stops at "3mo" and answers HTTP 400 INVALID_RANGE beyond it,
+    # so asking for more only spends a request to be refused. Every range is
+    # anchored at today (the API takes no start date), which makes this a
+    # hard ceiling on how far back history can reach - not a page size.
+    BRAPI_MAX_RANGE: str = "3mo"
 
     # Fundamentals ingestion is far lower-frequency than price ingestion
     # (statements change quarterly, not daily), but it shares the same
@@ -72,7 +95,7 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
 
     model_config = SettingsConfigDict(
-        case_sensitive=True, env_file=".env", extra="ignore"
+        case_sensitive=True, env_file=ENV_FILES, extra="ignore"
     )
 
 

@@ -2,16 +2,21 @@
 access, no extra mocking dependency (httpx already ships MockTransport).
 """
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
 import httpx
 import pytest
 
-from app.integrations.market_data.brapi import BrapiProvider
+from app.integrations.market_data.brapi import (
+    _BRAPI_RANGES,
+    BrapiProvider,
+    _brapi_range_for,
+)
 from app.integrations.market_data.data_quality import validate_daily_bars
 from app.integrations.market_data.exceptions import (
+    HistoryWindowTooLargeError,
     InvalidMarketDataResponseError,
     MarketDataUnavailableError,
     TickerNotFoundError,
@@ -20,6 +25,24 @@ from app.integrations.market_data.exceptions import (
 
 def _epoch(year, month, day) -> int:
     return int(datetime(year, month, day, tzinfo=UTC).timestamp())
+
+
+def _epoch_of(day: date) -> int:
+    return int(datetime(day.year, day.month, day.day, tzinfo=UTC).timestamp())
+
+
+def _days_ago(days: int) -> date:
+    return datetime.now(UTC).date() - timedelta(days=days)
+
+
+# The synthetic history fixture sits a few days back rather than on fixed
+# calendar dates. Brapi anchors every `range` bucket at today and takes no
+# start date, so how far back a window reaches is what decides whether the
+# request is servable at all - a fixture pinned to January would ask for a
+# range the free plan refuses, which is a fact about the plan and not about
+# the parsing these tests are checking.
+_BAR_ONE = _days_ago(3)
+_BAR_TWO = _days_ago(2)
 
 
 def _quote_payload(price=38.5, currency="BRL", as_of="2026-01-10T18:00:00+00:00"):
@@ -42,7 +65,7 @@ def _history_payload():
                 "symbol": "PETR4",
                 "historicalDataPrice": [
                     {
-                        "date": _epoch(2026, 1, 2),
+                        "date": _epoch_of(_BAR_ONE),
                         "open": 38.0,
                         "high": 39.0,
                         "low": 37.5,
@@ -51,7 +74,7 @@ def _history_payload():
                         "volume": 1_000_000,
                     },
                     {
-                        "date": _epoch(2026, 1, 3),
+                        "date": _epoch_of(_BAR_TWO),
                         "open": 38.5,
                         "high": 39.5,
                         "low": 38.0,
@@ -139,11 +162,11 @@ def test_get_daily_history_parses_and_filters_by_date():
         return httpx.Response(200, json=_history_payload())
 
     provider = _provider(handler)
-    bars = provider.get_daily_history("PETR4", date(2026, 1, 2), date(2026, 1, 2))
+    bars = provider.get_daily_history("PETR4", _BAR_ONE, _BAR_ONE)
 
     assert len(bars) == 1
     bar = bars[0]
-    assert bar.date == date(2026, 1, 2)
+    assert bar.date == _BAR_ONE
     assert bar.open == Decimal("38.0")
     assert bar.high == Decimal("39.0")
     assert bar.low == Decimal("37.5")
@@ -169,7 +192,7 @@ def test_absent_adjusted_close_is_reported_as_none_never_defaulted_to_close():
         return httpx.Response(200, json=payload)
 
     provider = _provider(handler)
-    bars = provider.get_daily_history("PETR4", date(2026, 1, 2), date(2026, 1, 2))
+    bars = provider.get_daily_history("PETR4", _BAR_ONE, _BAR_ONE)
 
     assert bars[0].adjusted_close is None
     assert bars[0].close == Decimal("38.5")
@@ -183,7 +206,7 @@ def test_explicit_null_adjusted_close_is_also_reported_as_none():
         return httpx.Response(200, json=payload)
 
     provider = _provider(handler)
-    bars = provider.get_daily_history("PETR4", date(2026, 1, 2), date(2026, 1, 2))
+    bars = provider.get_daily_history("PETR4", _BAR_ONE, _BAR_ONE)
 
     assert bars[0].adjusted_close is None
 
@@ -194,7 +217,7 @@ def test_get_daily_history_raises_when_history_field_is_missing():
 
     provider = _provider(handler)
     with pytest.raises(InvalidMarketDataResponseError):
-        provider.get_daily_history("PETR4", date(2026, 1, 1), date(2026, 1, 31))
+        provider.get_daily_history("PETR4", _days_ago(30), _days_ago(1))
 
 
 def test_get_daily_history_rejects_start_after_end():
@@ -417,3 +440,81 @@ def test_get_quote_parses_real_responses_per_asset_type(ticker):
     assert quote.price == Decimal(str(_LIVE_RESPONSES[ticker]["market_price"]))
     assert quote.currency == "BRL"
     assert quote.as_of == _EXPECTED_QUOTE_TIME[ticker]
+
+
+# --- range buckets --------------------------------------------------
+#
+# Brapi has no start-date parameter: every `range` bucket ends at today.
+# The bucket therefore has to reach back to `start`, and sizing it from the
+# requested span instead was a real defect - a two-week window last quarter
+# asked for `5d` and came back with nothing inside the window.
+
+
+def test_range_bucket_is_measured_from_today_not_from_the_window_span():
+    today = date(2026, 8, 19)
+    two_weeks_last_quarter_start = date(2026, 6, 1)
+
+    # The span is 14 days, but reaching June 1st from August 19th is 79
+    # days back, so only a bucket of `3mo` can contain it.
+    assert _brapi_range_for(two_weeks_last_quarter_start, today, "3mo") == "3mo"
+
+
+def test_smallest_bucket_that_reaches_start_is_chosen():
+    today = date(2026, 8, 19)
+
+    assert _brapi_range_for(date(2026, 8, 19), today, "3mo") == "1d"
+    assert _brapi_range_for(date(2026, 8, 15), today, "3mo") == "5d"
+    assert _brapi_range_for(date(2026, 7, 25), today, "3mo") == "1mo"
+    assert _brapi_range_for(date(2026, 6, 1), today, "3mo") == "3mo"
+
+
+def test_window_beyond_the_plan_cap_raises_instead_of_spending_a_request():
+    """The free plan stops at `3mo`; asking for more is refused locally.
+
+    The old code mapped anything longer onto `6mo`/`1y`/`max`, all of
+    which the free plan answers with HTTP 400 `INVALID_RANGE` - so a
+    one-year sync burned a request to be told no, and surfaced as a
+    generic provider failure far from the cause.
+    """
+    today = date(2026, 8, 19)
+
+    with pytest.raises(HistoryWindowTooLargeError) as excinfo:
+        _brapi_range_for(date(2025, 8, 19), today, "3mo")
+
+    message = str(excinfo.value)
+    assert "3mo" in message
+    assert "BRAPI_MAX_RANGE" in message
+
+
+def test_a_larger_cap_serves_the_same_window():
+    """The cap is a plan property, not a law of the API."""
+    today = date(2026, 8, 19)
+
+    assert _brapi_range_for(date(2025, 8, 19), today, "max") == "1y"
+    assert _brapi_range_for(date(2010, 1, 1), today, "max") == "max"
+
+
+def test_unknown_cap_is_rejected_loudly():
+    with pytest.raises(ValueError):
+        _brapi_range_for(date(2026, 8, 1), date(2026, 8, 19), "7mo")
+
+
+def test_every_bucket_is_reachable_as_its_own_cap():
+    """No bucket is unreachable through configuration."""
+    today = date(2026, 8, 19)
+    for name, reach in _BRAPI_RANGES:
+        start = today - timedelta(days=reach)
+        assert _brapi_range_for(start, today, name) == name
+
+
+def test_get_daily_history_sends_the_capped_range(monkeypatch):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["range"] = request.url.params["range"]
+        return httpx.Response(200, json=_history_payload())
+
+    provider = _provider(handler)
+    provider.get_daily_history("PETR4", _days_ago(2), _days_ago(1))
+
+    assert seen["range"] == "5d"

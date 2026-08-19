@@ -23,7 +23,7 @@ CDI e IPCA **não** são afetados: vêm do Banco Central (SGS), aberto e sem cot
 | **In Progress** | — nenhuma; a próxima é a W10 (rebalanceamento) |
 | **Blocked** | — nenhuma |
 
-Baseline atual: `pytest` → **596 passed** (backend/.venv).
+Baseline atual: `pytest` → **617 passed** (backend/.venv). `ruff check .` e `black --check .` limpos no repositório inteiro; `alembic check` sem drift; `npm run lint` e `npm run build` funcionando.
 
 ## Completed Work (nível wave)
 
@@ -72,39 +72,130 @@ Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ## Known Issues
 
-Problemas reais, verificados no código (2026-08-18).
+Problemas reais, verificados no código. **Última varredura: 2026-08-19**, quando tudo que tinha
+correção possível foi corrigido — o que sobrou está abaixo, cada um com o motivo de continuar
+aberto.
 
-> 🔴 **O mais restritivo, descoberto na W08:** **Plano gratuito da Brapi limita o `range` a `3mo`** (verificado 2026-08-18, HTTP 400 `INVALID_RANGE`: *"Ranges permitidos: 1d, 5d, 1mo, 3mo"*). E o `range` é **relativo a hoje** — a API não aceita data inicial, então **não há como paginar histórico**: ~63 pregões é o teto absoluto. Três consequências: (a) `_brapi_range_for` mapeia janelas > 90 dias para `6mo`/`1y`/`2y`/`5y`/`max`, todos recusados — **`sync_daily_history` falha hoje para qualquer janela acima de 3 meses**, defeito pré-existente da W05 que só apareceu agora porque a validação da W06-004 usou `range=1mo`; (b) `beta` fica estatisticamente pobre; (c) atinge o backtesting da W13, que precisa de anos. Não afeta CDI/IPCA (fonte BCB).
+> 🔴 **A restrição mais dura, e ela é externa:** o **plano gratuito da Brapi limita o `range` a
+> `3mo`** (HTTP 400 `INVALID_RANGE`) e o `range` é **relativo a hoje**, sem parâmetro de data
+> inicial — **não há como paginar histórico**. ~63 pregões é o teto absoluto. Continua atingindo
+> `beta` (janela estatisticamente pobre), `pe`/`pb` no banco real e o backtesting da W13.
+> Não afeta CDI/IPCA/Selic (fonte BCB, aberta e sem cota).
+>
+> ✅ **Os defeitos de código que essa restrição escondia foram corrigidos em 2026-08-19**, e eram
+> dois. (a) `_brapi_range_for` mapeava janelas > 90 dias para `6mo`/`1y`/`max`, todos recusados —
+> a requisição era gasta para ouvir não, e o erro chegava como falha genérica de provedor. Agora o
+> teto é configurável (`BRAPI_MAX_RANGE`, default `3mo`) e a recusa é local, com
+> `HistoryWindowTooLargeError` → **HTTP 400 `MARKET_DATA_WINDOW_TOO_LARGE`** dizendo quanto faltou.
+> (b) Mais silencioso e pior: o bucket era escolhido pelo **tamanho da janela** (`end - start`),
+> mas todo range da Brapi **termina em hoje** — pedir duas semanas do trimestre passado mandava
+> `range=5d`, que não contém um único pregão do intervalo pedido, e a resposta vinha **vazia, sem
+> erro nenhum**. O bucket agora é medido de `start` até hoje.
 
-1. ~~Parsers da Brapi nunca validados~~ — **RESOLVIDO** (W06-003 + W06-004). Market data validado contra resposta real de ação, **FII, ETF e banco**: mesma forma de resposta nas quatro classes, 0 barras rejeitadas. Fundamentals validado só com PETR4 e agora **impossível de reexaminar** no plano gratuito (item 14).
-2. ~~Migrations `002`, `003` e `004` nunca aplicadas em PostgreSQL real~~ — **RESOLVIDO em 2026-08-18.** `001`→`004` aplicadas em PostgreSQL 16 real. Para isso foi preciso corrigir `migrations/env.py`, que chamava `context.is_offline()` (inexistente; o correto é `is_offline_mode()`) e abortava com `AttributeError` — ou seja, **o Alembic nunca havia executado**. `alembic heads`/`history` não carregam `env.py`, e por isso a "validação estrutural" anterior não pegou o erro.
-3. **`get_quote()` implementado mas não exposto.** Existe no provider e é testado, mas nenhum endpoint o consome — cotação atual não chega ao usuário.
-4. **Ingestão de dividendos (proventos) não implementada**, embora o roadmap a liste como entregável da Wave 5 (`docs/roadmap.md` §17). A Wave 05 foi marcada como concluída sem ela.
-5. **`npm run lint` quebrado no frontend.** O script chama `eslint` mas não há `eslint` nas `devDependencies` nem arquivo de config.
-6. **Lint pré-existente sujo no backend.** `ruff check` acusa findings em arquivos não tocados desde a Wave 02 (`data/models/users.py`, `daytrade.py`, `recommendations.py`, `core/logging.py`, `data/database.py`, `api/routes/health.py`, `tests/test_health.py`) — import-sorting e `Optional[X]`/`List[X]` → `X | None`/`list[X]`. Deliberadamente fora de escopo até uma task dedicada de cleanup. (`data/models/fundamentals.py` saiu da lista: foi reescrito e está limpo.)
-7. **Colunas monetárias ainda em `Float`** (dívida conhecida, conversão adiada para a wave que as usar): `intraday_prices` OHLC (W15) e `portfolio_snapshots.total_value/cash_value` (W11). **`investor_profiles.monthly_contribution` perdeu o prazo**: a W09 passou e não o converteu, apesar de ser hoje o único consumidor — `monthly_contribution_for` lê o `float` e converte via `str`. Sem wave associada agora.
-8. **`PriceSyncRequest` documenta que `end` não pode ser futura, mas o validador não verifica isso** — apenas `start <= end`.
-9. **1 dos 10 indicadores permanece `None`** (eram 5) — só `dy`, que precisa de dividendos por período. Caminho conhecido e não percorrido: a DMPL da CVM traz dividendos e JCP no exercício (`5.04.06`/`5.04.07`, contas fixas). Ficou fora da W09-003 porque **nenhum pilar de score consome `dy`** (regra 134).
-   - ⚠️ **`pe`/`pb` estão destravados no código e ainda ausentes no banco real** — por falta de **preço histórico**, não de contagem de ações: `_price_on_or_before` exige preço na data de referência ou antes, e o teto de 3 meses da Brapi não alcança nenhum fechamento de exercício passado. Mesma dependência que trava a W13.
-   - *Registro:* `ebitda_margin`/`debt_ebitda` destravados em 2026-08-18 (W09-002, EBITDA derivado de verdade em vez da cópia de `ebit`); `pe`/`pb` em 2026-08-19 (W09-003).
-   - *Registro do estado anterior:* ~~5 dos 10 indicadores permanecem `None`~~, cada um por motivo **evidenciado** contra a API real: `pe`/`pb`/`dy` — a Brapi só expõe `sharesOutstanding` e `dividendYield` como snapshots atuais, sem data-fim de período; aplicá-los a um balanço de 2010 seria look-ahead (§108/§109). `debt_ebitda`/`ebitda_margin` — `cleanEbitda` é cópia literal de `ebit` em 16/16 períodos, não é EBITDA. **Limita os sub-scores de Valuation na Wave 09.**
-10. ~~Indicadores gravados antes da W06-003 estão errados~~ — **PENDÊNCIA ANULADA em 2026-08-18.** Nunca existiu banco: sem container, sem volume Docker, sem arquivo SQLite. Ao subir o Postgres o volume foi criado do zero e todas as tabelas vieram com **0 linhas** (`assets`, `asset_prices`, `fundamentals`, `financial_indicators`, `users`, `transactions`). Não há nada gravado para recomputar. A pendência havia sido registrada por hipótese, não por observação do estado real.
-11. **Reexpressões (restatements) de demonstrativos são invisíveis**: o primeiro valor gravado para um `reference_date` nunca é substituído. Corrigir exige schema versionado por período. (Indicadores derivados, ao contrário, podem ser recomputados — [ADR-015](../decisions/ADR-015-indicator-recomputation.md).)
-12. **Demonstrativos trimestrais não são ingeridos** — o parser filtra `type == "yearly"`, porque `fundamentals` não tem coluna de período para distingui-los de um exercício anual com a mesma data-fim ([ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md)).
-13. **Throttle de requisições desligado por padrão.** `MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS` e `FUNDAMENTALS_MIN_REQUEST_INTERVAL_SECONDS` têm default `0.0` — nenhum espaçamento entre chamadas. A Brapi tem **cota mensal limitada** no plano gratuito. Definir um intervalo no `.env` antes de qualquer ingestão em lote.
-14. ~~Módulos de demonstrativos saíram do plano gratuito da Brapi~~ — **CONTORNADO em 2026-08-18** (W09-002, [ADR-020](../decisions/ADR-020-cvm-primary-fundamentals-source.md)): a fonte primária passou a ser a CVM. O fato permanece verdadeiro (HTTP 403, *"Módulos disponíveis hoje: summaryProfile"*) e é o que torna o parser da Brapi **impossível de reexaminar ao vivo** — daí a ressalva no item 1. A decisão que estava aberta aqui foi tomada: migrar para os dados abertos da CVM.
-15. **Plano gratuito aceita no máximo 1 ativo por requisição.** Não há batching — ingestão em lote custa 1 requisição por ticker. Dimensionar a cota mensal por aí.
-16. ~~`adjusted_close` pode ser congelado errado~~ — **CORRIGIDO em 2026-08-18** ([ADR-016](../decisions/ADR-016-unadjusted-bars-are-not-stored.md)). O parser não fabrica mais o ajuste a partir do `close`; `adjusted_close` é `Decimal | None` refletindo o que a fonte reportou, e `validate_daily_bars` rejeita a barra sem ajuste (`MISSING_ADJUSTED_CLOSE`). Autocorretivo: a data não é gravada, então o sync seguinte a insere quando a fonte publicar. Corrigido **antes** de qualquer ingestão — o banco estava vazio, então não há linha contaminada. Efeito colateral esperado: a sessão fechada mais recente pode faltar por ~1 dia, e `rejected: 1` no sync diário é rotina.
-17. **`alembic check` falha por drift**: unique constraint + unique index duplicados em `assets.ticker` e `users.email` (a migration `001` declara a constraint, o model declara `unique=True, index=True`). Redundante, não incorreto — mas impede usar `alembic check` como guarda de drift no CI.
-18. **`env_file=".env"` é relativo ao cwd.** Rodando de `backend/`, o `.env` da raiz não é lido e `BRAPI_TOKEN` fica vazio **silenciosamente**. Sob `docker compose` não afeta.
-19. **Aproximação conhecida no `performance_index`**: um fluxo (compra/venda) que cai numa data sem preço armazenado é neutralizado na próxima data valorável, o que credita ao capital pré-existente o que as ações novas ganharam no intervalo. Só ocorre quando a data da operação não pode ser valorada; quando pode — o caso normal — não há distorção alguma. As alternativas seriam fabricar um fechamento (regra 44), esconder movimento real, ou descartar o histórico inteiro após uma lacuna. Correção verdadeira é a montante: ingerir os preços faltantes.
-20. **`app/data/models/__init__.py` entrou na lista de lint pré-existente** — `ruff` (I001, RUF022) e `black` já falhavam nele antes da W08 (confirmado rodando as ferramentas na versão do `HEAD`). Não corrigido por estar fora de escopo (regra 134).
-21. **Bancos e seguradoras usam plano de contas diferente no DFP.** `3.01` do Banco do Brasil é "Receitas de Intermediação Financeira", não receita de vendas, e `2.01.04` (empréstimos) pode não existir. O mapeamento aceita o que houver e deixa `None` no resto, mas os números de uma instituição financeira merecem conferência antes de virarem score. Validação feita contra PETR4 e VALE3 (industriais).
-22. **Cobertura da CVM é só companhia aberta brasileira.** FII, ETF e BDR não arquivam DFP e nunca arquivarão — para eles os pilares fundamentalistas ficam permanentemente ausentes, o que o motor de score já trata como estado normal (não como falha).
-23. **Ativo sem setor cadastrado não recebe aporte** (`require_sector`, padrão ligado). Um teto de setor que não pode ser avaliado não é um teto, e liberá-lo faria a regra deixar de valer justamente onde o dado é mais fraco. O conserto é um campo no ativo, e a recusa (`SECTOR_UNKNOWN`) diz isso. Configurável por requisição.
-24. **A carteira não tem caixa modelado, e a alocação depende disso.** A base dos pesos é `custo das posições + aporte`; o que os tetos não deixarem colocar volta como `unallocated` e fica implicitamente em caixa, sem registro em lugar nenhum. `portfolio_snapshots.cash_value` existe e não é usado.
-25. **A tabela `recommendations` continua sem uso, e por decisão** ([ADR-021](../decisions/ADR-021-allocation-ranks-by-coverage-tier.md)): o plano é derivado a cada leitura, como as posições. Ela também declara `suggested_amount`/`target_weight` como `Float`, o que a regra 17 proíbe para dinheiro — persistir exigiria migration antes de haver necessidade real de histórico.
-26. **Um exercício já em cache nunca é rebaixado.** A CVM republica um ano conforme empresas corrigem; pegar a correção exige apagar o ZIP em `var/cvm/`. Deliberado — nenhum caminho de leitura dispara isso sozinho.
+### Abertos
+
+1. **Ingestão de dividendos (proventos) não implementada**, embora o roadmap a liste como
+   entregável da Wave 5 (`docs/roadmap.md` §17). Não é defeito a remendar: é task de wave
+   (fonte, model, service, endpoints, testes) e precisa antes da decisão de fonte — a DMPL da
+   CVM (`5.04.06`/`5.04.07`) é o caminho conhecido.
+2. **1 dos 10 indicadores permanece `None`** (eram 5): só `dy`, que depende exatamente da
+   ingestão do item 1. **Nenhum pilar de score consome `dy`** hoje (regra 134).
+   - ⚠️ **`pe`/`pb` estão destravados no código e ainda ausentes no banco real** — por falta de
+     **preço histórico**, não de contagem de ações: `_price_on_or_before` exige preço na data de
+     referência ou antes, e o teto de 3 meses da Brapi não alcança nenhum fechamento de exercício
+     passado. Mesma dependência que trava a W13.
+   - *Registro:* `ebitda_margin`/`debt_ebitda` destravados em 2026-08-18 (W09-002, EBITDA
+     derivado de verdade em vez da cópia de `ebit`); `pe`/`pb` em 2026-08-19 (W09-003).
+3. **Reexpressões (restatements) de demonstrativos são invisíveis**: o primeiro valor gravado
+   para um `reference_date` nunca é substituído. Corrigir exige schema versionado por período —
+   mudança de desenho com ADR, não correção pontual. (Indicadores derivados, ao contrário, podem
+   ser recomputados — [ADR-015](../decisions/ADR-015-indicator-recomputation.md).)
+4. **Demonstrativos trimestrais não são ingeridos** — o parser filtra `type == "yearly"` porque
+   `fundamentals` não tem coluna de período para distingui-los de um exercício anual com a mesma
+   data-fim. É decisão registrada, não esquecimento
+   ([ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md)).
+5. **Throttle de requisições desligado por padrão** (`*_MIN_REQUEST_INTERVAL_SECONDS = 0.0`).
+   **Mantido de propósito**: o default serve uso local, onde espaçar chamadas só torna o
+   desenvolvimento lento. O que era defeito de verdade — as chaves nem constarem do
+   `.env.example`, apesar de a orientação ser "defina antes de ingestão em lote" — foi corrigido
+   em 2026-08-19. A Brapi tem **cota mensal** no plano gratuito.
+6. **Plano gratuito aceita no máximo 1 ativo por requisição.** Externo. Não há batching —
+   ingestão em lote custa 1 requisição por ticker. Dimensionar a cota mensal por aí.
+7. **Colunas monetárias ainda em `Float`**, e as duas que sobraram **não têm consumidor**:
+   `intraday_prices` OHLC (a wave que as usa é a W15) e
+   `portfolio_snapshots.total_value`/`cash_value` (W11). Converter agora seria migration sem uso.
+   ✅ `investor_profiles.monthly_contribution` — a que **tinha** consumidor — virou
+   `NUMERIC(18,6)` em 2026-08-19 (migration `008`), e `monthly_contribution_for` deixou de lavar
+   o valor por `str`.
+8. **Aproximação conhecida no `performance_index`**: um fluxo que cai numa data sem preço
+   armazenado é neutralizado na próxima data valorável. Só ocorre quando a data não pode ser
+   valorada; quando pode — o caso normal — não há distorção. As alternativas seriam fabricar um
+   fechamento (regra 44), esconder movimento real, ou descartar o histórico após uma lacuna.
+   **A correção verdadeira é a montante**: ingerir os preços faltantes.
+9. **Bancos e seguradoras usam plano de contas diferente no DFP.** `3.01` do Banco do Brasil é
+   "Receitas de Intermediação Financeira", não receita de vendas, e `2.01.04` pode não existir.
+   O mapeamento aceita o que houver e deixa `None` no resto. Fechar isso exige **conferir contra
+   demonstrativo real de instituição financeira** — trabalho de validação com dado ao vivo, não
+   alteração de código. Validado até aqui contra PETR4 e VALE3 (industriais).
+10. **Cobertura da CVM é só companhia aberta brasileira.** FII, ETF e BDR não arquivam DFP e
+    nunca arquivarão — para eles os pilares fundamentalistas ficam permanentemente ausentes, o
+    que o motor de score já trata como estado normal.
+11. **Ativo sem setor cadastrado não recebe aporte** (`require_sector`, padrão ligado).
+    **Deliberado**: um teto de setor que não pode ser avaliado não é um teto. O conserto é
+    preencher o campo no ativo, e a recusa (`SECTOR_UNKNOWN`) diz isso. Configurável por
+    requisição.
+12. **A carteira não tem caixa modelado, e a alocação depende disso.** A base dos pesos é
+    `custo das posições + aporte`; o que os tetos não deixarem colocar volta como `unallocated`
+    e fica implicitamente em caixa. `portfolio_snapshots.cash_value` existe e não é usado.
+    Modelar caixa é desenho de carteira — território da **W11**, não remendo.
+13. **A tabela `recommendations` continua sem uso, e por decisão**
+    ([ADR-021](../decisions/ADR-021-allocation-ranks-by-coverage-tier.md)): o plano é derivado a
+    cada leitura, como as posições. Ela declara `suggested_amount`/`target_weight` como `Float`,
+    o que a regra 17 proíbe para dinheiro — a migration vem junto com a necessidade real de
+    histórico, não antes.
+14. **Um exercício já em cache nunca é rebaixado.** A CVM republica um ano conforme empresas
+    corrigem; pegar a correção exige apagar o ZIP em `var/cvm/`. Deliberado — nenhum caminho de
+    leitura dispara download sozinho.
+
+### Corrigidos em 2026-08-19
+
+Ficam registrados porque o motivo de terem existido ensina alguma coisa.
+
+- ✅ **`get_quote()` implementado e não exposto** — existia no provider, testado, sem endpoint
+  algum consumindo. Agora **`GET /assets/{ticker}/quote`**. Não grava nada: cotação é um momento
+  e `asset_prices` guarda pregão fechado (mesmo raciocínio do
+  [ADR-016](../decisions/ADR-016-unadjusted-bars-are-not-stored.md)). Exige o ativo cadastrado,
+  para que um typo não gaste requisição de uma cota mensal.
+- ✅ **`PriceSyncRequest` documentava que `end` não podia ser futura e não verificava.** Agora
+  verifica, em UTC explícito (regra 18).
+- ✅ **`env_file=".env"` era relativo ao cwd** — rodando de `backend/`, o `.env` da raiz não era
+  lido e **`BRAPI_TOKEN` ficava vazio em silêncio**. Ancorado ao arquivo, não ao processo; um
+  `.env` local ainda tem precedência.
+- ✅ **`alembic check` falhava por drift** (a migration `001` criou `UniqueConstraint` *e* índice
+  único para `assets.ticker`/`users.email`; o model declara só o índice). A migration `009`
+  removeu a duplicata: **`alembic check` passa** e volta a servir de guarda de drift em CI.
+  Unicidade intacta — verificada com `INSERT` duplicado real, rejeitado por `ix_assets_ticker`.
+- ✅ **Lint pré-existente no backend** (22 findings desde a W02, incluindo
+  `app/data/models/__init__.py`): zerado. `ruff check .` e `black --check .` limpos no
+  repositório inteiro.
+- ✅ **`npm run lint` quebrado** desde a W01 — o script chamava `eslint`, ausente das
+  `devDependencies` e sem arquivo de configuração. Agora roda (flat config, ESLint 10 +
+  typescript-eslint + react-hooks) e **achou um import morto no primeiro uso**.
+- ✅ **`npm run build` também estava quebrado, e não constava desta lista** — `tsc` falhava em
+  `React` não usado (o transform `react-jsx` não o exige) e em `import.meta.env` sem os tipos do
+  `vite/client`. Descoberto ao validar o item anterior.
+- ✅ **Nenhum dos dois Dockerfiles tinha `.dockerignore`, e o `COPY . .` copiava o build do
+  host para dentro da imagem.** No frontend isso **quebrava a imagem**: o `node_modules` do
+  Windows sobrescrevia o que o `npm ci` tinha instalado, e o `eslint` do container tentava
+  executar `node.exe`. Era latente até esta sessão — antes do `npm install` a pasta não
+  existia no host. No backend era peso morto: `.venv` (virtualenv de outra plataforma) e
+  `var/cvm/` (~13 MB por exercício de cache da CVM) iam para dentro da camada. Ambos com
+  `.dockerignore` agora, e as duas imagens reconstruídas e testadas.
+- ✅ **`frontend/Dockerfile` em `node:18-alpine` com `npm install`.** O Node 18 saiu de
+  suporte em abril de 2025 e não satisfaz o `engines` do ESLint 10 — a imagem instalaria o
+  linter com aviso e não conseguiria rodá-lo. Agora `node:20-alpine` e **`npm ci`**, que
+  instala a árvore exata do `package-lock.json` em vez de reresolver os `^` a cada build.
+  Verificado: `npm run lint` roda **dentro** da imagem.
 
 ## Inconsistências documentação × código
 
@@ -139,7 +230,7 @@ Encontradas **durante** esta varredura e corrigidas junto:
 
 ## Important Context
 
-- **Ambiente**: Windows + PowerShell. Virtualenv em `backend/.venv` — invoque como `.venv\Scripts\python.exe -m pytest`. **PostgreSQL 16 no ar via Docker**, schema `007` (migrations `001`…`007_shares_outstanding`), com dado real: benchmarks (CDI, IPCA, IBOV) e 6 exercícios de demonstrativos da PETR4 pela CVM. `asset_prices` continua **vazia**.
+- **Ambiente**: Windows + PowerShell. Virtualenv em `backend/.venv` — invoque como `.venv\Scripts\python.exe -m pytest`. **PostgreSQL 16 no ar via Docker**, schema `009` (migrations `001`…`009_drop_dup_uniques`), com dado real: benchmarks (CDI, IPCA, IBOV) e 6 exercícios de demonstrativos da PETR4 pela CVM. `asset_prices` continua **vazia**.
 - **Há rede de saída** neste ambiente (a Wave 05 foi implementada sem ela — daí a lacuna nº 1, já resolvida). A W08 chamou BCB e Brapi ao vivo. O SGS do Banco Central é aberto e sem cota; a Brapi tem cota mensal e aceita 1 ativo por requisição.
 - **Testes rodam contra SQLite in-memory compartilhado** (`tests/conftest.py`), com `app.dependency_overrides` para `get_db`, `get_market_data_provider` e `get_benchmark_provider`. **Nenhum teste toca rede ou Postgres** — as chamadas ao vivo da W08 foram feitas em scripts de validação avulsos, não na suíte.
 - **A regra mais estruturante do projeto**: posições nunca são armazenadas — sempre derivadas do ledger de transações (AGENTS.md §16, ADR-002). Não crie tabela de posições.

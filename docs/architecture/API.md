@@ -41,7 +41,7 @@ raise HTTPException(status_code=404, detail={"error": {"code": "...", "message":
 
 Sem `detail` estruturado, o handler emite `code: "HTTP_ERROR"`. Erros de validação do Pydantic (422) seguem o formato padrão do FastAPI — **não** passam pelo handler.
 
-Códigos em uso: `INVALID_CREDENTIALS`, `ASSET_NOT_FOUND`, `ASSET_ALREADY_EXISTS`, `PORTFOLIO_NOT_FOUND`, `INSUFFICIENT_POSITION`, `MARKET_DATA_TICKER_NOT_FOUND`, `MARKET_DATA_UNAVAILABLE`, `MARKET_DATA_INVALID_RESPONSE`, `FUNDAMENTALS_NOT_FOUND`, `FUNDAMENTALS_UNAVAILABLE`, `FUNDAMENTALS_INVALID_RESPONSE`.
+Códigos em uso: `INVALID_CREDENTIALS`, `ASSET_NOT_FOUND`, `ASSET_ALREADY_EXISTS`, `PORTFOLIO_NOT_FOUND`, `INSUFFICIENT_POSITION`, `MARKET_DATA_TICKER_NOT_FOUND`, `MARKET_DATA_UNAVAILABLE`, `MARKET_DATA_INVALID_RESPONSE`, `MARKET_DATA_WINDOW_TOO_LARGE`, `FUNDAMENTALS_NOT_FOUND`, `FUNDAMENTALS_UNAVAILABLE`, `FUNDAMENTALS_INVALID_RESPONSE`.
 
 ## Endpoints implementados
 
@@ -66,8 +66,9 @@ Códigos em uso: `INVALID_CREDENTIALS`, `ASSET_NOT_FOUND`, `ASSET_ALREADY_EXISTS
 | POST | `""` | cadastro watch-only; ticker duplicado → 409 |
 | GET | `""` | lista global, ordenada por ticker (assets não são escopados por usuário) |
 | GET | `/{ticker}` | 404 se não cadastrado |
-| POST | `/{ticker}/prices/sync` | chama a API externa; body `{start?, end?}`, default últimos 30 dias até hoje (UTC); resposta traz `fetched/inserted/skipped_existing/rejected` |
+| POST | `/{ticker}/prices/sync` | chama a API externa; body `{start?, end?}`, default últimos 30 dias até hoje (UTC); `end` não pode ser futura; resposta traz `fetched/inserted/skipped_existing/rejected`. Janela além do teto do plano → **400 `MARKET_DATA_WINDOW_TOO_LARGE`** ([ADR-022](../decisions/ADR-022-provider-plan-limits-are-refused-locally.md)) |
 | GET | `/{ticker}/prices` | lê **só** do banco; query `start`/`end` opcionais |
+| GET | `/{ticker}/quote` | cotação atual, **ao vivo** no provedor; nada é gravado (cotação é um momento, `asset_prices` guarda pregão fechado). Exige o ativo cadastrado, para que um typo não gaste requisição de cota mensal |
 | POST | `/{ticker}/fundamentals/sync` | chama a API externa; sem body; ingere demonstrativos **anuais**; mesma resposta de contagens |
 | GET | `/{ticker}/fundamentals` | lê **só** do banco; query `start`/`end` filtram `reference_date`; itens de linha não reportados vêm `null` |
 | POST | `/{ticker}/indicators/compute` | **não** chama API externa — só transforma dado armazenado; devolve `periods/computed/skipped_existing/recomputed`. `?recompute=true` descarta e reconstrói os indicadores do ativo ([ADR-015](../decisions/ADR-015-indicator-recomputation.md)) |

@@ -31,6 +31,7 @@ from app.core.config import settings
 from app.integrations.http import RetryingJsonClient
 from app.integrations.market_data.base import MarketDataProvider
 from app.integrations.market_data.exceptions import (
+    HistoryWindowTooLargeError,
     InvalidMarketDataResponseError,
     MarketDataUnavailableError,
     TickerNotFoundError,
@@ -50,9 +51,13 @@ class BrapiProvider(MarketDataProvider):
         timeout: float | None = None,
         max_retries: int | None = None,
         min_request_interval: float | None = None,
+        max_range: str | None = None,
         client: httpx.Client | None = None,
     ) -> None:
         token = token if token is not None else settings.BRAPI_TOKEN
+        self._max_range = (
+            max_range if max_range is not None else settings.BRAPI_MAX_RANGE
+        )
         self._http = RetryingJsonClient(
             base_url=base_url or settings.BRAPI_BASE_URL,
             timeout=(
@@ -94,7 +99,11 @@ class BrapiProvider(MarketDataProvider):
         if start > end:
             raise ValueError("start date must not be after end date")
 
-        params = {"range": _brapi_range_for(start, end), "interval": "1d"}
+        today = datetime.now(UTC).date()
+        params = {
+            "range": _brapi_range_for(start, today, self._max_range),
+            "interval": "1d",
+        }
         payload = self._http.get_json(f"/quote/{ticker}", params=params)
         result = self._extract_result(payload, ticker)
 
@@ -198,26 +207,57 @@ def _parse_timestamp(value: Any) -> datetime:
     )
 
 
-def _brapi_range_for(start: date, end: date) -> str:
-    """Pick the smallest Brapi `range` bucket that covers [start, end].
+#: Brapi's range buckets, smallest first, with the number of days back from
+#: today each one reaches. There is no start-date parameter: every bucket is
+#: anchored at today, which is why reaching `start` - not spanning
+#: [start, end] - is what decides the bucket.
+_BRAPI_RANGES: tuple[tuple[str, int], ...] = (
+    ("1d", 1),
+    ("5d", 5),
+    ("1mo", 30),
+    ("3mo", 90),
+    ("6mo", 180),
+    ("1y", 365),
+    ("2y", 365 * 2),
+    ("5y", 365 * 5),
+    ("max", 365 * 100),
+)
 
-    Brapi only accepts a fixed set of range buckets (not arbitrary date
-    spans); we request the smallest bucket that covers the requested
-    window and filter precisely by date afterwards.
+
+def _brapi_range_for(start: date, today: date, max_range: str) -> str:
+    """Pick the smallest Brapi `range` bucket that reaches back to `start`.
+
+    Brapi accepts a fixed set of range buckets rather than arbitrary date
+    spans, and **every bucket ends at today** - the API takes no start
+    date. So the bucket has to cover `today - start`, not `end - start`:
+    sizing it from the requested window alone made any query about the past
+    return bars that the caller then filtered away to nothing. Asking for
+    two weeks of last quarter used to send `range=5d`, which cannot contain
+    a single bar of the window requested.
+
+    `max_range` caps the bucket at what the account's plan actually serves
+    (`BRAPI_MAX_RANGE`, `3mo` on the free plan). Beyond it the API answers
+    HTTP 400 `INVALID_RANGE`, so this raises `HistoryWindowTooLargeError`
+    rather than spending a request to be told no.
     """
-    days = (end - start).days
-    if days <= 5:
-        return "5d"
-    if days <= 30:
-        return "1mo"
-    if days <= 90:
-        return "3mo"
-    if days <= 180:
-        return "6mo"
-    if days <= 365:
-        return "1y"
-    if days <= 365 * 2:
-        return "2y"
-    if days <= 365 * 5:
-        return "5y"
-    return "max"
+    known = [name for name, _ in _BRAPI_RANGES]
+    if max_range not in known:
+        raise ValueError(
+            f"BRAPI_MAX_RANGE must be one of {', '.join(known)}; got {max_range!r}."
+        )
+
+    days_back = (today - start).days
+    cap_index = known.index(max_range)
+
+    for index, (name, reach) in enumerate(_BRAPI_RANGES):
+        if days_back <= reach:
+            if index > cap_index:
+                break
+            return name
+
+    raise HistoryWindowTooLargeError(
+        f"History from {start.isoformat()} needs {days_back} days of range, "
+        f"beyond the '{max_range}' cap this plan serves. Brapi anchors every "
+        f"range at today and accepts no start date, so the window cannot be "
+        f"paginated. Raise BRAPI_MAX_RANGE if the account's plan allows more."
+    )

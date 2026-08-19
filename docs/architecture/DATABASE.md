@@ -21,6 +21,8 @@
   - `005_benchmark_values` — cria `benchmark_values` (séries de CDI/IBOV/IPCA/Selic) em `NUMERIC(24,12)`.
   - `006_assets_cnpj` — adiciona `assets.cnpj`, o elo entre as duas fontes de demonstrativos.
   - `007_shares_outstanding` — adiciona `fundamentals.shares_outstanding` (`NUMERIC(20,0)`), a contagem por exercício que destravou `pe` e `pb`.
+  - `008_numeric_contribution` — converte `investor_profiles.monthly_contribution` de `FLOAT` para `NUMERIC(18,6)`. Era a última coluna monetária **com consumidor** ainda em float; o alocador da W09 divide exatamente esse valor.
+  - `009_drop_dup_uniques` — remove as `UniqueConstraint` redundantes de `assets.ticker` e `users.email`. A `001` criou constraint **e** índice único para a mesma coluna, enquanto o model declara só o índice — o que fazia `alembic check` acusar drift em toda execução e inutilizava a checagem como guarda em CI. A unicidade continua garantida pelo índice único.
     ⚠️ O `revision` é curto de propósito: `alembic_version.version_num` é `varchar(32)`, e um id mais longo falha **depois** de o schema já ter sido aplicado.
 - Todas foram **escritas manualmente**, não por autogenerate.
 

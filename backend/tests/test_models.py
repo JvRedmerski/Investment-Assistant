@@ -33,7 +33,7 @@ def test_models_creation_in_memory():
     profile = InvestorProfile(
         user_id=user.id,
         risk_profile=RiskProfileEnum.CONSERVATIVE,
-        monthly_contribution=1000.0,
+        monthly_contribution=Decimal("1000.00"),
     )
     db.add(profile)
     db.commit()
@@ -93,5 +93,13 @@ def test_models_creation_in_memory():
     assert isinstance(portfolio.transactions[0].quantity, Decimal)
     assert isinstance(portfolio.transactions[0].price, Decimal)
     assert isinstance(price.close, Decimal)
+
+    # The monthly contribution is money too, and it is the figure the
+    # Wave 09 allocator divides into per-asset amounts. It was the last
+    # money column with a live consumer still declared as a float; the
+    # call site used to launder it through `str` to recover the decimal
+    # value that had been written (migration 008).
+    assert isinstance(user.profile.monthly_contribution, Decimal)
+    assert user.profile.monthly_contribution == Decimal("1000.00")
 
     db.close()

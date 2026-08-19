@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { fetchHealth, HealthResponse } from './services/api';
 import { 
   TrendingUp, 
@@ -8,7 +8,6 @@ import {
   Cpu, 
   Activity,
   ArrowUpRight,
-  BarChart3,
   Sparkles
 } from 'lucide-react';
 

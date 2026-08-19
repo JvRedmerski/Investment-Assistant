@@ -6,6 +6,77 @@
 
 ## Last Completed Work
 
+### FIX-001 — Known Issues, tudo que tinha correção possível
+
+Percorridos os 26 itens da lista. **Oito foram corrigidos**, dois defeitos novos apareceram
+durante a correção, e os demais continuam abertos **com o motivo escrito** — externos ao
+projeto, deliberados, ou trabalho de wave que um remendo não substitui.
+
+**Corrigidos**
+
+| # | Era | Virou |
+|---|---|---|
+| 3 | `get_quote()` testado e sem endpoint | `GET /assets/{ticker}/quote`, sem gravar nada |
+| 5 | `npm run lint` chamava um `eslint` inexistente | ESLint 10 flat config + typescript-eslint + react-hooks |
+| 6, 20 | 22 findings de lint desde a W02 | `ruff` e `black` limpos no repositório inteiro |
+| 7 | `monthly_contribution` em `Float` | `NUMERIC(18,6)` (migration `008`) |
+| 8 | `end` futura documentada e não validada | validada, em UTC explícito |
+| 17 | `alembic check` sempre acusava drift | migration `009`; passa, e serve de guarda em CI |
+| 18 | `.env` relativo ao cwd, `BRAPI_TOKEN` vazio em silêncio | ancorado ao arquivo |
+| 🔴(a) | `sync_daily_history` estourava acima de 3 meses | recusa local e nomeada, com teto configurável |
+
+**O defeito que ninguém tinha visto, e é o mais grave dos dois do `range`**
+
+O item 🔴(a) documentava que janelas acima de 3 meses falhavam. Ao corrigir apareceu o irmão
+silencioso: `_brapi_range_for` escolhia o bucket pelo **tamanho da janela** (`end - start`),
+mas **todo `range` da Brapi termina em hoje** — a API não aceita data inicial. Pedir duas
+semanas do trimestre passado mandava `range=5d`, que não contém um único pregão do intervalo
+pedido, e o filtro por data depois devolvia **lista vazia, sem erro nenhum**.
+
+O sintoma documentado era o barulhento. Este é o que corromperia um backfill sem ninguém
+perceber — e note que ele estava lá desde a W05, atrás de mocks que devolviam o payload certo
+independentemente do `range` enviado.
+
+O bucket agora é medido de `start` até hoje, e o teto do plano virou configuração
+(`BRAPI_MAX_RANGE`, default `3mo`): acima dele a recusa é **local**, com
+`HistoryWindowTooLargeError` → HTTP 400 `MARKET_DATA_WINDOW_TOO_LARGE` dizendo quanto faltou,
+em vez de gastar uma requisição de cota mensal para ouvir não.
+
+**Dois defeitos que só apareceram porque a ferramenta foi ligada**
+
+Ligar o ESLint achou um import morto (`BarChart3`) no primeiro uso. E ao validar `npm run lint`
+descobriu-se que **`npm run build` também estava quebrado** — e não constava de lista nenhuma:
+`tsc` reprovava `React` importado sem uso (o transform `react-jsx` não o exige) e
+`import.meta.env` sem os tipos do `vite/client`. Ambos corrigidos; `npm run build` produz bundle.
+
+**E a imagem Docker do frontend estava quebrada, por consequência desta sessão.** Rodar
+`npm install` criou `node_modules/` no host; como **nenhum dos dois Dockerfiles tinha
+`.dockerignore`**, o `COPY . .` passou a copiar a árvore do Windows por cima da que o container
+tinha instalado, e o `eslint` de dentro da imagem tentava executar `node.exe`. Latente desde a
+W01, ativado agora. Só apareceu porque a imagem foi **construída e executada** em vez de
+declarada correta — `docker compose config` nunca pegaria isso.
+
+Junto vieram: o backend levava `.venv` e `var/cvm/` (~13 MB por exercício) para dentro da
+camada, e o `frontend/Dockerfile` pinava `node:18-alpine`, que está fora de suporte desde abril
+de 2025 e **não satisfaz o `engines` do ESLint 10** — a imagem instalaria o linter e não
+conseguiria rodá-lo. Agora: `.dockerignore` nos dois contextos, `node:20-alpine`, e **`npm ci`**
+sobre o `package-lock.json` versionado. Verificado com as imagens reconstruídas: `npm run lint`
+roda dentro do container e o backend importa.
+
+**Continuam abertos, e por quê**
+
+Nenhum por falta de tentativa. O teto de 3 meses da Brapi e o limite de 1 ativo por requisição
+são do **plano**, não do código. Proventos (e portanto `dy`) é **task de wave**, não remendo, e
+precisa antes da decisão de fonte. Restatements e demonstrativos trimestrais exigem **schema
+versionado por período** — mudança de desenho com ADR. Caixa na carteira é **W11**. As duas
+colunas `Float` que sobraram (`intraday_prices`, `portfolio_snapshots`) **não têm consumidor**:
+converter agora seria migration sem uso. Throttle em `0.0`, `require_sector` ligado, tabela
+`recommendations` vazia e cache da CVM que não se invalida são **decisões**, cada uma com o
+raciocínio no lugar. E o plano de contas de bancos no DFP exige conferir contra demonstrativo
+real de instituição financeira — validação com dado ao vivo, não alteração de código.
+
+---
+
 ### DOC-001 — Inconsistências documentação × código, zeradas
 
 A lista que vivia em `docs/memory/PROJECT_STATUS.md` como "registradas, **não corrigidas**"
@@ -94,11 +165,13 @@ WEGE3 em 2021, bonificação da PSSA3, grupamento da MGLU3 em 2024.
 
 ## Current State
 
-- `pytest` → **596 passed** (542 → 555 → 596). `ruff`/`black` limpos nos arquivos alterados.
+- `pytest` → **617 passed** (596 + 21 novos). `ruff check .` e `black --check .` limpos no
+  **repositório inteiro** — a primeira vez desde a Wave 02.
+- `alembic check` **passa** (sem drift); `npm run lint` e `npm run build` **passam**.
 - **Documentação e código estão alinhados**: a seção *Inconsistências documentação × código*
   do `PROJECT_STATUS.md` da memória está zerada, e agora registra o que foi corrigido.
 - **Wave 09 🟢 concluída.** 10 de 33 waves.
-- **PostgreSQL 16 no ar, schema `007`**, com CDI/IPCA/IBOV e 6 exercícios da PETR4 pela CVM,
+- **PostgreSQL 16 no ar, schema `009`**, com CDI/IPCA/IBOV e 6 exercícios da PETR4 pela CVM,
   agora com contagem de ações.
 - **`asset_prices` está vazia.**
 
@@ -153,13 +226,25 @@ Wave 10 (rebalanceamento, a ordem do roadmap) ou **histórico de preços de font
 ao mesmo tempo: `pe`/`pb` no banco real, o pilar de Risco, `beta`/`sharpe` com janela decente
 e o backtesting inteiro da W13.
 
-Pendências de fundo, sem mudança: `range` da Brapi limitado a 3 meses; `alembic check` falha
-por drift; lint pré-existente; `get_quote()` não exposto; proventos nunca ingeridos;
-`npm run lint` quebrado no frontend; bancos e seguradoras com plano de contas diferente no DFP.
+**A lista de Known Issues foi varrida em 2026-08-19** (FIX-001) e o que sobrou está em
+[PROJECT_STATUS.md](PROJECT_STATUS.md), cada item com o motivo de continuar aberto. Resumindo o
+que **não** tem correção possível hoje:
 
-Novas desta sessão: `dy` continua ausente e tem caminho conhecido (DMPL, `5.04.06`/`5.04.07`)
-mas nenhum pilar o consome hoje; ativo sem setor cadastrado não recebe aporte por padrão;
-a carteira não tem caixa modelado, e a alocação deixa o resto implicitamente em caixa.
+- **Externo ao projeto**: teto de 3 meses no `range` da Brapi e 1 ativo por requisição.
+- **Task de wave, não remendo**: ingestão de proventos — e portanto `dy` — precisa antes da
+  decisão de fonte (a DMPL da CVM, `5.04.06`/`5.04.07`, é o caminho conhecido).
+- **Mudança de desenho com ADR**: restatements invisíveis e demonstrativos trimestrais, ambos
+  exigindo schema versionado por período.
+- **Território da W11**: caixa modelado na carteira.
+- **Sem consumidor**: as duas colunas `Float` que restam (`intraday_prices`,
+  `portfolio_snapshots`) — converter agora seria migration sem uso.
+- **Decisões, não pendências**: throttle em `0.0` por default, `require_sector` ligado, tabela
+  `recommendations` vazia, cache da CVM que não se invalida sozinho.
+- **Validação com dado ao vivo**: o plano de contas de bancos e seguradoras no DFP precisa ser
+  conferido contra demonstrativo real de instituição financeira.
+
+E uma dependência de dado, que é a mais estruturante: **`pe`/`pb` e o pilar de Risco continuam
+ausentes no banco real por falta de preço histórico**, não por falta de código.
 
 ## Next Step
 

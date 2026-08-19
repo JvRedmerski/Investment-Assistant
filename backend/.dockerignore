@@ -1,0 +1,22 @@
+# Host build artefacts must never be copied into the image.
+#
+# `.venv` is a virtualenv built for the host platform - useless inside the
+# container and megabytes of it. `var/` holds the CVM archive cache, ~13 MB
+# per fiscal year, which is derived data the container re-downloads on
+# demand and must never be baked into a layer.
+.venv
+venv
+var/
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Secrets never belong in an image layer.
+.env
+.env.*
+
+*.log
