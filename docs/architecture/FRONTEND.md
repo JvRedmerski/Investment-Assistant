@@ -1,11 +1,11 @@
 # Frontend Architecture
 
 > Camada 2. Leia quando a task tocar o frontend.
-> Estado em 2026-08-17: **scaffold apenas**. Não há aplicação de produto ainda.
+> Estado em 2026-08-19: **scaffold apenas**. Não há aplicação de produto ainda.
 
 ## Aviso importante
 
-O `README.md` e o `docs/PROJECT_STATUS.md` marcam o frontend como "🟢 COMPLETED". Isso significa **scaffold concluído**, não produto implementado. O que existe é uma landing page estática que exibe o status do backend e descreve a arquitetura planejada.
+O que existe é uma landing page estática que exibe o status do backend e descreve a arquitetura planejada. O `README.md` e o `docs/PROJECT_STATUS.md` marcavam o frontend como "🟢 COMPLETED"; ambos foram corrigidos para **🟡 SCAFFOLD** em 2026-08-19, porque o rótulo anterior lia-se como produto entregue. A primeira wave de frontend de verdade é a **W11**.
 
 Nenhuma funcionalidade do backend (login, carteiras, transações, posições, preços) está exposta na UI.
 

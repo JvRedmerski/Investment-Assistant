@@ -34,7 +34,9 @@ backend/
 └── alembic.ini
 ```
 
-**Ainda não existem** (previstos no AGENTS.md §6, waves futuras): `app/workers/`, `app/domain/daytrade/`, `app/integrations/{intraday,ai}/`, `app/data/repositories/`.
+**Ainda não existem** (previstos no AGENTS.md §6, waves futuras): `app/workers/` (W17), `app/domain/daytrade/` (W15+), `app/integrations/{intraday,ai}/` (W15 e W12).
+
+**`app/data/repositories/` não existe e não está previsto** — não é pendência: as rotas recebem a `Session` do SQLAlchemy por injeção e os services a consomem direto ([ADR-011](../decisions/ADR-011-no-repository-layer.md)). O AGENTS.md §6 foi corrigido para dizer isso.
 
 ### Onde o cálculo mora
 

@@ -108,22 +108,38 @@ Problemas reais, verificados no código (2026-08-18).
 
 ## Inconsistências documentação × código
 
-Registradas, **não corrigidas** (corrigir exigiria alterar AGENTS.md ou criar código fora de escopo):
+✅ **Zeradas em 2026-08-19.** A regra é a do CLAUDE.md §3 — o código é a fonte de verdade —
+então em todos os casos foi a **documentação** que mudou; nenhuma linha de código foi escrita
+para satisfazer um documento.
 
-| Documentado em | Realidade |
-|---|---|
-| AGENTS.md §6: `PROJECT_STATUS.md` e `CHANGELOG.md` na raiz | Status está em `docs/PROJECT_STATUS.md`; `CHANGELOG.md` não existe |
-| AGENTS.md §6: `backend/app/data/repositories/` | Não existe — rotas usam `Session` do SQLAlchemy diretamente (ver ADR-011) |
-| AGENTS.md §6: `backend/tests/{unit,integration,regression}/` | `tests/` é plano, sem subpastas |
-| AGENTS.md §6/§93: `docs/architecture.md`, `database.md`, `api.md`, etc. | Não existiam; substituídos por `docs/architecture/*.md` criados nesta sessão |
-| AGENTS.md Wave Execution Protocol: `docs/waves/WAVE-XX-*.md` | Diretório `docs/waves/` não existe; as waves vivem em `docs/roadmap.md` e `docs/PROJECT_STATUS.md` |
-| AGENTS.md §5.1 / README: React Router, TanStack Query, Zod, Recharts | Instalados no `package.json`, nenhum é importado — o frontend é uma página estática única |
-| README: "Frontend 🟢 COMPLETED" | Só existe uma landing page de status; sem rotas, sem estado, sem telas de produto |
-| `.env.example`: `ACCESS_TOKEN_EXPIRE_MINUTES=115200` (80 dias) | Default do código é 8 dias (`core/config.py`) |
+| Documentado em | Realidade | O que foi feito |
+|---|---|---|
+| AGENTS.md §6: `PROJECT_STATUS.md` e `CHANGELOG.md` na raiz | Status está em `docs/PROJECT_STATUS.md` (ledger) e `docs/memory/PROJECT_STATUS.md` (uma página); `CHANGELOG.md` não existe | Árvore da §6 reescrita para a estrutura real; §94, §127, §131 e o Wave Execution Protocol passaram a citar os caminhos certos. `CHANGELOG.md` sai da árvore com nota: o histórico é `docs/history/COMPLETED_TASKS.md` + o ledger |
+| AGENTS.md §6: `backend/app/data/repositories/` | Não existe e **não está previsto** — rotas recebem a `Session` e os services a consomem direto (ADR-011) | Removido da árvore, com a ausência declarada deliberada e link para o ADR-011. §11 deixou de listar `repository` entre as camadas preferidas. `docs/architecture/BACKEND.md` deixou de classificá-lo como "previsto, wave futura" |
+| AGENTS.md §6: `backend/tests/{unit,integration,regression}/` | `tests/` é plano, um `test_<área>.py` por área | Árvore corrigida; §67 agora diz que as categorias são conceituais, não diretórios |
+| AGENTS.md §6/§93: `docs/architecture.md`, `database.md`, `api.md`, `quant-engine.md`, … | Substituídos por `docs/architecture/*.md`, `docs/decisions/`, `docs/planning/`, `docs/history/` e `docs/memory/` | Lista da §93 reescrita com os arquivos que existem, e registrado que os documentos por engine nunca foram criados — o conteúdo equivalente está no `BACKEND.md` e nos ADRs |
+| AGENTS.md Wave Execution Protocol: `docs/waves/WAVE-XX-*.md` | `docs/waves/` não existe; as waves vivem em `docs/roadmap.md` e no ledger | Passo 3 do protocolo reescrito; "atualizar o arquivo da wave" virou "atualizar `docs/history/COMPLETED_TASKS.md`" |
+| AGENTS.md §5.1 / README: React Router, TanStack Query, Zod, Recharts como stack | Instalados no `package.json`, nenhum importado — o frontend é uma página estática única | §5.1 separa "em uso hoje" de "declarado e não importado, entra na W11"; README idem, incluindo `numpy`/`pandas`/`scipy`/`scikit-learn`/`google-generativeai` no backend |
+| README: "Frontend 🟢 COMPLETED" | Só existe uma landing page de status; sem rotas, sem estado, sem telas de produto | O rótulo já não estava no README, mas havia migrado para `docs/PROJECT_STATUS.md` — lá o frontend virou **🟡 SCAFFOLD** com o motivo escrito. README ganhou uma seção **Estado atual** com as 10 waves concluídas e o que não existe |
+| `.env.example`: `ACCESS_TOKEN_EXPIRE_MINUTES=115200` (80 dias) | Default do código é 8 dias (`core/config.py`, `60*24*8 = 11520`) | Corrigido para `11520`, com o cálculo no comentário |
+
+Encontradas **durante** esta varredura e corrigidas junto:
+
+| Documentado em | Realidade | O que foi feito |
+|---|---|---|
+| CLAUDE.md §4: "baseline atual: 205 passed" | `pytest -q` → **596 passed** | Baseline atualizado |
+| README: "CI/CD: GitHub Actions" | `.github/` não existe; lint e testes rodam localmente | Registrado como não existente |
+| README: diagrama com "Quant Engine (Pandas/NumPy/TA)" | O Quant Engine é `Decimal` puro; NumPy foi **revogado**, não adiado (adendo ao ADR-017) | Diagrama e stack corrigidos, com link para o ADR |
+| `docs/PROJECT_STATUS.md`: "Quant Engine: NumPy + Pandas + SciPy (Wave 07) ⚪ NOT_STARTED" | W07 concluída em 2026-08-18, e sem NumPy | Architecture Status reescrito, incluindo Fundamentals, Benchmark e Recommendation Engine, que faltavam |
+| `.env.example` cobre só até a Wave 05 | O `Settings` tem toda a configuração de fundamentals, CVM e benchmarks — inclusive os dois `*_MIN_REQUEST_INTERVAL_SECONDS` que a Known Issue nº 13 manda ajustar antes de ingestão em lote | Todas as chaves do `core/config.py` documentadas no `.env.example`, agrupadas por wave |
+| README: links `file:///C:/Users/joao/…` | Absolutos para uma máquina só | Trocados por caminhos relativos |
+| Esta própria página: "schema `005`" | `backend/migrations/versions/` vai até `007_shares_outstanding` | Corrigido em *Important Context*, junto com o dado que existe no banco |
+| `docs/architecture/FRONTEND.md`: "o README marca o frontend como 🟢 COMPLETED" | O README já não marcava | Aviso reescrito para descrever o estado, não o rótulo de outro documento |
+| AGENTS.md §5.1: GitHub Actions na *Infrastructure*, `AIProvider` na *AI* | `.github/` não existe (é a W26) e não há implementação de IA (é a W12) | Ambos movidos para "previsto e ainda inexistente", com a wave nomeada |
 
 ## Important Context
 
-- **Ambiente**: Windows + PowerShell. Virtualenv em `backend/.venv` — invoque como `.venv\Scripts\python.exe -m pytest`. **PostgreSQL 16 no ar via Docker**, schema `005`, com dado real de benchmark ingerido (CDI, IPCA, IBOV).
+- **Ambiente**: Windows + PowerShell. Virtualenv em `backend/.venv` — invoque como `.venv\Scripts\python.exe -m pytest`. **PostgreSQL 16 no ar via Docker**, schema `007` (migrations `001`…`007_shares_outstanding`), com dado real: benchmarks (CDI, IPCA, IBOV) e 6 exercícios de demonstrativos da PETR4 pela CVM. `asset_prices` continua **vazia**.
 - **Há rede de saída** neste ambiente (a Wave 05 foi implementada sem ela — daí a lacuna nº 1, já resolvida). A W08 chamou BCB e Brapi ao vivo. O SGS do Banco Central é aberto e sem cota; a Brapi tem cota mensal e aceita 1 ativo por requisição.
 - **Testes rodam contra SQLite in-memory compartilhado** (`tests/conftest.py`), com `app.dependency_overrides` para `get_db`, `get_market_data_provider` e `get_benchmark_provider`. **Nenhum teste toca rede ou Postgres** — as chamadas ao vivo da W08 foram feitas em scripts de validação avulsos, não na suíte.
 - **A regra mais estruturante do projeto**: posições nunca são armazenadas — sempre derivadas do ledger de transações (AGENTS.md §16, ADR-002). Não crie tabela de posições.

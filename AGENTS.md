@@ -200,6 +200,8 @@ Não misturar os domínios sem necessidade.
 
 ### Frontend
 
+Em uso hoje:
+
 - React
     
 - TypeScript
@@ -208,13 +210,22 @@ Não misturar os domínios sem necessidade.
     
 - Tailwind CSS
     
-- React Router
+- lucide-react
+    
+
+Declarados no `package.json` e **ainda não importados por código algum** — o frontend é
+scaffold (uma página estática, sem rotas e sem estado) até a **W11**, que é a primeira wave
+de frontend de verdade:
+
+- React Router (`react-router-dom`)
     
 - TanStack Query
     
 - Zod
     
-- biblioteca de gráficos adequada
+- Recharts (a biblioteca de gráficos escolhida)
+    
+- clsx, tailwind-merge
     
 
 ### Backend
@@ -262,10 +273,16 @@ Não misturar os domínios sem necessidade.
     
 - GitHub
     
-- GitHub Actions
+
+Previsto e **ainda inexistente** — não há `.github/`, e lint e testes rodam localmente:
+
+- GitHub Actions (**W26**)
     
 
 ### AI
+
+A abstração abaixo é a decisão de arquitetura; **ainda não há implementação** — o AI Engine
+chega na **W12**.
 
 A integração deve ser abstraída através de:
 
@@ -286,15 +303,16 @@ A implementação concreta pode mudar sem alterar o domínio.
 
 # 6. ESTRUTURA DO PROJETO
 
-A estrutura preferencial é:
+A estrutura real do repositório é a de baixo. Itens marcados `(previsto)` ainda não
+existem e pertencem a waves futuras — o resto está no disco hoje.
 
 ```text
 investment-assistant/
 │
 ├── AGENTS.md
+├── CLAUDE.md                       # protocolo operacional de sessão
 ├── README.md
-├── PROJECT_STATUS.md
-├── CHANGELOG.md
+├── LICENSE
 ├── docker-compose.yml
 ├── .env.example
 ├── .gitignore
@@ -310,73 +328,79 @@ investment-assistant/
 │   │   │   ├── security.py
 │   │   │   └── logging.py
 │   │   │
-│   │   ├── domain/
+│   │   ├── domain/                 # schemas Pydantic + service, por área
 │   │   │   ├── users/
 │   │   │   ├── portfolio/
 │   │   │   ├── assets/
+│   │   │   ├── market_data/
+│   │   │   ├── fundamentals/
+│   │   │   ├── benchmarks/
 │   │   │   ├── recommendations/
-│   │   │   └── daytrade/
+│   │   │   └── daytrade/           (previsto — W15+)
 │   │   │
 │   │   ├── quant/
 │   │   │   ├── returns.py
 │   │   │   ├── risk.py
-│   │   │   ├── valuation.py
-│   │   │   ├── scoring.py
-│   │   │   ├── portfolio.py
-│   │   │   └── backtesting.py
+│   │   │   ├── valuation.py        (previsto)
+│   │   │   ├── scoring.py          (previsto)
+│   │   │   ├── portfolio.py        (previsto)
+│   │   │   └── backtesting.py      (previsto — W13)
 │   │   │
 │   │   ├── integrations/
+│   │   │   ├── http.py             # transporte HTTP compartilhado
 │   │   │   ├── market_data/
 │   │   │   ├── fundamentals/
-│   │   │   ├── intraday/
-│   │   │   └── ai/
+│   │   │   ├── benchmarks/
+│   │   │   ├── intraday/           (previsto — W15)
+│   │   │   └── ai/                 (previsto — W12)
 │   │   │
 │   │   ├── data/
-│   │   │   ├── models/
-│   │   │   └── repositories/
+│   │   │   ├── database.py
+│   │   │   └── models/
 │   │   │
-│   │   └── workers/
-│   │       ├── market_data.py
-│   │       ├── fundamentals.py
-│   │       ├── intraday.py
-│   │       └── recommendations.py
+│   │   └── workers/                (previsto — W17, scheduler)
 │   │
 │   ├── migrations/
 │   │   └── versions/
 │   │
-│   ├── tests/
-│   │   ├── unit/
-│   │   ├── integration/
-│   │   └── regression/
-│   │
+│   ├── tests/                      # plano, sem subpastas
 │   ├── Dockerfile
 │   ├── pyproject.toml
 │   └── alembic.ini
 │
 ├── frontend/
 │   ├── src/
-│   │   ├── components/
-│   │   ├── pages/
-│   │   ├── hooks/
 │   │   ├── services/
-│   │   ├── types/
-│   │   ├── utils/
-│   │   └── layouts/
+│   │   ├── components/             (previsto — W11)
+│   │   ├── pages/                  (previsto — W11)
+│   │   ├── hooks/                  (previsto — W11)
+│   │   ├── types/                  (previsto — W11)
+│   │   ├── utils/                  (previsto — W11)
+│   │   └── layouts/                (previsto — W11)
 │   ├── Dockerfile
 │   └── package.json
 │
-├── docs/
-│   ├── architecture.md
-│   ├── database.md
-│   ├── api.md
-│   ├── quant-engine.md
-│   ├── recommendation-engine.md
-│   ├── daytrade-engine.md
-│   ├── backtesting.md
-│   └── deployment.md
-│
-└── scripts/
+└── docs/
+    ├── PROJECT_STATUS.md           # ledger detalhado, task-a-task
+    ├── roadmap.md                  # especificação funcional, 33 waves
+    ├── implementation_prompt.md
+    ├── memory/                     # PROJECT_CONTEXT · PROJECT_STATUS · CURRENT_TASK · SESSION_HANDOFF
+    ├── architecture/               # SYSTEM_OVERVIEW · BACKEND · FRONTEND · DATABASE · API
+    ├── decisions/                  # ADR-001 … ADR-0NN
+    ├── planning/                   # ROADMAP · IMPLEMENTATION_GUIDE
+    └── history/                    # COMPLETED_TASKS
 ```
+
+Três ausências são deliberadas, não pendências:
+
+- **`data/repositories/` não existe e não está previsto.** As rotas recebem a `Session`
+  do SQLAlchemy por injeção e os services a consomem direto — decisão registrada em
+  [ADR-011](docs/decisions/ADR-011-no-repository-layer.md).
+- **Não há `CHANGELOG.md` na raiz.** O histórico entregue vive em
+  `docs/history/COMPLETED_TASKS.md` (nível wave) e em `docs/PROJECT_STATUS.md`
+  (nível task).
+- **`tests/` é plano.** As categorias da §67 (unit, integration, regression, e2e) são
+  conceituais; nunca foram diretórios.
 
 Não alterar essa estrutura de maneira significativa sem justificativa.
 
@@ -390,7 +414,8 @@ Sempre:
 
 1. Ler `AGENTS.md`.
     
-2. Ler `PROJECT_STATUS.md`.
+2. Ler `docs/memory/PROJECT_STATUS.md` (estado em uma página) e, se precisar de detalhe
+   task-a-task, `docs/PROJECT_STATUS.md`.
     
 3. Ler documentação relevante em `/docs`.
     
@@ -525,13 +550,17 @@ Evitar funções gigantes.
 Preferir:
 
 ```text
+route
 service
-repository
 domain
 integration
 ```
 
 com responsabilidades claras.
+
+Note que **não há camada `repository`** neste projeto: a rota recebe a `Session` do
+SQLAlchemy por injeção de dependência e o service a consome direto
+([ADR-011](docs/decisions/ADR-011-no-repository-layer.md)).
 
 ---
 
@@ -1846,6 +1875,9 @@ regression
 e2e
 ```
 
+São categorias **conceituais**, não diretórios: `backend/tests/` é plano, um arquivo
+`test_<área>.py` por área.
+
 ---
 
 # 68. TESTES QUANTITATIVOS
@@ -2332,19 +2364,33 @@ Arquivos principais:
 
 ```text
 README.md
-docs/architecture.md
-docs/database.md
-docs/api.md
-docs/quant-engine.md
-docs/recommendation-engine.md
-docs/daytrade-engine.md
-docs/backtesting.md
-docs/deployment.md
+CLAUDE.md                          # protocolo de sessão
+docs/memory/PROJECT_CONTEXT.md     # o que é o projeto
+docs/memory/PROJECT_STATUS.md      # onde o projeto está
+docs/memory/CURRENT_TASK.md        # o que fazer agora
+docs/memory/SESSION_HANDOFF.md     # como retomar a sessão
+docs/PROJECT_STATUS.md             # ledger detalhado task-a-task
+docs/architecture/SYSTEM_OVERVIEW.md
+docs/architecture/BACKEND.md
+docs/architecture/FRONTEND.md
+docs/architecture/DATABASE.md
+docs/architecture/API.md
+docs/decisions/ADR-XXX-*.md
+docs/planning/ROADMAP.md
+docs/planning/IMPLEMENTATION_GUIDE.md
+docs/history/COMPLETED_TASKS.md
 ```
+
+Os documentos por engine previstos originalmente (`quant-engine.md`,
+`recommendation-engine.md`, `daytrade-engine.md`, `backtesting.md`, `deployment.md`)
+**não existem**; o conteúdo equivalente está em `docs/architecture/BACKEND.md` e nos ADRs.
 
 ---
 
 # 94. PROJECT_STATUS.md
+
+O ledger detalhado é `docs/PROJECT_STATUS.md` (task-a-task) e o resumo em uma página é
+`docs/memory/PROJECT_STATUS.md`. Não existe `PROJECT_STATUS.md` na raiz.
 
 Sempre atualizar após concluir uma Wave ou Task significativa.
 
@@ -3085,7 +3131,7 @@ Uma task só está concluída quando:
 [ ] Build executado quando aplicável
 [ ] Documentação atualizada
 [ ] Migration criada quando necessário
-[ ] PROJECT_STATUS atualizado
+[ ] docs/PROJECT_STATUS.md atualizado
 ```
 
 ---
@@ -3146,7 +3192,7 @@ Para cada tarefa:
 
 ```text
 1. Read AGENTS.md
-2. Read PROJECT_STATUS.md
+2. Read docs/memory/PROJECT_STATUS.md
 3. Read relevant docs
 4. Inspect repository
 5. Identify existing implementation
@@ -3157,7 +3203,7 @@ Para cada tarefa:
 10. Run lint
 11. Review changes
 12. Update docs
-13. Update PROJECT_STATUS
+13. Update docs/PROJECT_STATUS.md
 14. Summarize
 ```
 
@@ -3362,11 +3408,13 @@ O projeto é desenvolvido através de waves sequenciais.
 
 Antes de iniciar qualquer trabalho:
 
-1. Ler `PROJECT_STATUS.md`.
+1. Ler `docs/memory/PROJECT_STATUS.md` e `docs/memory/CURRENT_TASK.md`.
     
 2. Identificar a wave atual.
     
-3. Ler `docs/waves/WAVE-XX-*.md`.
+3. Ler a wave em `docs/roadmap.md` (especificação funcional) e o histórico dela em
+   `docs/PROJECT_STATUS.md`. **Não existe `docs/waves/`** — as waves nunca tiveram
+   arquivo próprio.
     
 4. Verificar o estado real do código.
     
@@ -3403,7 +3451,9 @@ quando:
 Atualizar:
 
 ```text
-PROJECT_STATUS.md
+docs/PROJECT_STATUS.md
+docs/memory/PROJECT_STATUS.md
+docs/memory/CURRENT_TASK.md
 ```
 
 quando a alteração representar progresso relevante.
@@ -3422,9 +3472,9 @@ quando aplicável.
 
 Depois:
 
-1. atualizar o arquivo da wave;
+1. atualizar `docs/history/COMPLETED_TASKS.md` (fechamento da wave);
     
-2. atualizar `PROJECT_STATUS.md`;
+2. atualizar `docs/PROJECT_STATUS.md` e `docs/memory/PROJECT_STATUS.md`;
     
 3. registrar problemas encontrados;
     
@@ -3459,7 +3509,7 @@ não implementar a funcionalidade completa.
 Registrar em:
 
 ```text
-PROJECT_STATUS.md
+docs/PROJECT_STATUS.md
 ```
 
 como:

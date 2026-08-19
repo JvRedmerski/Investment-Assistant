@@ -6,6 +6,44 @@
 
 ## Last Completed Work
 
+### DOC-001 — Inconsistências documentação × código, zeradas
+
+A lista que vivia em `docs/memory/PROJECT_STATUS.md` como "registradas, **não corrigidas**"
+foi percorrida inteira. Eram **8 catalogadas**; a verificação contra o código encontrou mais
+**9**, e as 17 foram corrigidas.
+
+A direção da correção foi sempre a mesma, e é a regra do CLAUDE.md §3: **o código é a fonte de
+verdade**, então quem mudou foi o documento. Nenhum arquivo `.py` ou `.tsx` foi tocado —
+`pytest` continua em 596, que é exatamente o resultado esperado.
+
+O que mudou de fato:
+
+- **`AGENTS.md`** — a árvore da §6 passou a descrever o repositório que existe, marcando
+  `(previsto)` o que pertence a waves futuras. §5.1, §7.1, §11, §67, §93, §94, §127, §131 e o
+  Wave Execution Protocol foram alinhados aos caminhos reais.
+- **Três ausências viraram declarações, não pendências**: `data/repositories/` (ADR-011),
+  `docs/waves/` e `CHANGELOG.md`. Esse era o risco concreto — uma sessão futura ler o
+  AGENTS.md, ver o diretório faltando e "consertar" criando um segundo padrão de acesso a
+  dados no meio do desenvolvimento. O ADR-011 já previa exatamente isso.
+- **`README.md`** — ganhou uma seção *Estado atual* honesta (10/33 waves, frontend em
+  **🟡 scaffold**), separou a stack em uso da declarada-e-não-importada, e deixou de
+  anunciar CI/CD que não existe e um Quant Engine em Pandas/NumPy que foi revogado.
+- **`.env.example`** — `ACCESS_TOKEN_EXPIRE_MINUTES` de `115200` (80 dias) para `11520`
+  (8 dias, o default do código), e toda a configuração das Waves 06–09 documentada.
+- **`CLAUDE.md`** — baseline de testes de 205 para 596.
+- **`docs/PROJECT_STATUS.md`** — o *Architecture Status* ainda dava o Quant Engine como
+  `NOT_STARTED`.
+
+**O achado com consequência prática**: o `.env.example` parava na Wave 05 e por isso omitia
+`MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS` e `FUNDAMENTALS_MIN_REQUEST_INTERVAL_SECONDS` —
+justamente as duas chaves que a Known Issue nº 13 manda ajustar **antes** de qualquer ingestão
+em lote, contra uma API com cota mensal. Quem copiasse o exemplo não teria como saber que os
+botões existem.
+
+---
+
+### Wave 09 (sessão anterior)
+
 **Wave 09 concluída** — quatro tasks. Duas já estavam entregues (W09-001, W09-002); esta
 sessão fechou as outras duas, e a segunda delas é o que a wave inteira existia para produzir.
 
@@ -57,6 +95,8 @@ WEGE3 em 2021, bonificação da PSSA3, grupamento da MGLU3 em 2024.
 ## Current State
 
 - `pytest` → **596 passed** (542 → 555 → 596). `ruff`/`black` limpos nos arquivos alterados.
+- **Documentação e código estão alinhados**: a seção *Inconsistências documentação × código*
+  do `PROJECT_STATUS.md` da memória está zerada, e agora registra o que foi corrigido.
 - **Wave 09 🟢 concluída.** 10 de 33 waves.
 - **PostgreSQL 16 no ar, schema `007`**, com CDI/IPCA/IBOV e 6 exercícios da PETR4 pela CVM,
   agora com contagem de ações.

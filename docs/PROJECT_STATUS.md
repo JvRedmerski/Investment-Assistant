@@ -40,17 +40,24 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 - **`docker-compose.yml`**: 🟢 COMPLETED
 - **`README.md`**: 🟢 COMPLETED
 - **`backend/`**: 🟢 COMPLETED (FastAPI + Pydantic v2 + SQLAlchemy 2.0 + Alembic + Health Endpoints)
-- **`frontend/`**: 🟢 COMPLETED (React + TS + Vite + Tailwind CSS + App Dashboard)
+- **`frontend/`**: 🟡 SCAFFOLD (React + TS + Vite + Tailwind CSS — uma página estática de status; **não é dashboard de produto**)
 
 ---
 
 ## Architecture Status
-- **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS (`frontend/`) 🟢 COMPLETED
+
+> `🟢 COMPLETED` aqui significa **entregue na wave correspondente**, não "produto acabado".
+> O frontend é o caso que mais confunde e por isso está marcado à parte.
+
+- **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS (`frontend/`) 🟡 SCAFFOLD — landing page única, sem rotas, sem estado, nenhuma capacidade do backend exposta em tela. Primeira wave de frontend real: **W11**
 - **Backend**: FastAPI + Python 3.11/3.14 + Pydantic v2 + Uvicorn (`backend/`) 🟢 COMPLETED
-- **Quant Engine**: NumPy + Pandas + SciPy (Wave 07) ⚪ NOT_STARTED
+- **Quant Engine**: retorno e risco em `decimal.Decimal` puro, sem I/O (`backend/app/quant`) 🟢 COMPLETED (Wave 07) — **NumPy/Pandas/SciPy não foram adotados**, decisão revogada no adendo ao [ADR-017](decisions/ADR-017-annualisation-and-numeric-type.md)
 - **Portfolio Engine**: CRUD de carteiras/ativos, ledger de transações, motor de posições (custo médio/saldo) determinístico (`backend/app/domain/portfolio`) 🟢 COMPLETED (Wave 04)
 - **Market Data Integration**: `MarketDataProvider`/`BrapiProvider`, ingestão diária com caching e Data Quality Validator (`backend/app/integrations/market_data`, `backend/app/domain/market_data`) 🟢 COMPLETED (Wave 05)
-- **Database**: PostgreSQL 16 + SQLAlchemy 2.0 Models + Alembic (001 + 002 `NUMERIC` money columns) (`backend/app/data/models`) 🟢 COMPLETED
+- **Fundamentals Integration**: CVM (fonte primária) + Brapi (ponte ticker→CNPJ), fontes compostas (`backend/app/integrations/fundamentals`) 🟢 COMPLETED (Waves 06 e 09)
+- **Benchmark Engine**: CDI/Selic/IPCA pelo BCB-SGS e IBOV pelo provedor de market data; comparativo time-weighted (`backend/app/domain/benchmarks`) 🟢 COMPLETED (Wave 08)
+- **Recommendation Engine**: sub-scores decomponíveis e alocação do aporte mensal (`backend/app/domain/recommendations`) 🟢 COMPLETED (Wave 09)
+- **Database**: PostgreSQL 16 + SQLAlchemy 2.0 Models + Alembic (`001` … `007_shares_outstanding`) (`backend/app/data/models`) 🟢 COMPLETED
 - **AI Integration**: Abstração `AIProvider` (Gemini / Ollama) (Wave 12) ⚪ NOT_STARTED
 
 ---
@@ -492,6 +499,7 @@ Wave 07 — Quant Engine. `returns.py` (diário, semanal, mensal, trimestral, YT
 - **W09-002**: CVM como fonte primária de demonstrativos, com a Brapi fazendo a ponte ticker→CNPJ (🟢 COMPLETED)
 - **W09-003**: Ações em circulação por exercício, com a unidade reconciliada contra o LPA do próprio arquivo (🟢 COMPLETED)
 - **W09-004**: Alocação do aporte mensal — faixas de cobertura, tetos reusados do score, plano derivado (🟢 COMPLETED) — **Wave 09 concluída**
+- **DOC-001**: Manutenção de documentação — zerar a lista *Inconsistências documentação × código* (🟢 COMPLETED, 2026-08-19)
 
 ---
 
@@ -677,7 +685,9 @@ Nenhuma tarefa bloqueada no momento.
 
 ## Last Execution
 - **Timestamp**: 2026-08-19T00:00:00-03:00
-- **Action**: W09-004 — alocação do aporte mensal. `app/domain/recommendations/allocation.py` (puro: política, ranking por faixa de cobertura, tetos, motivo de cada exclusão), `plan_contribution` no service, `GET /portfolios/{id}/contribution-plan` com override de todo limite. **Wave 09 concluída.**
+- **Action**: DOC-001 — varredura e correção de **todas** as inconsistências documentação × código registradas em `docs/memory/PROJECT_STATUS.md`. Oito estavam catalogadas e nove outras apareceram durante a verificação. Arquivos alterados: `AGENTS.md` (§5.1, §6, §7.1, §11, §67, §93, §94, §127, §131 e o Wave Execution Protocol), `README.md`, `CLAUDE.md`, `.env.example`, `docs/PROJECT_STATUS.md`, `docs/memory/PROJECT_STATUS.md`, `docs/architecture/BACKEND.md`, `docs/architecture/FRONTEND.md`.
+- **Result**: Sucesso, **sem alteração de código** — a direção da correção seguiu o CLAUDE.md §3 (o código é a fonte de verdade), então quem mudou foi o documento em todos os 17 casos. `pytest -q` → **596 passed**, idêntico ao baseline anterior, o que é o que se espera de uma task que não tocou em `.py`. As três divergências estruturais mais antigas (`data/repositories/`, `docs/waves/`, `CHANGELOG.md`) deixaram de ser "pendências" e passaram a **ausências declaradas**, com o motivo escrito e link para o ADR quando havia um — o objetivo é que a próxima sessão que ler o AGENTS.md e depois o código não tente "consertar" o código. Achados novos que mais importam: o baseline de testes no CLAUDE.md estava em 205 contra 596 reais; o `.env.example` documentava só até a Wave 05, omitindo justamente os `*_MIN_REQUEST_INTERVAL_SECONDS` que a Known Issue nº 13 manda ajustar antes de qualquer ingestão em lote; e o *Architecture Status* deste ledger ainda dava o Quant Engine como `NOT_STARTED` com NumPy/Pandas/SciPy, duas coisas que a W07 e o adendo ao ADR-017 já haviam desmentido.
+- **Action anterior**: W09-004 — alocação do aporte mensal. `app/domain/recommendations/allocation.py` (puro: política, ranking por faixa de cobertura, tetos, motivo de cada exclusão), `plan_contribution` no service, `GET /portfolios/{id}/contribution-plan` com override de todo limite. **Wave 09 concluída.**
 - **Result**: Sucesso. 596/596 testes (555 + 41 novos), `ruff`/`black` limpos nos arquivos alterados. Validado contra o banco real: PETR4 pontua **92,63 com cobertura 0,55**, passa o piso e recebe **R$ 200 limitado pelo teto de 20%** — com R$ 800 reportados como `unallocated` porque só há um ativo acompanhado. Dois defeitos apareceram nos testes escritos à mão, ambos de desenho e não de digitação: (a) `MAX_POSITIONS = 3` tornava o **primeiro** aporte estruturalmente inexecutável, porque na carteira vazia a base é o próprio aporte e o teto de 20% vale R$ 200 — 3 fatias deixariam R$ 400 parados por meses; corrigido para 5, que é `1 / MAX_ASSET_WEIGHT`; (b) com teto de setor e cota por posição empatados, o motivo relatado é o primeiro da ordem fixa, o que o teste documenta em vez de mascarar.
 - **Action anterior**: W09-003 — ações em circulação por exercício. `fundamentals.shares_outstanding` (`NUMERIC(20,0)`) + migration `007`; parse de `dfp_cia_aberta_composicao_capital_{ano}.csv` em `CvmFundamentalsProvider`, com a **unidade reconciliada contra o LPA do próprio arquivo** antes de gravar; contagem negativa rejeitada no data quality; insumo propagado até `IndicatorInputs`.
 - **Result**: Sucesso. 555/555 testes (542 + 13 novos), `ruff`/`black` limpos nos arquivos alterados, migration `007` aplicada em PostgreSQL 16 real. Validado contra números públicos: LPA da PETR4 2024 dá **R$ 2,84**, o publicado; VALE3 7,40 contra 7,39; MGLU3 0,61 contra 0,61. As séries reproduzem eventos societários reais (desdobramento da WEGE3, bonificação da PSSA3, grupamento da MGLU3). **A descoberta que mudou o desenho**: o arquivo não tem coluna de escala e ~1/3 dos declarantes escreve a contagem em milhares, alternando de ano para ano — a própria Petrobras. Sem a reconciliação, o P/L sairia mil vezes menor e **clamparia em 100** numa escala invertida, mandando as leituras mais quebradas para o topo do ranking que a alocação vai consumir. Registrado também: no banco real `pe`/`pb` seguem ausentes por **falta de preço histórico**, não por falta de contagem.
