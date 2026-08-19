@@ -171,6 +171,68 @@ histórico.
 
 ---
 
+## Wave 09 — Portfolio Recommendation Engine (2026-08-18 / 2026-08-19)
+
+Quatro tasks em vez das duas planejadas. As duas inseridas não foram escopo extra: cada uma
+destravava pilares do score que, sem elas, ficariam permanentemente ausentes — e alocar
+dinheiro com parte da fórmula desligada é pior do que adiar a alocação.
+
+### W09-001 — Sub-scores decomponíveis
+- Cinco pilares em `app/domain/recommendations/scoring.py`, puro e determinístico
+- **Ausência é resposta de primeira classe**: pilar sem dado é `None`, nunca zero nem 50
+  "neutro", e fica de fora da média. Um Quality Score fabricado não parece errado — parece
+  uma empresa ruim, e depois some dentro do score final
+- `compose` renormaliza sobre o que existe e **reporta `coverage`**
+- Fórmula versionada, todo limiar é constante nomeada ao lado do motivo (§30)
+- `GET /portfolios/{id}/scores`. +50 testes (total 499)
+
+### W09-002 — CVM como fonte primária, Brapi fazendo a ponte
+- `CvmFundamentalsProvider` lê os DFP de dados.cvm.gov.br; `CompositeFundamentalsProvider`
+  põe a CVM na frente e o fornecedor atrás; `assets.cnpj` (migration `006`) guarda a ponte
+- **Período inteiro vem de uma fonte só** — campos nunca são misturados, porque emendar
+  produziria uma linha que nenhum arquivo jamais reportou
+- `net_income` é `3.11.01` e não `3.11`; EBITDA é derivado (`EBIT + |D&A|`) e diz que é
+- Mapeamento conferido contra número público: ROE da PETR4 dá os 10,0% publicados
+- +43 testes (total 542)
+
+### W09-003 — Ações em circulação por exercício
+- `fundamentals.shares_outstanding` (`NUMERIC(20,0)`) + migration `007`; parse do
+  `composicao_capital`: integralizadas menos tesouraria
+- Destravou `pe` e `pb` — o último pilar sem dado nenhum
+- **O arquivo não declara escala**, e ~1/3 dos declarantes escreve a contagem em milhares,
+  alternando entre anos (a própria Petrobras). Sem tratar, o P/L sairia mil vezes menor e
+  **clamparia em 100** na escala invertida, mandando as leituras mais quebradas para o topo
+- A unidade é **reconciliada contra o LPA do próprio arquivo**, e fica ausente quando
+  nenhuma unidade fecha. O LPA é lido **cru**: `ESCALA_MOEDA` não se aplica a valor por ação
+- LPA derivado bate com o publicado: PETR4 R$ 2,84, VALE3 7,40 contra 7,39, MGLU3 0,61
+- +13 testes (total 555)
+
+### W09-004 — Alocação do aporte mensal
+- `app/domain/recommendations/allocation.py`, puro, e `GET /portfolios/{id}/contribution-plan`
+- **Ordena por faixa de cobertura antes do score.** Ordenar por `final_score` erra numa
+  direção só: o pilar que sobrevive a toda lacuna é Diversification (~100 para o que a
+  carteira não tem), então quem tem menos dado ganharia sistematicamente
+- Tetos de 20%/40% lidos das **próprias escalas do score**, não redeclarados
+- Todo limite configurável (§32); a política volta na resposta
+- **Nada é gravado** — o plano é derivado como as posições (§16)
+- Toda exclusão tem motivo nomeado; toda alocação diz qual regra a limitou
+- +41 testes (total 596)
+
+**Resultado da wave: 🟢 concluída.** Decisões em
+[ADR-020](../decisions/ADR-020-cvm-primary-fundamentals-source.md) (fonte CVM) e
+[ADR-021](../decisions/ADR-021-allocation-ranks-by-coverage-tier.md) (faixas de cobertura,
+plano derivado).
+
+A prova de que o desenho da W09-001 estava certo veio duas vezes, medida no banco real:
+ingerir a CVM levou Quality e Growth de ausentes para 97,8 e 76,7, e a contagem de ações
+destravou Valuation — **as duas vezes sem uma linha alterada em `scoring.py`**.
+
+Achado registrado, **não** resolvido: `pe`/`pb` estão destravados no código e continuam
+ausentes no banco real por falta de **preço histórico**, não de contagem de ações. É a mesma
+restrição do teto de 3 meses da Brapi, que também deixa o pilar de Risco ausente.
+
+---
+
 ---
 
 ## Marcos de infraestrutura de conhecimento

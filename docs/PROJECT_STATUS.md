@@ -248,12 +248,12 @@ Status: 🟢 COMPLETED
 ---
 
 ### Wave 09 — Portfolio Recommendation Engine
-Status: 🟡 IN_PROGRESS
+Status: 🟢 COMPLETED
 
 - [x] **W09-001**: Sub-scores Quantitativos (Quality, Valuation, Growth, Risk, Diversification) 🟢 COMPLETED
 - [x] **W09-002**: Fonte CVM para demonstrativos, com a Brapi fazendo a ponte ticker→CNPJ 🟢 COMPLETED
 - [x] **W09-003**: Ações em circulação por exercício (CVM `composicao_capital`) — destrava `pe`/`pb` 🟢 COMPLETED
-- [ ] **W09-004**: Algoritmo de Alocação de Aporte Mensal (~R$ 1.000) ⚪ NOT_STARTED
+- [x] **W09-004**: Algoritmo de Alocação de Aporte Mensal (~R$ 1.000) 🟢 COMPLETED
 
 > **Renumeração deliberada, duas vezes.** O plano original tinha só duas tasks, com a alocação
 > em W09-002. A ingestão da CVM entrou como W09-002 porque é o que destrava três dos cinco
@@ -491,11 +491,12 @@ Wave 07 — Quant Engine. `returns.py` (diário, semanal, mensal, trimestral, YT
 - **W09-001**: Sub-scores decomponíveis (Quality, Valuation, Growth, Risk, Diversification) com ausência de primeira classe (🟢 COMPLETED)
 - **W09-002**: CVM como fonte primária de demonstrativos, com a Brapi fazendo a ponte ticker→CNPJ (🟢 COMPLETED)
 - **W09-003**: Ações em circulação por exercício, com a unidade reconciliada contra o LPA do próprio arquivo (🟢 COMPLETED)
+- **W09-004**: Alocação do aporte mensal — faixas de cobertura, tetos reusados do score, plano derivado (🟢 COMPLETED) — **Wave 09 concluída**
 
 ---
 
 ## In Progress
-**W09-004** — Algoritmo de alocação do aporte mensal. Os cinco pilares agora têm insumo; falta transformar score em alocação (roadmap §21, AGENTS.md §31/§32/§33).
+Nenhuma task em andamento. **Wave 09 concluída**; a próxima é a Wave 10 (rebalanceamento).
 
 ---
 
@@ -620,6 +621,11 @@ Nenhuma tarefa bloqueada no momento.
 - **Nao implementado, de proposito**: volatilidade de carteira. Nao e a media das volatilidades dos ativos — precisa da matriz de covariancias e dos pesos das posicoes. Esta em Future Work; **nao aproximar por media** (regra 44).
 - **Status**: APPROVED. Registrado como adendo datado em `docs/decisions/ADR-017`.
 
+### Decision — 2026-08-19 (W09-004)
+- **Decision**: A alocação ordena por **faixa de cobertura antes do score** (piso de 0,50, faixas de 0,25 de largura), reusa `ASSET_WEIGHT_SCALE.at_zero` / `SECTOR_WEIGHT_SCALE.at_zero` como tetos em vez de redeclarar 20%/40%, mede os pesos contra a carteira **depois** do aporte (caixa incluído) e **não grava nada** — o plano é derivado a cada leitura, como as posições.
+- **Reason**: Ordenar por `final_score` é o desenho óbvio e erra **numa direção só**. Os pilares que somem são os fundamentalistas; o que sobrevive a toda lacuna é Diversification, que vale ~100 para o que a carteira ainda não tem. Um ativo sem demonstrativo chega com score alto feito dos dois pilares que nunca estiveram em dúvida — e o ranking passa a premiar quem tem menos dado. As faixas cortam isso sem fingir precisão que a escala não tem (0,80 e 0,85 são a mesma coisa com pilares diferentes faltando). Reusar as escalas do score por construção impede o estado em que um ativo pontua bem por diversificar para uma posição que o alocador se recusa a financiar. `MAX_POSITIONS = 5` é `1 / 0,20` e não é coincidência: na carteira vazia a base **é** o aporte, o teto de 20% vale R$ 200, e com menos posições o primeiro aporte ficaria estruturalmente inexecutável — descoberto por um teste escrito à mão, não em produção.
+- **Status**: 🟢 APPROVED. Registrado em [ADR-021](decisions/ADR-021-allocation-ranks-by-coverage-tier.md).
+
 ### Decision — 2026-08-19 (W09-003)
 - **Decision**: A contagem de ações vem do `composicao_capital` da CVM como **integralizadas menos tesouraria**, e a **unidade em que ela foi escrita é reconciliada contra o LPA do próprio arquivo** (`3.99.*`), nunca assumida. Onde nenhuma unidade reconcilia, ou onde a empresa não publica LPA, `shares_outstanding` fica **ausente** — não é corrigida por palpite nem gravada como veio.
 - **Reason**: O arquivo **não tem coluna de escala** e os declarantes não concordam: medido nos exercícios de 2020 a 2025, cerca de um terço escreve a contagem em milhares e o resto em unidades, sem marcador nenhum, e a mesma empresa troca de convenção entre um ano e outro — a Petrobras escreve `13.044.497` em 2020 e `13.044.496.930` em 2021. Engolir isso não dá um erro pequeno: contagem mil vezes menor → LPA mil vezes maior → P/L mil vezes menor, e numa escala **invertida** o P/L absurdamente baixo **clampa em 100**. As leituras mais quebradas iriam para o **topo** de qualquer ranking, que é exatamente onde a alocação da W09-004 vai buscar. A reconciliação usa `lucro / LPA` como contagem independente, com tolerância larga de propósito (fator de 5 para cada lado), porque as duas grandezas não são a mesma — o LPA é média ponderada do ano e por classe de ação, a contagem é o total na data de fechamento. Basta separar unidades, e um fator de 5 fica duas ordens de grandeza longe de um fator de 1.000.
@@ -649,6 +655,10 @@ Nenhuma tarefa bloqueada no momento.
 ---
 
 ## Future Work
+- **`dy` a partir da DMVL/DMPL da CVM**: dividendos e JCP debitados ao patrimônio no exercício estão em `5.04.06` e `5.04.07` (contas fixas), coluna `Patrimônio Líquido`. Medido no arquivo de 2024, a PETR4 dá R$ 100,9 bi, ~R$ 7,83 por ação. Ficou fora da W09-003 porque **nenhum pilar de score consome `dy` hoje** (regra 134); entra quando houver tela ou pilar que o use.
+- **Histórico de preços é o que ainda trava `pe`/`pb` no banco real.** A contagem de ações chegou, mas `_price_on_or_before` exige preço na data de referência ou antes, e o teto de 3 meses da Brapi não alcança nenhum fechamento de exercício passado. A fonte natural é o COTAHIST da B3 — dado aberto, mesma natureza dos arquivos da CVM. É a mesma dependência que trava a W13.
+- **Valor de mercado como base da concentração**: hoje o pilar de Diversification e o alocador leem custo de aquisição, deliberadamente ([ADR-021](decisions/ADR-021-allocation-ranks-by-coverage-tier.md)). Quando a W11 trouxer valor de mercado, os dois devem migrar **juntos** — são a mesma exposição por desenho.
+- **Modelar caixa da carteira.** A base da alocação é `custo das posições + aporte`, e o que sobra fica implicitamente como caixa sem estar registrado em lugar nenhum. `portfolio_snapshots.cash_value` existe e não é usado.
 - **Teto de 3 meses de histórico da Brapi no plano gratuito** (ver Known Issues): decidir entre assinar plano pago, trocar de fonte para o histórico do IBOV/ações, ou aceitar o teto e adiar o backtesting da W13. É a mesma decisão de produto já aberta para os fundamentals, e agora atinge também preços.
 - **`app/data/models/__init__.py` entra na lista de lint pré-existente**: `ruff` (I001, RUF022) e `black` já falhavam nele **antes** da W08-001 — confirmado rodando as ferramentas na versão do `HEAD`. A task tocou o arquivo apenas para registrar o novo model, mantendo o estilo existente; reformatá-lo é a task dedicada de lint cleanup (regra 134).
 - **MWR / TIR (retorno ponderado por dinheiro)** para a carteira. A W08-002 entregou a **TWR**, que neutraliza aportes e é a métrica certa para comparar contra um índice ([ADR-019](decisions/ADR-019-portfolio-return-is-time-weighted.md)). A MWR responde outra pergunta legítima — *quanto o meu dinheiro rendeu, dado quando eu aportei* — e é a que julga as decisões de aporte do investidor. Não é substituta: as duas devem aparecer lado a lado, com rótulos que as distingam. Provável W11, junto da tela que as apresente.
@@ -667,7 +677,9 @@ Nenhuma tarefa bloqueada no momento.
 
 ## Last Execution
 - **Timestamp**: 2026-08-19T00:00:00-03:00
-- **Action**: W09-003 — ações em circulação por exercício. `fundamentals.shares_outstanding` (`NUMERIC(20,0)`) + migration `007`; parse de `dfp_cia_aberta_composicao_capital_{ano}.csv` em `CvmFundamentalsProvider`, com a **unidade reconciliada contra o LPA do próprio arquivo** antes de gravar; contagem negativa rejeitada no data quality; insumo propagado até `IndicatorInputs`.
+- **Action**: W09-004 — alocação do aporte mensal. `app/domain/recommendations/allocation.py` (puro: política, ranking por faixa de cobertura, tetos, motivo de cada exclusão), `plan_contribution` no service, `GET /portfolios/{id}/contribution-plan` com override de todo limite. **Wave 09 concluída.**
+- **Result**: Sucesso. 596/596 testes (555 + 41 novos), `ruff`/`black` limpos nos arquivos alterados. Validado contra o banco real: PETR4 pontua **92,63 com cobertura 0,55**, passa o piso e recebe **R$ 200 limitado pelo teto de 20%** — com R$ 800 reportados como `unallocated` porque só há um ativo acompanhado. Dois defeitos apareceram nos testes escritos à mão, ambos de desenho e não de digitação: (a) `MAX_POSITIONS = 3` tornava o **primeiro** aporte estruturalmente inexecutável, porque na carteira vazia a base é o próprio aporte e o teto de 20% vale R$ 200 — 3 fatias deixariam R$ 400 parados por meses; corrigido para 5, que é `1 / MAX_ASSET_WEIGHT`; (b) com teto de setor e cota por posição empatados, o motivo relatado é o primeiro da ordem fixa, o que o teste documenta em vez de mascarar.
+- **Action anterior**: W09-003 — ações em circulação por exercício. `fundamentals.shares_outstanding` (`NUMERIC(20,0)`) + migration `007`; parse de `dfp_cia_aberta_composicao_capital_{ano}.csv` em `CvmFundamentalsProvider`, com a **unidade reconciliada contra o LPA do próprio arquivo** antes de gravar; contagem negativa rejeitada no data quality; insumo propagado até `IndicatorInputs`.
 - **Result**: Sucesso. 555/555 testes (542 + 13 novos), `ruff`/`black` limpos nos arquivos alterados, migration `007` aplicada em PostgreSQL 16 real. Validado contra números públicos: LPA da PETR4 2024 dá **R$ 2,84**, o publicado; VALE3 7,40 contra 7,39; MGLU3 0,61 contra 0,61. As séries reproduzem eventos societários reais (desdobramento da WEGE3, bonificação da PSSA3, grupamento da MGLU3). **A descoberta que mudou o desenho**: o arquivo não tem coluna de escala e ~1/3 dos declarantes escreve a contagem em milhares, alternando de ano para ano — a própria Petrobras. Sem a reconciliação, o P/L sairia mil vezes menor e **clamparia em 100** numa escala invertida, mandando as leituras mais quebradas para o topo do ranking que a alocação vai consumir. Registrado também: no banco real `pe`/`pb` seguem ausentes por **falta de preço histórico**, não por falta de contagem.
 - **Action anterior**: W09-001 (motor de sub-scores) + W09-002 (fonte CVM). `app/domain/recommendations/{scoring,service,schemas}.py` com cinco pilares decomponíveis e ausência de primeira classe; `GET /portfolios/{id}/scores`. `app/integrations/fundamentals/{cvm,identity,composite}.py` + `app/domain/fundamentals/identity.py` + migration `006` (`assets.cnpj`).
 - **Result**: Sucesso. 542/542 testes (449 → 499 → 542), `ruff`/`black` limpos nos arquivos alterados, migration `006` aplicada em PostgreSQL 16 real. Validado ao vivo: 6 exercícios da PETR4 pela CVM batendo com o publicado (lucro R$ 188,3 bi em 2022, R$ 36,6 bi em 2024; ROE 10,0%). **Medido no banco real, Quality e Growth foram de ausentes para 97,8 e 76,7 e a cobertura do score de 40% para 55%, sem uma linha alterada em `scoring.py`.** Os testes escritos à mão pegaram de novo um defeito meu: numa escala invertida, um P/L negativo clampava no extremo *bom* e marcaria 100.
@@ -681,4 +693,4 @@ Nenhuma tarefa bloqueada no momento.
 ---
 
 ## Next Action
-**W09-004 — Algoritmo de alocação do aporte mensal** (roadmap §21, AGENTS.md §31/§32/§33). Ver `docs/memory/CURRENT_TASK.md`.
+**Wave 10 — Rebalanceamento** (roadmap §22, AGENTS.md §34): peso atual, peso alvo, gap. Ver `docs/memory/CURRENT_TASK.md`.

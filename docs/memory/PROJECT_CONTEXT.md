@@ -31,7 +31,7 @@ O produto final deve responder: *Como está minha carteira? Estou batendo o CDI?
 - Motor de posições consolidadas derivado do ledger (quantidade, preço médio, P&L realizado, dividendos) — determinístico, custo médio móvel.
 - Integração de market data abstraída (`MarketDataProvider` / `BrapiProvider`), ingestão de histórico diário OHLCV com cache local e validação de qualidade de dados.
 - Ingestão de demonstrativos financeiros anuais (`FundamentalsProvider` / `BrapiFundamentalsProvider`), com validação de qualidade e política point-in-time.
-- Indicadores fundamentalistas derivados: as 10 fórmulas estão implementadas e testadas; **5 produzem valor** hoje (`roe`, `roic`, `net_margin`, `revenue_growth`, `profit_growth`). As outras 5 retornam `None` por limitação evidenciada da fonte — ver Known Issues em [PROJECT_STATUS.md](PROJECT_STATUS.md).
+- Indicadores fundamentalistas derivados: as 10 fórmulas estão implementadas e testadas. **9 têm insumo** com a fonte da CVM; só `dy` continua sem, por falta de dividendos por período. `pe` e `pb` dependem também de **preço histórico**, que hoje não existe no banco — ver Known Issues em [PROJECT_STATUS.md](PROJECT_STATUS.md).
 - **Quant Engine** puro e determinístico: retorno (diário a anual, YTD, CAGR) e risco (volatilidade, max drawdown, beta, Sharpe, Sortino). Sem I/O, inteiramente em `Decimal`.
 - **Benchmarks**: CDI, IPCA e Selic pelo Banco Central (SGS, aberto e sem cota) e IBOV pelo provedor de market data, atrás de interface abstrata. Ingestão idempotente, com rejeição de período ainda não encerrado.
 - **Comparativo carteira × benchmark**: a carteira vira um índice **time-weighted** (valor de cota) derivado do ledger, o que neutraliza aportes e a torna comparável a um índice. Responde "estou batendo o CDI?" com retorno, excesso, volatilidade, drawdown, beta, Sharpe e Sortino.
@@ -39,11 +39,13 @@ O produto final deve responder: *Como está minha carteira? Estou batendo o CDI?
 - **Demonstrativos financeiros pelos dados abertos da CVM** — a peça entregue ao regulador, aberta e sem cota — com a Brapi fazendo a ponte ticker→CNPJ que a CVM não faz. Fontes compostas: um período vem inteiro de uma fonte só, nunca campo a campo.
 - **Sub-scores de ativo decomponíveis** (Quality, Valuation, Growth, Risk, Diversification), relativos à carteira, com fórmula versionada e **ausência de primeira classe**: pilar sem dado é ausente, nunca estimado, e o score reporta que fração da fórmula ele cobre.
 
+- **Alocação do aporte mensal** — a resposta a "onde colocar o próximo R$ 1.000". Ordena por **faixa de cobertura antes do score**, porque ordenar por score puro favorece sistematicamente quem tem menos dado; respeita tetos por ativo e por setor lidos das próprias escalas do score; todo limite é configurável; e cada exclusão e cada corte de valor vêm com motivo nomeado. Nada é gravado — o plano é derivado, como as posições.
+
 ### Em desenvolvimento
-- **Wave 09** — sub-scores e fonte CVM entregues; falta o algoritmo de alocação do aporte mensal.
+- Nenhuma wave em andamento. A Wave 09 fechou em 2026-08-19; a próxima decisão está em [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ### Planejado (não existe código)
-Alocação do aporte → Rebalanceamento → Dashboard → AI Engine → Backtesting/Walk-forward → Day Trade (intraday, setups, risco, paper trading) → Observabilidade/Segurança/CI-CD/Deploy.
+Rebalanceamento → Dashboard → AI Engine → Backtesting/Walk-forward → Day Trade (intraday, setups, risco, paper trading) → Observabilidade/Segurança/CI-CD/Deploy.
 Ver [../planning/ROADMAP.md](../planning/ROADMAP.md).
 
 **O frontend continua sendo apenas scaffold** — nenhuma dessas capacidades está exposta em tela. A primeira wave de frontend real é a W11.
@@ -78,7 +80,7 @@ PostgreSQL  ←  Alembic migrations
 
 Domínios conceituais (AGENTS.md §4):
 `Market Data → Quant Engine → Portfolio Engine → Recommendation Engine → AI Engine (só explicação)`.
-Os quatro primeiros existem (Recommendation em construção); AI Engine ainda não.
+Os quatro primeiros existem; AI Engine ainda não.
 
 ## Documentos-âncora do projeto
 

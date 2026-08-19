@@ -7,7 +7,7 @@ Legenda: 🟢 concluída · 🟡 em progresso · ⚪ não iniciada
 
 ## Estado geral
 
-**9 / 33 concluídas.** Fronteira atual: **Wave 09 — Recommendation Engine**.
+**10 / 33 concluídas.** Fronteira atual: **Wave 10 — Rebalanceamento** (ver [CURRENT_TASK.md](../memory/CURRENT_TASK.md): há um desvio recomendado antes dela).
 
 ## MVP → V1
 
@@ -33,8 +33,8 @@ Legenda: 🟢 concluída · 🟡 em progresso · ⚪ não iniciada
 | W06 | Fundamental Data — ingestão 🟢 · indicadores 🟢 · validação real 🟢 | 🟢 | W05 | §18 |
 | W07 | Quant Engine — `returns.py`, `risk.py` (CAGR, vol, beta, drawdown, Sharpe, Sortino) | 🟢 | W05 | §19 |
 | W08 | Benchmark Engine — séries de CDI/IBOV/IPCA e comparativo | 🟢 | W07 | §20 |
-| **W09** | **Recommendation Engine** — sub-scores e alocação do aporte mensal | 🟡 **atual** — sub-scores e fonte CVM feitos; falta a alocação | W06 (**incl. W06-003**), W07 | §21 |
-| W10 | Rebalanceamento — target weights, weight gaps, restrições conservadoras | ⚪ | W09 | §22 |
+| W09 | Recommendation Engine — sub-scores e alocação do aporte mensal | 🟢 — 4 tasks: sub-scores, fonte CVM, ações em circulação, alocação | W06 (**incl. W06-003**), W07 | §21 |
+| **W10** | **Rebalanceamento** — target weights, weight gaps, restrições conservadoras | ⚪ **próxima** | W09 | §22 |
 | W11 | Dashboard — patrimônio, rentabilidade, benchmarks, tela de ativo | ⚪ | W07, W08 | §23 |
 
 ⚠️ **W11 é a primeira wave com trabalho de frontend real.** O frontend hoje é só scaffold.

@@ -2,108 +2,83 @@
 
 ## Task
 
-**W09-003 — Algoritmo de Alocação de Aporte Mensal** (Wave 09)
-
-> ⚠️ **Renumeração deliberada.** O plano original tinha duas tasks na W09, com a alocação em
-> W09-002. A ingestão da CVM foi inserida como W09-002 porque era o que destravava três dos
-> cinco sub-scores; a alocação virou W09-003.
+**Nenhuma em andamento.** A **Wave 09 fechou** em 2026-08-19, com quatro tasks:
+sub-scores, fonte CVM, ações em circulação e alocação do aporte.
 
 ## Status
 
-⚪ Not Started
+⚪ Aguardando escolha da próxima wave.
 
-## Objective
+---
 
-Transformar score em decisão: *onde colocar o próximo R$ 1.000?*
-(`docs/roadmap.md` §21, AGENTS.md §31/§32/§33).
+## A decisão a tomar antes de começar
 
-A pergunta do sistema é **"qual novo aporte melhora minha carteira atual?"** — explicitamente
-**não** "qual ativo tem maior score" (§31). O score já é relativo à carteira; a alocação precisa
-respeitar restrições.
+Duas opções, e a segunda está fora da ordem do roadmap de propósito.
+
+### Opção 1 — Wave 10, Rebalanceamento (a ordem do roadmap)
+
+`docs/roadmap.md` §22, AGENTS.md §34. Calcular `current_weight`, `target_weight`,
+`weight_gap` e priorizar ativos abaixo do alvo, com score adequado, sem violar restrição.
+
+Boa parte da infraestrutura existe: `PortfolioExposure` já dá peso por ativo e por setor,
+`allocation.py` já tem tetos e política configurável, e o motor de score já é relativo à
+carteira. O que falta de verdade é a definição de **peso-alvo**, que hoje não existe em
+lugar nenhum — e é exatamente a pergunta que a wave tem que responder.
+
+### Opção 2 — Histórico de preços de fonte aberta (COTAHIST da B3)
+
+Fora da ordem, mas é o que **hoje trava mais coisa ao mesmo tempo**:
+
+| trava hoje | por quê |
+|---|---|
+| `pe` / `pb` no banco real | `_price_on_or_before` exige preço na data de referência ou antes; não há nenhum |
+| pilar de **Risk** | sem série, `volatility`, `max_drawdown`, `beta` e `sharpe` são todos `None` |
+| cobertura do score | com Risk ausente, o teto prático é 0,75, e o piso da alocação é 0,50 |
+| `beta` estatisticamente útil | ~63 pregões é uma janela pobre |
+| **Wave 13 inteira** (backtesting) | precisa de anos |
+
+É o mesmo movimento que a W09-002 fez com os demonstrativos: trocar um fornecedor com cota
+por um arquivo público do próprio mercado. A B3 publica o COTAHIST por ano, em layout de
+posição fixa — parecido em espírito com os ZIPs da CVM, e a infraestrutura de cache em disco
+(`CvmArchive`) é um molde pronto.
+
+**Recomendação**: a opção 2. Sem preço histórico, o rebalanceamento da W10 nasceria sobre a
+mesma carteira sem valor de mercado e sobre scores com o pilar de Risco ausente.
+
+---
 
 ## O que já está pronto — não reimplemente
 
-- `app/domain/recommendations/scoring.py` — cinco pilares decomponíveis, fórmula versionada,
-  ausência de primeira classe. **Combine, não recalcule.**
-- `app/domain/recommendations/service.py` — `score_universe(db, portfolio)` já devolve todo o
-  universo pontuado contra a carteira, ordenado, com os não-pontuáveis por último.
-- `app/quant/{returns,risk}.py` — retorno, volatilidade, drawdown, beta, Sharpe, Sortino.
-- `app/domain/benchmarks/` e `app/domain/portfolio/performance.py`.
-- `app/integrations/fundamentals/{cvm,identity,composite}.py` — demonstrativos da CVM funcionando.
+- `app/domain/recommendations/scoring.py` — cinco pilares decomponíveis, ausência de
+  primeira classe, fórmula versionada.
+- `app/domain/recommendations/allocation.py` — política configurável, faixas de cobertura,
+  tetos lidos das escalas do score, motivo nomeado para toda exclusão. **Puro.**
+- `app/domain/recommendations/service.py` — `score_universe`, `plan_contribution`,
+  `build_exposure` (peso **e** valor por ativo e por setor).
+- `app/quant/{returns,risk}.py`, `app/domain/benchmarks/`, `app/domain/portfolio/performance.py`.
+- `app/integrations/fundamentals/{cvm,identity,composite}.py` — demonstrativos da CVM,
+  incluindo contagem de ações por exercício com a unidade reconciliada.
 
-## ⚠️ Duas coisas que a alocação precisa respeitar
+## Endpoints da Wave 09
 
-### 1. `coverage` não é decoração — e a alocação é onde isso morde
-
-Dois ativos com coberturas diferentes **não são comparáveis**, mesmo ambos voltando número entre
-0 e 100. Um ativo pontuado só em Risco e Diversificação (40%) contra outro pontuado nos cinco
-pilares não estão medindo a mesma coisa.
-
-Ordenar o universo por `final_score` e distribuir o aporte de cima para baixo **ignora isso** e
-favorece sistematicamente quem tem menos dado. A alocação tem que, no mínimo, exigir cobertura
-mínima ou agrupar por cobertura — e dizer qual escolheu.
-
-### 2. "Conservador" é restrição quantitativa, não adjetivo (§32)
-
-Limite por ativo, por setor, de renda variável, de volatilidade; preferência por liquidez;
-menor concentração. **Os pesos devem ser configuráveis** — §32 diz explicitamente para não assumir
-que todo conservador tem a mesma alocação.
-
-Os tetos já usados pelo pilar de Diversification são 20% por ativo e 40% por setor
-(`ASSET_WEIGHT_SCALE` / `SECTOR_WEIGHT_SCALE`). A alocação deve usar **os mesmos números**, não
-uma segunda cópia que possa divergir.
-
-## Relevant Files
-
-- `docs/roadmap.md` §21, `AGENTS.md` §31 (recomendação), §32 (perfil conservador), §33 (aporte mensal)
-- `backend/app/domain/recommendations/` — scoring, service, schemas
-- `backend/app/data/models/recommendations.py` — model `Recommendation`, ainda sem uso
-- `backend/app/data/models/users.py` — `InvestorProfile` (`monthly_contribution` ainda em `Float`, ver Known Issues)
-- [ADR-014](../decisions/ADR-014-indicator-missing-data-policy.md) — `None` é "não computável", nunca zero
-
-## Definition of Done
-
-- [ ] Alocação determinística (§113): mesma carteira e mesmo universo, mesma resposta
-- [ ] Respeita limites por ativo e por setor, reutilizando as constantes do scoring
-- [ ] Trata `coverage` explicitamente — nunca compara scores de coberturas diferentes em silêncio
-- [ ] Pesos e limites configuráveis (§32)
-- [ ] Explica a decisão: qual ativo, quanto, e **por quê** — decomponível como o score
-- [ ] Testes com valores conhecidos + carteira vazia + universo sem ativo pontuável
-- [ ] `pytest` verde (baseline 542 + novos)
-- [ ] `ruff check` e `black --check` limpos nos arquivos alterados
-- [ ] `docs/PROJECT_STATUS.md` e a memória atualizados
+- `GET /portfolios/{id}/scores`
+- `GET /portfolios/{id}/contribution-plan` — aceita override de todo limite por query param.
 
 ---
 
-## 🎯 Antes da alocação: um passo curto de alto retorno
+## Estado do ambiente (verificado 2026-08-19)
 
-**Ações em circulação por período.** É o único item que falta para `pe`, `pb` e `dy`, e
-destravaria o pilar de **Valuation** inteiro — o último ainda ausente. Levaria a cobertura do
-score de **55% para 75%**.
-
-O dado já está no arquivo que o projeto **já baixa**: `dfp_cia_aberta_composicao_capital_{ano}.csv`
-traz `QT_ACAO_TOTAL_CAP_INTEGR` e `QT_ACAO_TOTAL_TESOURO` por `DT_REFER`. Ações em circulação =
-integralizadas − tesouraria.
-
-O que falta: coluna `shares_outstanding` em `fundamentals` (migration), o campo no
-`FinancialStatement`, o parse no `CvmFundamentalsProvider`, e passar adiante em
-`IndicatorInputs` — que **já tem o campo** e cujo `compute_indicators` **já sabe** usá-lo para
-`pe`/`pb`. O preço point-in-time já é resolvido por `_price_on_or_before`.
-
-Estimativa: bem menor que a ingestão da CVM, porque toda a infraestrutura já existe.
-
----
-
-## Estado do ambiente (verificado 2026-08-18)
-
-- **PostgreSQL 16 no ar**, schema em `006`, com dado real: CDI (252 pregões), IPCA (31 meses),
-  IBOV (63 pregões), e **PETR4 com 6 exercícios de demonstrativos e indicadores da CVM**.
-  `docker compose up -d postgres` se estiver parado.
+- **PostgreSQL 16 no ar**, schema em `007`, com dado real: CDI (252 pregões), IPCA (31 meses),
+  IBOV (63 pregões), e **PETR4 com 6 exercícios de demonstrativos da CVM, agora com
+  `shares_outstanding`**. `docker compose up -d postgres` se estiver parado.
+- **`asset_prices` está vazia** — é por isso que o pilar de Risk e os múltiplos `pe`/`pb`
+  aparecem ausentes numa consulta ao banco real. Não é defeito do código.
 - Alembic do host precisa da URL sobrescrita (o `.env` aponta para o host `postgres` da rede Docker):
   `DATABASE_URL="postgresql://investment_user:investment_pass_dev@localhost:5432/investment_assistant" .venv/Scripts/python.exe -m alembic upgrade head`
+- ⚠️ **`alembic_version.version_num` é `varchar(32)`** — um `revision` mais longo que isso
+  falha **depois** de aplicar o schema. Por isso a `007` chama-se `007_shares_outstanding`.
 - Rodar Python de `backend/` **não** carrega o `.env` da raiz e `BRAPI_TOKEN` fica vazio em silêncio.
-- **Cache da CVM em `var/cvm/`** (gitignored), ~13 MB por exercício. Já tem 2020–2025.
+- **Cache da CVM em `backend/var/cvm/`** (gitignored), ~13 MB por exercício. Já tem 2020–2026.
 - **`alembic check` falha** por drift pré-existente em `assets.ticker` e `users.email` — não é regressão.
 - 🔴 **A Brapi limita o `range` a 3 meses** no plano gratuito, e o `range` é relativo a hoje.
   Não há histórico de preços além de ~63 pregões. Já quebra `sync_daily_history` acima de 3 meses.
-  **Não afeta fundamentals** — esses vêm da CVM agora.

@@ -41,9 +41,17 @@ from sqlalchemy.orm import Session
 from app.data.models.assets import Asset, AssetPrice
 from app.data.models.fundamentals import FinancialIndicator
 from app.data.models.portfolio import Portfolio, Transaction
+from app.data.models.users import InvestorProfile
 from app.domain.benchmarks.catalog import IBOVESPA
 from app.domain.benchmarks.service import benchmark_price_points, risk_free_rate_for
 from app.domain.portfolio.service import compute_positions
+from app.domain.recommendations.allocation import (
+    DEFAULT_POLICY,
+    AllocationPlan,
+    AllocationPolicy,
+    Candidate,
+    allocate_contribution,
+)
 from app.domain.recommendations.scoring import (
     AssetScore,
     compose,
@@ -56,6 +64,14 @@ from app.domain.recommendations.scoring import (
 from app.quant.returns import PricePoint
 
 ZERO = Decimal(0)
+
+#: Contribution assumed when the investor has no profile yet.
+#:
+#: Rule 33 names R$ 1.000 as the expected starting value and requires it
+#: to be configurable; `InvestorProfile.monthly_contribution` is where an
+#: investor overrides it, and this is only the fallback for an account
+#: that has not set one.
+DEFAULT_MONTHLY_CONTRIBUTION = Decimal(1000)
 
 
 @dataclass(frozen=True)
@@ -84,6 +100,23 @@ class PortfolioExposure:
         if sector is None:
             return None
         return self.by_sector.get(sector, ZERO)
+
+    def amount_of(self, asset_id: int) -> Decimal:
+        """Cost basis held in one asset, in BRL.
+
+        The weights are what the Diversification pillar needs; the
+        allocator needs the money, because a ceiling expressed as a
+        percentage of the portfolio has to be turned into an amount
+        before it can be compared with a contribution.
+        """
+        return self.weight_of(asset_id) * self.total_invested
+
+    def amounts_by_sector(self) -> dict[str, Decimal]:
+        """Cost basis held in each sector, in BRL."""
+        return {
+            sector: weight * self.total_invested
+            for sector, weight in self.by_sector.items()
+        }
 
 
 def build_exposure(db: Session, portfolio: Portfolio) -> PortfolioExposure:
@@ -178,6 +211,7 @@ def score_universe(
     portfolio: Portfolio,
     start: date | None = None,
     as_of: date | None = None,
+    exposure: PortfolioExposure | None = None,
 ) -> list[tuple[Asset, AssetScore]]:
     """Every tracked asset, scored against `portfolio`.
 
@@ -185,8 +219,13 @@ def score_universe(
     they are still returned, because "this asset cannot be scored and
     here is what is missing" is an answer the investor needs, and
     dropping them would make the gap invisible.
+
+    `exposure` is accepted so a caller that needs it for something else
+    — the allocator needs the same concentration to size its limits —
+    computes it once. Built here when omitted.
     """
-    exposure = build_exposure(db, portfolio)
+    if exposure is None:
+        exposure = build_exposure(db, portfolio)
     benchmark = benchmark_price_points(db, IBOVESPA, start, as_of)
     risk_free = risk_free_rate_for(db, start, as_of)
 
@@ -216,6 +255,73 @@ def score_universe(
         )
     )
     return scored
+
+
+def plan_contribution(
+    db: Session,
+    portfolio: Portfolio,
+    contribution: Decimal | None = None,
+    start: date | None = None,
+    as_of: date | None = None,
+    policy: AllocationPolicy = DEFAULT_POLICY,
+) -> AllocationPlan:
+    """Where the next contribution goes, for one portfolio (rule 33).
+
+    Scores the universe against this portfolio and hands the result to
+    `allocation.allocate_contribution`, which is pure. Nothing is decided
+    here; this only loads.
+
+    `contribution` defaults to the owner's `monthly_contribution`, and to
+    `DEFAULT_MONTHLY_CONTRIBUTION` for an account with no profile yet.
+
+    The exposure is built once and shared with the scoring pass: the
+    Diversification pillar and the concentration ceilings must be reading
+    the same portfolio, and computing it twice would let them drift apart
+    between two queries.
+    """
+    exposure = build_exposure(db, portfolio)
+    scored = score_universe(db, portfolio, start=start, as_of=as_of, exposure=exposure)
+
+    candidates = [
+        Candidate(
+            ticker=asset.ticker,
+            asset_id=asset.id,
+            name=asset.name,
+            sector=asset.sector,
+            score=score,
+            held_amount=exposure.amount_of(asset.id),
+        )
+        for asset, score in scored
+    ]
+
+    return allocate_contribution(
+        candidates,
+        invested=exposure.total_invested,
+        sector_amounts=exposure.amounts_by_sector(),
+        contribution=(
+            contribution
+            if contribution is not None
+            else monthly_contribution_for(db, portfolio)
+        ),
+        policy=policy,
+    )
+
+
+def monthly_contribution_for(db: Session, portfolio: Portfolio) -> Decimal:
+    """The owner's configured monthly contribution.
+
+    Stored as `float` (a pre-existing debt recorded in the project
+    status), so the conversion goes through `str` to take the decimal
+    value that was written rather than the binary expansion around it.
+    """
+    profile = (
+        db.query(InvestorProfile)
+        .filter(InvestorProfile.user_id == portfolio.user_id)
+        .first()
+    )
+    if profile is None or profile.monthly_contribution is None:
+        return DEFAULT_MONTHLY_CONTRIBUTION
+    return Decimal(str(profile.monthly_contribution))
 
 
 # -- helpers ---------------------------------------------------------

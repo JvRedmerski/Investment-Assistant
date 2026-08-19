@@ -87,6 +87,7 @@ Unidades dos indicadores: margens, crescimento, ROE, ROIC e DY são **frações*
 | GET | `/{id}/positions` | posições consolidadas + totais; **sem valor de mercado** (depende de precificação, ainda não integrada) |
 | GET | `/{id}/benchmarks/{code}` | compara a carteira com um benchmark; a carteira entra como índice **time-weighted**, então aporte não conta como rentabilidade; lê **só** do banco |
 | GET | `/{id}/scores` | pontua todo ativo acompanhado **contra esta carteira**; lê **só** do banco. Ler `coverage` antes de comparar dois scores |
+| GET | `/{id}/contribution-plan` | onde vai o próximo aporte, e por quê. `amount` default = `monthly_contribution` do perfil (senão R$ 1.000). Todo limite é sobrescrevível por query param (`max_asset_weight`, `max_sector_weight`, `max_share_per_position`, `max_positions`, `min_ticket`, `min_coverage`, `min_score`, `require_sector`) e a política volta na resposta. Nada é gravado |
 
 ### Benchmarks — `/api/v1/benchmarks` (todos autenticados)
 | Método | Rota | Nota |
@@ -108,6 +109,10 @@ DEPOSIT/WITHDRAWAL: registrar `quantity = valor`, `price = 1`, sem `asset_id`.
 - `AssetPriceResponse`: barra diária OHLCV armazenada (`Decimal`) + `source`.
 - `BenchmarkComparisonResponse`: `subject` e `benchmark` (cada um com a **janela que de fato foi medida**, `observations`, `periodicity`, `total_return`, `annualised_return`, `volatility`, `max_drawdown`) + `excess_return`, `return_ratio`, `beta`, `sharpe`, `sortino`, `risk_free_rate`.
   `excess_return` é **diferença** em pontos de fração; `return_ratio` é **múltiplo** ("115% do CDI") e vem `null` a menos que ambos os retornos sejam positivos. `beta` é `null` contra benchmark de taxa, por desenho. `sharpe`/`sortino` são `null` enquanto não houver CDI ingerido para a janela — nunca calculados contra taxa zero.
+
+- `ContributionPlanResponse`: `policy` (os limites usados), `contribution`, `allocated`, `unallocated`, `base_value`, `allocations[]` e `skipped[]`, mais `formula_version` e `rules_version`.
+  `allocated + unallocated == contribution` sempre — dinheiro que os limites não deixam colocar volta como `unallocated`, nunca é forçado. Cada `allocation` traz `amount`, `rank`, `final_score`, `coverage`, `coverage_tier`, `headroom`, `limited_by` (`ASSET_WEIGHT` / `SECTOR_WEIGHT` / `POSITION_SHARE` / `CONTRIBUTION_REMAINING`), `weight_before`/`weight_after` e os `sub_scores` inteiros. Cada `skipped` traz `reason` (`NOT_SCORABLE`, `COVERAGE_BELOW_MINIMUM`, `SCORE_BELOW_MINIMUM`, `SECTOR_UNKNOWN`, `ASSET_LIMIT_REACHED`, `SECTOR_LIMIT_REACHED`, `BELOW_MINIMUM_TICKET`, `MAX_POSITIONS_REACHED`, `CONTRIBUTION_EXHAUSTED`) e um `detail` em texto.
+  `coverage_tier` é a faixa de comparabilidade: scores são comparados **dentro** de uma faixa e nunca entre faixas ([ADR-021](../decisions/ADR-021-allocation-ranks-by-coverage-tier.md)).
 
 ## Ao adicionar endpoints
 

@@ -1,6 +1,8 @@
+from dataclasses import replace
 from datetime import date
+from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user
@@ -26,13 +28,18 @@ from app.domain.portfolio.service import (
     compute_net_contributions,
     compute_positions,
 )
+from app.domain.recommendations.allocation import DEFAULT_POLICY, AllocationPolicy
 from app.domain.recommendations.schemas import (
+    AllocationPolicyResponse,
+    AllocationResponse,
     AssetScoreResponse,
+    ContributionPlanResponse,
     PortfolioScoresResponse,
+    SkippedCandidateResponse,
     SubScoreResponse,
 )
 from app.domain.recommendations.scoring import SCORING_FORMULA_VERSION
-from app.domain.recommendations.service import score_universe
+from app.domain.recommendations.service import plan_contribution, score_universe
 
 router = APIRouter(prefix="/portfolios", tags=["Portfolio"])
 
@@ -342,4 +349,135 @@ def get_portfolio_scores(
             )
             for asset, score in scored
         ],
+    )
+
+
+@router.get(
+    "/{portfolio_id}/contribution-plan", response_model=ContributionPlanResponse
+)
+def get_contribution_plan(
+    portfolio_id: int,
+    amount: Decimal | None = Query(
+        None,
+        gt=0,
+        description=(
+            "How much to allocate. Defaults to the investor profile's "
+            "monthly contribution, or R$ 1.000 when no profile exists."
+        ),
+    ),
+    max_asset_weight: Decimal | None = Query(None, gt=0, le=1),
+    max_sector_weight: Decimal | None = Query(None, gt=0, le=1),
+    max_share_per_position: Decimal | None = Query(None, gt=0, le=1),
+    max_positions: int | None = Query(None, ge=1),
+    min_ticket: Decimal | None = Query(None, ge=0),
+    min_coverage: Decimal | None = Query(None, ge=0, le=1),
+    min_score: Decimal | None = Query(None, ge=0, le=100),
+    require_sector: bool | None = Query(None),
+    start: date | None = None,
+    as_of: date | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ContributionPlanResponse:
+    """Where the next contribution goes, and why (rules 31/32/33).
+
+    Answers *"dado meu patrimônio atual e R$ 1.000 de novo aporte, onde
+    esse dinheiro melhora a carteira?"* — not "which asset scores
+    highest". The scores are already relative to this portfolio, and the
+    plan then respects the concentration limits on top.
+
+    Every limit is overridable per request, because rule 32 requires the
+    weights to be configurable and does not assume two conservative
+    investors hold the same thing. Omitted parameters keep the default
+    conservative policy, which is echoed back in `policy`.
+
+    Nothing is stored: a plan is derived from the ledger, the scores and
+    the policy, exactly as positions are (rule 16).
+
+    Reads only stored data (rule 23); prices, benchmarks and indicators
+    must have been synced first.
+    """
+    portfolio = _get_owned_portfolio(db, portfolio_id, current_user)
+
+    overrides = {
+        name: value
+        for name, value in (
+            ("max_asset_weight", max_asset_weight),
+            ("max_sector_weight", max_sector_weight),
+            ("max_share_per_position", max_share_per_position),
+            ("max_positions", max_positions),
+            ("min_ticket", min_ticket),
+            ("min_coverage", min_coverage),
+            ("min_score", min_score),
+            ("require_sector", require_sector),
+        )
+        if value is not None
+    }
+    policy = replace(DEFAULT_POLICY, **overrides) if overrides else DEFAULT_POLICY
+
+    plan = plan_contribution(
+        db,
+        portfolio,
+        contribution=amount,
+        start=start,
+        as_of=as_of,
+        policy=policy,
+    )
+
+    return ContributionPlanResponse(
+        portfolio_id=portfolio.id,
+        rules_version=plan.rules_version,
+        formula_version=plan.formula_version,
+        policy=_policy_response(plan.policy),
+        contribution=plan.contribution,
+        allocated=plan.allocated,
+        unallocated=plan.unallocated,
+        base_value=plan.base_value,
+        allocations=[
+            AllocationResponse(
+                ticker=item.ticker,
+                asset_id=item.asset_id,
+                name=item.name,
+                sector=item.sector,
+                amount=item.amount,
+                rank=item.rank,
+                final_score=item.final_score,
+                coverage=item.coverage,
+                coverage_tier=item.coverage_tier,
+                headroom=item.headroom,
+                limited_by=item.limited_by.value,
+                weight_before=item.weight_before,
+                weight_after=item.weight_after,
+                sub_scores=[
+                    SubScoreResponse.model_validate(sub)
+                    for sub in item.score.sub_scores
+                ],
+            )
+            for item in plan.allocations
+        ],
+        skipped=[
+            SkippedCandidateResponse(
+                ticker=item.ticker,
+                asset_id=item.asset_id,
+                name=item.name,
+                reason=item.reason.value,
+                detail=item.detail,
+                final_score=item.final_score,
+                coverage=item.coverage,
+            )
+            for item in plan.skipped
+        ],
+    )
+
+
+def _policy_response(policy: AllocationPolicy) -> AllocationPolicyResponse:
+    return AllocationPolicyResponse(
+        max_asset_weight=policy.max_asset_weight,
+        max_sector_weight=policy.max_sector_weight,
+        max_share_per_position=policy.max_share_per_position,
+        max_positions=policy.max_positions,
+        min_ticket=policy.min_ticket,
+        min_coverage=policy.min_coverage,
+        min_score=policy.min_score,
+        coverage_tier_width=policy.coverage_tier_width,
+        require_sector=policy.require_sector,
     )

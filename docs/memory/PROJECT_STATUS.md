@@ -2,12 +2,12 @@
 
 > Camada 1 da memória: **onde o projeto está**, em uma página.
 > Ledger detalhado task-a-task (histórico completo, notas de implementação, decisões datadas): [../PROJECT_STATUS.md](../PROJECT_STATUS.md).
-> Última verificação contra o código: **2026-08-18**.
+> Última verificação contra o código: **2026-08-19**.
 
 ## Current Phase
 
-**Wave 09 em andamento**: W09-001 (sub-scores) e W09-002 (fonte CVM) concluídas; falta **W09-003 — algoritmo de alocação do aporte mensal**.
-9 de 33 waves concluídas (W00–W08).
+**Wave 09 concluída** (2026-08-19): sub-scores, fonte CVM, ações em circulação e alocação do aporte.
+10 de 33 waves concluídas (W00–W09). A próxima é a **Wave 10 — Rebalanceamento**.
 
 ✅ **O bloqueio de fundamentals foi contornado em 2026-08-18** ([ADR-020](../decisions/ADR-020-cvm-primary-fundamentals-source.md)). A fonte primária passou a ser os **dados abertos da CVM** — o arquivo entregue ao regulador, aberto, sem token, sem cota e com mais histórico do que o fornecedor dava. A **Brapi continua no projeto** fazendo a ponte que a CVM não faz: seus arquivos não têm coluna de ticker, e o `summaryProfile` (ainda gratuito) traz o CNPJ.
 
@@ -19,11 +19,11 @@ CDI e IPCA **não** são afetados: vêm do Banco Central (SGS), aberto e sem cot
 
 | | |
 |---|---|
-| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine · W08 Benchmark Engine |
-| **In Progress** | W09 Recommendation Engine — W09-001 e W09-002 feitas, W09-003 (alocação) pendente |
+| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine · W08 Benchmark Engine · W09 Recommendation Engine |
+| **In Progress** | — nenhuma; a próxima é a W10 (rebalanceamento) |
 | **Blocked** | — nenhuma |
 
-Baseline atual: `pytest` → **542 passed** (backend/.venv).
+Baseline atual: `pytest` → **596 passed** (backend/.venv).
 
 ## Completed Work (nível wave)
 
@@ -51,15 +51,24 @@ Baseline atual: `pytest` → **542 passed** (backend/.venv).
 
 - **W09-002** (2026-08-18) — **Fonte CVM + ponte Brapi**. `CvmFundamentalsProvider` lê os DFP de dados.cvm.gov.br (ZIP por exercício, cache em disco); `BrapiCnpjResolver` + `StoredCnpjResolver` resolvem ticker→CNPJ e gravam em `assets.cnpj` (migration `006`); `CompositeFundamentalsProvider` põe a CVM na frente e a Brapi atrás. **Período inteiro vem de uma fonte só** — campos nunca são misturados. Validado ao vivo com 6 exercícios da PETR4. Decisões em [ADR-020](../decisions/ADR-020-cvm-primary-fundamentals-source.md).
 
+- **W09-003** (2026-08-19) — **Ações em circulação por exercício**, do `composicao_capital` da CVM: integralizadas menos tesouraria. Destravou `pe` e `pb`, o último pilar ausente. O arquivo **não declara escala** e cerca de um terço dos declarantes escreve a contagem em milhares — a própria Petrobras alterna entre 2020 e 2021 — então a unidade é **reconciliada contra o LPA do próprio arquivo** antes de gravar, e fica ausente quando nenhuma unidade fecha. Sem isso o P/L sairia mil vezes menor e clamparia em **100** na escala invertida. LPA derivado bate com o publicado: PETR4 R$ 2,84, VALE3 7,40 contra 7,39, MGLU3 0,61.
+
+- **W09-004** (2026-08-19) — **Alocação do aporte mensal**. `app/domain/recommendations/allocation.py`, puro e determinístico, e `GET /portfolios/{id}/contribution-plan`. Ordena por **faixa de cobertura antes do score**, porque ordenar por `final_score` erra numa direção só: o pilar que sobrevive a toda lacuna é Diversification (~100 para o que a carteira não tem), então quem tem menos dado ganharia sistematicamente. Os tetos de 20%/40% são **as próprias escalas do score**, não uma segunda cópia. Todo limite é configurável (§32) e a política volta na resposta. **Nada é gravado** — o plano é derivado como as posições. Decisões em [ADR-021](../decisions/ADR-021-allocation-ranks-by-coverage-tier.md).
+
 Detalhe por task: [../history/COMPLETED_TASKS.md](../history/COMPLETED_TASKS.md).
 
 ## Current Work
 
-**W09-003 — algoritmo de alocação do aporte mensal.** Os sub-scores estão prontos e a fonte de demonstrativos voltou a funcionar.
+Nenhuma. A Wave 09 fechou; a próxima é a **Wave 10 — Rebalanceamento**.
 
 ## Next Recommended Step
 
-Antes da alocação, um passo curto e de alto retorno: **ações em circulação por período**. O mesmo arquivo DFP já traz `composicao_capital` (com ações em tesouraria), e é só isso que falta para `pe`/`pb`/`dy` — destravaria o pilar de **Valuation**, o último ainda ausente, levando a cobertura do score de 55% para 75%. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
+Duas opções, e a segunda tem retorno maior:
+
+1. **Wave 10 (rebalanceamento)** na ordem do roadmap: peso atual, peso alvo, gap.
+2. **Histórico de preços de fonte aberta (COTAHIST da B3)** — fora da ordem do roadmap, mas é o que hoje trava mais coisa ao mesmo tempo: `pe`/`pb` no banco real, o pilar de Risco, `beta`/`sharpe` com janela decente, e o backtesting inteiro da W13. É o mesmo movimento que a W09-002 fez com os fundamentals, aplicado a preços.
+
+Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ## Known Issues
 
@@ -75,7 +84,9 @@ Problemas reais, verificados no código (2026-08-18).
 6. **Lint pré-existente sujo no backend.** `ruff check` acusa findings em arquivos não tocados desde a Wave 02 (`data/models/users.py`, `daytrade.py`, `recommendations.py`, `core/logging.py`, `data/database.py`, `api/routes/health.py`, `tests/test_health.py`) — import-sorting e `Optional[X]`/`List[X]` → `X | None`/`list[X]`. Deliberadamente fora de escopo até uma task dedicada de cleanup. (`data/models/fundamentals.py` saiu da lista: foi reescrito e está limpo.)
 7. **Colunas monetárias ainda em `Float`** (dívida conhecida, conversão adiada para a wave que as usar): `intraday_prices` OHLC (W15), `portfolio_snapshots.total_value/cash_value` (W11), `investor_profiles.monthly_contribution` (W09).
 8. **`PriceSyncRequest` documenta que `end` não pode ser futura, mas o validador não verifica isso** — apenas `start <= end`.
-9. **3 dos 10 indicadores permanecem `None`** (eram 5) — `pe`/`pb`/`dy`. **`ebitda_margin` e `debt_ebitda` foram destravados em 2026-08-18** pela fonte da CVM: o fornecedor copiava `ebit` em `cleanEbitda`, enquanto a CVM permite derivar EBITDA de verdade (`EBIT + |D&A|`, com D&A em `7.04.01` da DVA). Os três restantes precisam de **ações em circulação por período** — que o próprio DFP traz em `composicao_capital`, ainda não ingerido.
+9. **1 dos 10 indicadores permanece `None`** (eram 5) — só `dy`, que precisa de dividendos por período. Caminho conhecido e não percorrido: a DMPL da CVM traz dividendos e JCP no exercício (`5.04.06`/`5.04.07`, contas fixas). Ficou fora da W09-003 porque **nenhum pilar de score consome `dy`** (regra 134).
+   - ⚠️ **`pe`/`pb` estão destravados no código e ainda ausentes no banco real** — por falta de **preço histórico**, não de contagem de ações: `_price_on_or_before` exige preço na data de referência ou antes, e o teto de 3 meses da Brapi não alcança nenhum fechamento de exercício passado. Mesma dependência que trava a W13.
+   - *Registro:* `ebitda_margin`/`debt_ebitda` destravados em 2026-08-18 (W09-002, EBITDA derivado de verdade em vez da cópia de `ebit`); `pe`/`pb` em 2026-08-19 (W09-003).
    - *Registro do estado anterior:* ~~5 dos 10 indicadores permanecem `None`~~, cada um por motivo **evidenciado** contra a API real: `pe`/`pb`/`dy` — a Brapi só expõe `sharesOutstanding` e `dividendYield` como snapshots atuais, sem data-fim de período; aplicá-los a um balanço de 2010 seria look-ahead (§108/§109). `debt_ebitda`/`ebitda_margin` — `cleanEbitda` é cópia literal de `ebit` em 16/16 períodos, não é EBITDA. **Limita os sub-scores de Valuation na Wave 09.**
 10. ~~Indicadores gravados antes da W06-003 estão errados~~ — **PENDÊNCIA ANULADA em 2026-08-18.** Nunca existiu banco: sem container, sem volume Docker, sem arquivo SQLite. Ao subir o Postgres o volume foi criado do zero e todas as tabelas vieram com **0 linhas** (`assets`, `asset_prices`, `fundamentals`, `financial_indicators`, `users`, `transactions`). Não há nada gravado para recomputar. A pendência havia sido registrada por hipótese, não por observação do estado real.
 11. **Reexpressões (restatements) de demonstrativos são invisíveis**: o primeiro valor gravado para um `reference_date` nunca é substituído. Corrigir exige schema versionado por período. (Indicadores derivados, ao contrário, podem ser recomputados — [ADR-015](../decisions/ADR-015-indicator-recomputation.md).)
@@ -90,7 +101,10 @@ Problemas reais, verificados no código (2026-08-18).
 20. **`app/data/models/__init__.py` entrou na lista de lint pré-existente** — `ruff` (I001, RUF022) e `black` já falhavam nele antes da W08 (confirmado rodando as ferramentas na versão do `HEAD`). Não corrigido por estar fora de escopo (regra 134).
 21. **Bancos e seguradoras usam plano de contas diferente no DFP.** `3.01` do Banco do Brasil é "Receitas de Intermediação Financeira", não receita de vendas, e `2.01.04` (empréstimos) pode não existir. O mapeamento aceita o que houver e deixa `None` no resto, mas os números de uma instituição financeira merecem conferência antes de virarem score. Validação feita contra PETR4 e VALE3 (industriais).
 22. **Cobertura da CVM é só companhia aberta brasileira.** FII, ETF e BDR não arquivam DFP e nunca arquivarão — para eles os pilares fundamentalistas ficam permanentemente ausentes, o que o motor de score já trata como estado normal (não como falha).
-23. **Um exercício já em cache nunca é rebaixado.** A CVM republica um ano conforme empresas corrigem; pegar a correção exige apagar o ZIP em `var/cvm/`. Deliberado — nenhum caminho de leitura dispara isso sozinho.
+23. **Ativo sem setor cadastrado não recebe aporte** (`require_sector`, padrão ligado). Um teto de setor que não pode ser avaliado não é um teto, e liberá-lo faria a regra deixar de valer justamente onde o dado é mais fraco. O conserto é um campo no ativo, e a recusa (`SECTOR_UNKNOWN`) diz isso. Configurável por requisição.
+24. **A carteira não tem caixa modelado, e a alocação depende disso.** A base dos pesos é `custo das posições + aporte`; o que os tetos não deixarem colocar volta como `unallocated` e fica implicitamente em caixa, sem registro em lugar nenhum. `portfolio_snapshots.cash_value` existe e não é usado.
+25. **A tabela `recommendations` continua sem uso, e por decisão** ([ADR-021](../decisions/ADR-021-allocation-ranks-by-coverage-tier.md)): o plano é derivado a cada leitura, como as posições. Ela também declara `suggested_amount`/`target_weight` como `Float`, o que a regra 17 proíbe para dinheiro — persistir exigiria migration antes de haver necessidade real de histórico.
+26. **Um exercício já em cache nunca é rebaixado.** A CVM republica um ano conforme empresas corrigem; pegar a correção exige apagar o ZIP em `var/cvm/`. Deliberado — nenhum caminho de leitura dispara isso sozinho.
 
 ## Inconsistências documentação × código
 
