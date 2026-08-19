@@ -40,6 +40,27 @@ class PriceSyncResponse(BaseModel):
     rejected: int
 
 
+class PriceBackfillRequest(BaseModel):
+    """Requested window to backfill from the open historical archive.
+
+    Unlike `PriceSyncRequest` there is no plan ceiling to respect: the
+    source is one file per calendar year, published openly, so the only
+    cost of a wide window is download time and disk. `start` defaults to
+    the configured first year.
+    """
+
+    start: date | None = None
+    end: date | None = None
+
+    @model_validator(mode="after")
+    def _validate_range(self) -> "PriceBackfillRequest":
+        if self.start is not None and self.end is not None and self.start > self.end:
+            raise ValueError("start date must not be after end date.")
+        if self.end is not None and self.end > datetime.now(UTC).date():
+            raise ValueError("end date must not be in the future.")
+        return self
+
+
 class QuoteResponse(BaseModel):
     """The latest quote for an asset, fetched live from the provider.
 
@@ -71,7 +92,10 @@ class AssetPriceResponse(BaseModel):
     high: Decimal
     low: Decimal
     close: Decimal
-    adjusted_close: Decimal
+    # `None` when the source that supplied the bar publishes no
+    # adjusted close - B3's COTAHIST prints traded prices (ADR-023).
+    # `source` says which one it was.
+    adjusted_close: Decimal | None
     volume: Decimal
     source: str
     created_at: datetime

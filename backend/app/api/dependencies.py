@@ -15,8 +15,14 @@ from app.integrations.benchmarks.factory import build_benchmark_provider
 from app.integrations.fundamentals.base import FundamentalsProvider
 from app.integrations.fundamentals.factory import build_fundamentals_provider
 from app.integrations.fundamentals.identity import BrapiCnpjResolver
-from app.integrations.market_data.base import MarketDataProvider
-from app.integrations.market_data.factory import build_market_data_provider
+from app.integrations.market_data.base import (
+    DailyHistoryProvider,
+    MarketDataProvider,
+)
+from app.integrations.market_data.factory import (
+    build_historical_price_provider,
+    build_market_data_provider,
+)
 
 # tokenUrl is used only for OpenAPI documentation (Swagger "Authorize" button).
 # Actual authentication is performed via the "Authorization: Bearer <token>" header.
@@ -77,6 +83,24 @@ def get_market_data_provider() -> Generator[MarketDataProvider, None, None]:
         yield provider
     finally:
         provider.close()
+
+
+def get_historical_price_provider() -> Generator[DailyHistoryProvider, None, None]:
+    """Provide the deep-history price source for a single request.
+
+    Separate from `get_market_data_provider` because the two are not
+    interchangeable. The vendor quotes and serves a short recent window
+    with adjusted closes; B3's open archive serves decades of traded
+    prices and cannot quote at all (ADR-023). A route asks for whichever
+    of the two answers its question.
+    """
+    provider = build_historical_price_provider()
+    try:
+        yield provider
+    finally:
+        close = getattr(provider, "close", None)
+        if callable(close):
+            close()
 
 
 def get_fundamentals_provider(

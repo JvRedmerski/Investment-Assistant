@@ -6,8 +6,10 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import (
     get_current_user,
     get_fundamentals_provider,
+    get_historical_price_provider,
     get_market_data_provider,
 )
+from app.core.config import settings
 from app.data.database import get_db
 from app.data.models.assets import Asset, AssetPrice
 from app.data.models.fundamentals import FinancialIndicator, Fundamental
@@ -28,21 +30,26 @@ from app.domain.fundamentals.service import (
 )
 from app.domain.market_data.schemas import (
     AssetPriceResponse,
+    PriceBackfillRequest,
     PriceSyncRequest,
     PriceSyncResponse,
     QuoteResponse,
 )
-from app.domain.market_data.service import sync_daily_history
+from app.domain.market_data.service import PriceSyncResult, sync_daily_history
 from app.integrations.fundamentals.base import FundamentalsProvider
 from app.integrations.fundamentals.exceptions import (
     FundamentalsNotFoundError,
     FundamentalsUnavailableError,
     InvalidFundamentalsResponseError,
 )
-from app.integrations.market_data.base import MarketDataProvider
+from app.integrations.market_data.base import (
+    DailyHistoryProvider,
+    MarketDataProvider,
+)
 from app.integrations.market_data.exceptions import (
     HistoryWindowTooLargeError,
     InvalidMarketDataResponseError,
+    MarketDataError,
     MarketDataUnavailableError,
     TickerNotFoundError,
 )
@@ -139,50 +146,50 @@ def sync_asset_prices(
 
     try:
         result = sync_daily_history(db, provider, asset, start, end)
-    except HistoryWindowTooLargeError as exc:
-        # The caller asked for more history than the provider plan serves.
-        # 400, not 502: the request is the thing that has to change, and the
-        # message says by how much, in the standard envelope (rule 72).
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": {
-                    "code": "MARKET_DATA_WINDOW_TOO_LARGE",
-                    "message": str(exc),
-                }
-            },
-        ) from exc
-    except TickerNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": {
-                    "code": "MARKET_DATA_TICKER_NOT_FOUND",
-                    "message": f"Provider has no data for {asset.ticker}.",
-                }
-            },
-        ) from exc
-    except MarketDataUnavailableError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "error": {
-                    "code": "MARKET_DATA_UNAVAILABLE",
-                    "message": "Market data provider is currently unavailable.",
-                }
-            },
-        ) from exc
-    except InvalidMarketDataResponseError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={
-                "error": {
-                    "code": "MARKET_DATA_INVALID_RESPONSE",
-                    "message": "Market data provider returned an unparseable response.",
-                }
-            },
-        ) from exc
+    except MarketDataError as exc:
+        raise _price_source_http_error(exc, asset.ticker) from exc
 
+    return _as_sync_response(result)
+
+
+@router.post("/{ticker}/prices/backfill", response_model=PriceSyncResponse)
+def backfill_asset_prices(
+    ticker: str,
+    payload: PriceBackfillRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    provider: DailyHistoryProvider = Depends(get_historical_price_provider),
+) -> PriceSyncResponse:
+    """Fill deep price history from the open historical archive.
+
+    The sibling endpoint (`/prices/sync`) goes to the market data vendor,
+    which quotes and adjusts but whose free plan serves a `3mo` range
+    anchored at today — about 63 sessions, and no way to page further
+    back. This one goes to B3's own published series: free, no quota, and
+    decades deep. Its bars carry no adjusted close, and that absence is
+    stored rather than faked (ADR-023).
+
+    Both write to `asset_prices` and neither overwrites a date already
+    there, so running one after the other is safe in any order.
+
+    This can take minutes on a cold cache: the unit of retrieval is one
+    file per calendar year covering every listed instrument, tens of
+    megabytes each, downloaded once and then reused.
+    """
+    asset = _get_asset_by_ticker(db, ticker)
+
+    end = payload.end or datetime.now(UTC).date()
+    start = payload.start or date(settings.B3_COTAHIST_FIRST_YEAR, 1, 1)
+
+    try:
+        result = sync_daily_history(db, provider, asset, start, end)
+    except MarketDataError as exc:
+        raise _price_source_http_error(exc, asset.ticker) from exc
+
+    return _as_sync_response(result)
+
+
+def _as_sync_response(result: PriceSyncResult) -> PriceSyncResponse:
     return PriceSyncResponse(
         ticker=result.ticker,
         start=result.start,
@@ -191,6 +198,57 @@ def sync_asset_prices(
         inserted=result.inserted,
         skipped_existing=result.skipped_existing,
         rejected=result.rejected,
+    )
+
+
+def _price_source_http_error(exc: MarketDataError, ticker: str) -> HTTPException:
+    """Translate a price source failure into the standard error envelope.
+
+    Shared by both ingestion routes so the vendor and the open archive
+    fail the same way to a caller (rule 72); only the source behind them
+    differs.
+    """
+    if isinstance(exc, HistoryWindowTooLargeError):
+        # The caller asked for more history than the provider plan serves.
+        # 400, not 502: the request is the thing that has to change, and
+        # the message says by how much.
+        return HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "code": "MARKET_DATA_WINDOW_TOO_LARGE",
+                    "message": str(exc),
+                }
+            },
+        )
+    if isinstance(exc, TickerNotFoundError):
+        return HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": {
+                    "code": "MARKET_DATA_TICKER_NOT_FOUND",
+                    "message": f"Provider has no data for {ticker}.",
+                }
+            },
+        )
+    if isinstance(exc, InvalidMarketDataResponseError):
+        return HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error": {
+                    "code": "MARKET_DATA_INVALID_RESPONSE",
+                    "message": "Market data provider returned an unparseable response.",
+                }
+            },
+        )
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail={
+            "error": {
+                "code": "MARKET_DATA_UNAVAILABLE",
+                "message": "Market data provider is currently unavailable.",
+            }
+        },
     )
 
 
