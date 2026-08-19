@@ -81,6 +81,23 @@ class Settings(BaseSettings):
     # growth indicators, which compare consecutive periods.
     CVM_FIRST_YEAR: int = 2020
 
+    # Open historical prices from B3's COTAHIST series (PRICE-001).
+    # Free, no token, no quota - and it reaches back decades, where the
+    # market data vendor's free plan stops at ~63 sessions. Delivered as
+    # one ZIP per calendar year holding every instrument B3 lists, ~79 MB
+    # for 2024, of which the spot market is under a tenth; the archive is
+    # distilled on download and cached, so a year is fetched at most once.
+    HISTORICAL_PRICE_PROVIDER: str = "b3_cotahist"
+    B3_COTAHIST_BASE_URL: str = "https://bvmf.bmfbovespa.com.br/InstDados/SerHist"
+    B3_COTAHIST_CACHE_DIR: str = "var/b3"
+    # A year archive is tens of megabytes over a link that is not fast;
+    # this is a whole-file download, not an API call, hence the minutes.
+    B3_COTAHIST_TIMEOUT_SECONDS: float = 600.0
+    B3_COTAHIST_MAX_RETRIES: int = 3
+    # Earliest calendar year to pull. Each year is another download and
+    # another few megabytes on disk once distilled.
+    B3_COTAHIST_FIRST_YEAR: int = 2015
+
     # Benchmarks (Wave 08). The CDI/IPCA/Selic come from the Banco
     # Central's SGS API, which is open, needs no token and enforces no
     # quota - but it is noticeably slower than Brapi, and a multi-decade
