@@ -17,7 +17,8 @@ backend/
 │   │   ├── security.py         hash/verify de senha (bcrypt) · create/decode de JWT (PyJWT)
 │   │   └── logging.py          setup_logging()
 │   ├── domain/                 users · portfolio · assets · market_data · fundamentals · benchmarks · recommendations
-│   │   └── <área>/             schemas.py (Pydantic) + service.py (regra de negócio)
+│   │   ├── <área>/             schemas.py (Pydantic) + service.py (regra de negócio)
+│   │   └── recommendations/    + scoring.py e allocation.py — puros, no molde do app/quant/
 │   ├── quant/                  returns.py · risk.py — puro, sem I/O, tudo em Decimal
 │   ├── integrations/
 │   │   ├── http.py             RetryingJsonClient — transporte compartilhado (retry/throttle)
@@ -27,13 +28,13 @@ backend/
 │   └── data/
 │       ├── database.py         engine · SessionLocal · Base · get_db · utc_now
 │       └── models/             users · assets · portfolio · fundamentals · benchmarks · recommendations · daytrade
-├── migrations/versions/        001_initial_schema … 005_benchmark_values
+├── migrations/versions/        001_initial_schema … 007_shares_outstanding
 ├── tests/                      plano, sem subpastas
 ├── pyproject.toml              deps + config de pytest/ruff
 └── alembic.ini
 ```
 
-**Ainda não existem** (previstos no AGENTS.md §6, waves futuras): `app/workers/`, `app/domain/recommendations/`, `app/domain/daytrade/`, `app/integrations/{intraday,ai}/`, `app/data/repositories/`.
+**Ainda não existem** (previstos no AGENTS.md §6, waves futuras): `app/workers/`, `app/domain/daytrade/`, `app/integrations/{intraday,ai}/`, `app/data/repositories/`.
 
 ### Onde o cálculo mora
 
@@ -42,6 +43,12 @@ backend/
 nunca reimplementa uma fórmula. `benchmarks/comparison.py` é o exemplo canônico: é um módulo
 de comparação que **não calcula nada**. Quando um módulo de domínio precisa de uma conta,
 a conta pertence ao `app/quant/`, e o módulo de domínio pertence à camada que a alimenta.
+
+O mesmo corte se repete **dentro** de um domínio quando a regra é grande o bastante: em
+`recommendations/`, `scoring.py` e `allocation.py` são puros e determinísticos, e `service.py`
+só carrega do banco e delega. `allocation.py` importa as constantes de teto direto das escalas
+de `scoring.py` em vez de redeclará-las — quando dois módulos precisam do mesmo limiar, um lê
+o do outro, para que não exista uma segunda cópia livre para divergir.
 
 Dentro de um domínio, cálculo puro e I/O ficam em arquivos separados — `fundamentals/indicators.py`
 (puro) contra `fundamentals/service.py` (I/O); `benchmarks/{series,comparison}.py` e

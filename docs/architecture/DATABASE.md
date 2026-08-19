@@ -20,6 +20,8 @@
   - `004_fundamentals_income_detail` — adiciona `ebit`, `income_before_tax` e `income_tax_expense` a `fundamentals`.
   - `005_benchmark_values` — cria `benchmark_values` (séries de CDI/IBOV/IPCA/Selic) em `NUMERIC(24,12)`.
   - `006_assets_cnpj` — adiciona `assets.cnpj`, o elo entre as duas fontes de demonstrativos.
+  - `007_shares_outstanding` — adiciona `fundamentals.shares_outstanding` (`NUMERIC(20,0)`), a contagem por exercício que destravou `pe` e `pb`.
+    ⚠️ O `revision` é curto de propósito: `alembic_version.version_num` é `varchar(32)`, e um id mais longo falha **depois** de o schema já ter sido aplicado.
 - Todas foram **escritas manualmente**, não por autogenerate.
 
 ```powershell
@@ -79,7 +81,7 @@ arredondada em 6 casas perde dois dígitos significativos, e o erro compõe 252 
 ### Fundamentos
 | Tabela | Campos-chave | Usada? |
 |---|---|---|
-| `fundamentals` | `asset_id`, `reference_date`, `revenue`, `ebitda`, `net_income`, `equity`, `debt`, `cash`, `free_cash_flow`, `ebit`, `income_before_tax`, `income_tax_expense` (todos nullable, `NUMERIC(24,4)`) | ✅ W06-001/003 — só demonstrativos **anuais** |
+| `fundamentals` | `asset_id`, `reference_date`, `revenue`, `ebitda`, `net_income`, `equity`, `debt`, `cash`, `free_cash_flow`, `ebit`, `income_before_tax`, `income_tax_expense` (todos nullable, `NUMERIC(24,4)`) + `shares_outstanding` (nullable, `NUMERIC(20,0)`) | ✅ W06-001/003, `shares_outstanding` na W09-003 — só demonstrativos **anuais** |
 | `financial_indicators` | `asset_id`, `reference_date`, `pe`, `pb`, `roe`, `roic`, `dy`, `debt_ebitda`, `net_margin`, `ebitda_margin`, `revenue_growth`, `profit_growth` (`Float`, deliberado — são razões, não moeda) | ✅ W06-002/003 — 5 dos 10 populados; os demais `NULL` por limitação evidenciada da fonte |
 
 ### Recomendações e Day Trade
@@ -109,6 +111,7 @@ daytrade_setups 1─1 daytrade_results (CASCADE)
 ## Convenções
 
 - **Dinheiro**: constante `MONEY = Numeric(18, 6)`, duplicada em `models/portfolio.py` e `models/assets.py`. 18 dígitos, 6 decimais — comporta quantidade fracionária e preço em BRL sem drift. `volume` fica `Float` (não é dinheiro). Em `models/fundamentals.py`, `STATEMENT_MONEY = Numeric(24, 4)`: agregados de companhia inteira precisam de mais dígitos inteiros e menos decimais. ([ADR-003](../decisions/ADR-003-decimal-money.md))
+- **Contagem de ações**: `SHARE_COUNT = Numeric(20, 0)` em `models/fundamentals.py` — não é dinheiro nem razão, é inteiro exato (nenhum arquivo da CVM de 2020 a 2025 reporta fração de ação). `NULL` ali significa que a contagem declarada **não pôde ser reconciliada** com o LPA do próprio arquivo, nunca zero ações.
 - **`NULL` ≠ zero**: em `fundamentals`, um item de linha nulo significa "não reportado"; em `financial_indicators`, significa "não computável". Nunca leia como zero nem substitua por default ([ADR-014](../decisions/ADR-014-indicator-missing-data-policy.md)).
 - **Timestamps**: `DateTime` sem timezone no banco, sempre preenchido com `utc_now()` (UTC explícito). Conversão para horário local é responsabilidade da apresentação (AGENTS.md §18).
 - **Unicidade e índices**: `uq_asset_price_date (asset_id, date)`, `uq_intraday_timestamp_timeframe (asset_id, timestamp, timeframe)`, `idx_transactions_portfolio_asset`, `idx_fundamentals_asset_refdate`, `idx_indicators_asset_refdate`, `idx_snapshot_portfolio_date`.

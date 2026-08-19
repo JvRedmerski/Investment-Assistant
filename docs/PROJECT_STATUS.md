@@ -10,15 +10,15 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 ---
 
 ## Current Phase
-- **Phase**: Wave 09 (Portfolio Recommendation Engine)
-- **Status**: 🟡 IN_PROGRESS — W09-001 e W09-002 concluídas, W09-003 (alocação) pendente
+- **Phase**: entre waves — a Wave 09 (Portfolio Recommendation Engine) fechou em 2026-08-19
+- **Status**: 🟢 W09 COMPLETED (4 tasks). Próxima wave ainda não iniciada; a escolha está em [memory/CURRENT_TASK.md](memory/CURRENT_TASK.md)
 
 ---
 
 ## Overall Progress
 - **Total Waves**: 33 (W00 a W32)
-- **Completed Waves**: 9 (W00 a W08)
-- **In Progress Waves**: 1 (W09)
+- **Completed Waves**: 10 (W00 a W09)
+- **In Progress Waves**: 0
 - **Pending Waves**: 23
 
 ---
@@ -669,7 +669,7 @@ Nenhuma tarefa bloqueada no momento.
 - ~~Verificar/aplicar `alembic upgrade head` contra um PostgreSQL real~~ — **FEITO em 2026-08-18** (W06-004): `001`→`004` aplicadas em PostgreSQL 16, após corrigir `context.is_offline()` → `is_offline_mode()` em `migrations/env.py`.
 - Resolver o drift que faz `alembic check` falhar (unique constraint + unique index duplicados em `assets.ticker` e `users.email`), para poder usá-lo como guarda de drift no CI (Wave 26).
 - Decidir o destino da ingestão de fundamentals agora que os módulos saíram do plano gratuito da Brapi: assinar o plano Startup, migrar para dados abertos da CVM, ou adiar a Wave 09.
-- Converter `intraday_prices` OHLC para `NUMERIC` na Wave 15; `portfolio_snapshots.total_value/cash_value` na Wave 11; `investor_profiles.monthly_contribution` na Wave 09 (mesma motivação da regra 17 do AGENTS.md, deliberadamente fora do escopo da correção de 2026-08-16).
+- Converter `intraday_prices` OHLC para `NUMERIC` na Wave 15 e `portfolio_snapshots.total_value/cash_value` na Wave 11 (mesma motivação da regra 17 do AGENTS.md, deliberadamente fora do escopo da correção de 2026-08-16). **`investor_profiles.monthly_contribution` perdeu o prazo**: a Wave 09 passou e não o converteu, embora agora seja o único consumidor dele — `monthly_contribution_for` lê o `float` e converte via `str` para não pegar a expansão binária. Continua `Float` no banco; a conversão não tem mais wave associada.
 - Validar `BrapiProvider` (`backend/app/integrations/market_data/brapi.py`) contra uma resposta real da API assim que houver acesso de rede — os nomes de campo (`regularMarketPrice`, `historicalDataPrice`, etc.) foram inferidos da documentação pública, não de uma chamada real.
 - Lint: `ruff check` aponta findings pré-existentes (anteriores a esta sessão) em arquivos não tocados nas Waves 03/04/05 (`app/data/models/fundamentals.py`, `users.py`, `daytrade.py`, `recommendations.py`, `app/core/logging.py`, `app/data/database.py`, `app/api/routes/health.py`, `tests/test_health.py`) — majoritariamente import-sorting e `Optional`/`List` → `X | None`/`list`. Além disso, os `__init__.py` vazios do projeto (`app/domain/__init__.py`, `app/domain/users/__init__.py`, e agora `app/integrations/__init__.py`, `app/integrations/market_data/__init__.py`) usam `""` como conteúdo, o que dispara `D419`/reformatação do `black` — padrão pré-existente replicado por consistência. Não corrigido agora por estar fora do escopo das tasks em andamento (regra 134 do AGENTS.md); considerar uma task dedicada de lint cleanup.
 
