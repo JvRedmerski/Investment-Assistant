@@ -23,6 +23,7 @@
   - `007_shares_outstanding` — adiciona `fundamentals.shares_outstanding` (`NUMERIC(20,0)`), a contagem por exercício que destravou `pe` e `pb`.
   - `008_numeric_contribution` — converte `investor_profiles.monthly_contribution` de `FLOAT` para `NUMERIC(18,6)`. Era a última coluna monetária **com consumidor** ainda em float; o alocador da W09 divide exatamente esse valor.
   - `009_drop_dup_uniques` — remove as `UniqueConstraint` redundantes de `assets.ticker` e `users.email`. A `001` criou constraint **e** índice único para a mesma coluna, enquanto o model declara só o índice — o que fazia `alembic check` acusar drift em toda execução e inutilizava a checagem como guarda em CI. A unicidade continua garantida pelo índice único.
+  - `010_nullable_adj_close` — torna `asset_prices.adjusted_close` **anulável**. `NULL` significa "esta fonte não calcula ajuste", nunca "faltou": a série COTAHIST da B3 imprime o preço negociado e não publica ajuste algum. Sob a regra anterior (`NOT NULL` + rejeição da barra, ADR-016) **toda** barra da B3 seria descartada. O invariante deixou de ser estrutural e passou a ser mantido por `app/domain/market_data/series.py`, o ponto único que constrói série de retorno — ver [ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md). O `downgrade` **apaga** as linhas sem ajuste em vez de inventar um valor.
     ⚠️ O `revision` é curto de propósito: `alembic_version.version_num` é `varchar(32)`, e um id mais longo falha **depois** de o schema já ter sido aplicado.
 - Todas foram **escritas manualmente**, não por autogenerate.
 
@@ -50,7 +51,7 @@ Agrupadas por domínio; `id` serial PK e `created_at` são universais e foram om
 | Tabela | Campos-chave | Usada? |
 |---|---|---|
 | `assets` | `ticker` (unique, index), `name`, `asset_type`, `sector`, `currency`, `is_active`, `cnpj` | ✅ |
-| `asset_prices` | `asset_id`, `date`, OHLC + `adjusted_close` (`NUMERIC`), `volume` (`Float`), `source` | ✅ |
+| `asset_prices` | `asset_id`, `date`, OHLC (`NUMERIC`), `adjusted_close` (`NUMERIC`, **anulável**), `volume` (`Float`), `source` | ✅ |
 | `intraday_prices` | `asset_id`, `timestamp`, `timeframe` (1m/5m/15m), OHLCV (`Float`) | ❌ Wave 15 |
 
 ### Benchmarks

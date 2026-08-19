@@ -6,257 +6,187 @@
 
 ## Last Completed Work
 
-### FIX-001 — Known Issues, tudo que tinha correção possível
+### Wave PRICE — Histórico de preços de fonte aberta (B3 COTAHIST)
 
-Percorridos os 26 itens da lista. **Oito foram corrigidos**, dois defeitos novos apareceram
-durante a correção, e os demais continuam abertos **com o motivo escrito** — externos ao
-projeto, deliberados, ou trabalho de wave que um remendo não substitui.
+Wave **inserida fora da ordem do roadmap**, escolhida pelo usuário entre as duas opções que a
+sessão anterior deixou registradas. Três tasks, três commits.
 
-**Corrigidos**
-
-| # | Era | Virou |
-|---|---|---|
-| 3 | `get_quote()` testado e sem endpoint | `GET /assets/{ticker}/quote`, sem gravar nada |
-| 5 | `npm run lint` chamava um `eslint` inexistente | ESLint 10 flat config + typescript-eslint + react-hooks |
-| 6, 20 | 22 findings de lint desde a W02 | `ruff` e `black` limpos no repositório inteiro |
-| 7 | `monthly_contribution` em `Float` | `NUMERIC(18,6)` (migration `008`) |
-| 8 | `end` futura documentada e não validada | validada, em UTC explícito |
-| 17 | `alembic check` sempre acusava drift | migration `009`; passa, e serve de guarda em CI |
-| 18 | `.env` relativo ao cwd, `BRAPI_TOKEN` vazio em silêncio | ancorado ao arquivo |
-| 🔴(a) | `sync_daily_history` estourava acima de 3 meses | recusa local e nomeada, com teto configurável |
-
-**O defeito que ninguém tinha visto, e é o mais grave dos dois do `range`**
-
-O item 🔴(a) documentava que janelas acima de 3 meses falhavam. Ao corrigir apareceu o irmão
-silencioso: `_brapi_range_for` escolhia o bucket pelo **tamanho da janela** (`end - start`),
-mas **todo `range` da Brapi termina em hoje** — a API não aceita data inicial. Pedir duas
-semanas do trimestre passado mandava `range=5d`, que não contém um único pregão do intervalo
-pedido, e o filtro por data depois devolvia **lista vazia, sem erro nenhum**.
-
-O sintoma documentado era o barulhento. Este é o que corromperia um backfill sem ninguém
-perceber — e note que ele estava lá desde a W05, atrás de mocks que devolviam o payload certo
-independentemente do `range` enviado.
-
-O bucket agora é medido de `start` até hoje, e o teto do plano virou configuração
-(`BRAPI_MAX_RANGE`, default `3mo`): acima dele a recusa é **local**, com
-`HistoryWindowTooLargeError` → HTTP 400 `MARKET_DATA_WINDOW_TOO_LARGE` dizendo quanto faltou,
-em vez de gastar uma requisição de cota mensal para ouvir não.
-
-**Dois defeitos que só apareceram porque a ferramenta foi ligada**
-
-Ligar o ESLint achou um import morto (`BarChart3`) no primeiro uso. E ao validar `npm run lint`
-descobriu-se que **`npm run build` também estava quebrado** — e não constava de lista nenhuma:
-`tsc` reprovava `React` importado sem uso (o transform `react-jsx` não o exige) e
-`import.meta.env` sem os tipos do `vite/client`. Ambos corrigidos; `npm run build` produz bundle.
-
-**E a imagem Docker do frontend estava quebrada, por consequência desta sessão.** Rodar
-`npm install` criou `node_modules/` no host; como **nenhum dos dois Dockerfiles tinha
-`.dockerignore`**, o `COPY . .` passou a copiar a árvore do Windows por cima da que o container
-tinha instalado, e o `eslint` de dentro da imagem tentava executar `node.exe`. Latente desde a
-W01, ativado agora. Só apareceu porque a imagem foi **construída e executada** em vez de
-declarada correta — `docker compose config` nunca pegaria isso.
-
-Junto vieram: o backend levava `.venv` e `var/cvm/` (~13 MB por exercício) para dentro da
-camada, e o `frontend/Dockerfile` pinava `node:18-alpine`, que está fora de suporte desde abril
-de 2025 e **não satisfaz o `engines` do ESLint 10** — a imagem instalaria o linter e não
-conseguiria rodá-lo. Agora: `.dockerignore` nos dois contextos, `node:20-alpine`, e **`npm ci`**
-sobre o `package-lock.json` versionado. Verificado com as imagens reconstruídas: `npm run lint`
-roda dentro do container e o backend importa.
-
-**Continuam abertos, e por quê**
-
-Nenhum por falta de tentativa. O teto de 3 meses da Brapi e o limite de 1 ativo por requisição
-são do **plano**, não do código. Proventos (e portanto `dy`) é **task de wave**, não remendo, e
-precisa antes da decisão de fonte. Restatements e demonstrativos trimestrais exigem **schema
-versionado por período** — mudança de desenho com ADR. Caixa na carteira é **W11**. As duas
-colunas `Float` que sobraram (`intraday_prices`, `portfolio_snapshots`) **não têm consumidor**:
-converter agora seria migration sem uso. Throttle em `0.0`, `require_sector` ligado, tabela
-`recommendations` vazia e cache da CVM que não se invalida são **decisões**, cada uma com o
-raciocínio no lugar. E o plano de contas de bancos no DFP exige conferir contra demonstrativo
-real de instituição financeira — validação com dado ao vivo, não alteração de código.
+O movimento é o mesmo que a W09-002 fez com os demonstrativos: trocar um fornecedor com cota por
+um arquivo público do próprio mercado. O plano gratuito da Brapi serve um `range` de `3mo`
+ancorado em hoje — cerca de 63 pregões, sem parâmetro de data inicial. A B3 publica a série
+COTAHIST aberta, sem token, sem cota, e décadas atrás.
 
 ---
 
-### DOC-001 — Inconsistências documentação × código, zeradas
+### PRICE-001 — O provider, o parser e o cache (`8491ea0`)
 
-A lista que vivia em `docs/memory/PROJECT_STATUS.md` como "registradas, **não corrigidas**"
-foi percorrida inteira. Eram **8 catalogadas**; a verificação contra o código encontrou mais
-**9**, e as 17 foram corrigidas.
+`B3CotahistProvider` + `CotahistArchive`. Um ZIP por ano civil (~79 MB), texto de posição fixa,
+245 bytes por registro, latin-1.
 
-A direção da correção foi sempre a mesma, e é a regra do CLAUDE.md §3: **o código é a fonte de
-verdade**, então quem mudou foi o documento. Nenhum arquivo `.py` ou `.tsx` foi tocado —
-`pytest` continua em 596, que é exatamente o resultado esperado.
+**A separação de interface que a task obrigou**: o COTAHIST serve histórico mas **não cota** —
+é arquivo de fim de dia. Implementá-lo como `MarketDataProvider` significaria escrever um
+`get_quote` que devolve o fechamento de ontem vestido de cotação. Então `MarketDataProvider` foi
+partido: `DailyHistoryProvider` (só histórico) e `MarketDataProvider` (histórico **+** cotação),
+o segundo herdando do primeiro. A ingestão passou a pedir o estreito, porque é só disso que ela
+precisa.
 
-O que mudou de fato:
+**Validado contra o arquivo real de 2024 antes de escrever qualquer fixture**, e duas coisas
+mudaram o código:
 
-- **`AGENTS.md`** — a árvore da §6 passou a descrever o repositório que existe, marcando
-  `(previsto)` o que pertence a waves futuras. §5.1, §7.1, §11, §67, §93, §94, §127, §131 e o
-  Wave Execution Protocol foram alinhados aos caminhos reais.
-- **Três ausências viraram declarações, não pendências**: `data/repositories/` (ADR-011),
-  `docs/waves/` e `CHANGELOG.md`. Esse era o risco concreto — uma sessão futura ler o
-  AGENTS.md, ver o diretório faltando e "consertar" criando um segundo padrão de acesso a
-  dados no meio do desenvolvimento. O ADR-011 já previa exatamente isso.
-- **`README.md`** — ganhou uma seção *Estado atual* honesta (10/33 waves, frontend em
-  **🟡 scaffold**), separou a stack em uso da declarada-e-não-importada, e deixou de
-  anunciar CI/CD que não existe e um Quant Engine em Pandas/NumPy que foi revogado.
-- **`.env.example`** — `ACCESS_TOKEN_EXPIRE_MINUTES` de `115200` (80 dias) para `11520`
-  (8 dias, o default do código), e toda a configuração das Waves 06–09 documentada.
-- **`CLAUDE.md`** — baseline de testes de 205 para 596.
-- **`docs/PROJECT_STATUS.md`** — o *Architecture Status* ainda dava o Quant Engine como
-  `NOT_STARTED`.
+1. **`FATCOT` é fator de cotação de verdade, não formalidade.** FNOR11 é cotado por **1.000**
+   ações e SMLL11 por **10** (504 registros em 2024). Os preços são divididos por ele, e a
+   normalização foi **reconciliada contra o volume financeiro do próprio registro**:
+   `VOLTOT/QUATOT` dá R$ 0,00070125 por ação no FNOR11, que só o valor normalizado alcança —
+   o cru (0,71) erra por mil. É a mesma técnica que a W09-003 usou com o LPA, e pela mesma razão:
+   um arquivo que não declara escala precisa ser conferido contra ele mesmo.
+2. **`adjusted_close` é `None`, jamais copiado do `close`.**
 
-**O achado com consequência prática**: o `.env.example` parava na Wave 05 e por isso omitia
-`MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS` e `FUNDAMENTALS_MIN_REQUEST_INTERVAL_SECONDS` —
-justamente as duas chaves que a Known Issue nº 13 manda ajustar **antes** de qualquer ingestão
-em lote, contra uma API com cota mensal. Quem copiasse o exemplo não teria como saber que os
-botões existem.
+Distilação no download: só mercado à vista (`TPMERC=010`), gzip, **14,9 MB de 79 MB**. O resto
+são opções — 89% do arquivo — que nada neste projeto lê. Ano fechado fica em cache para sempre;
+o ano corrente grava no **nome do arquivo** até onde alcança e é rebaixado quando pedem mais
+adiante, porque congelá-lo como um ano fechado pararia a série de avançar.
 
----
+### PRICE-002 — A ausência de ajuste virou dado ([ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md), `d44d183`)
 
-### Wave 09 (sessão anterior)
+Esta é a task de desenho da wave, e ela colidiu de frente com uma decisão anterior.
 
-**Wave 09 concluída** — quatro tasks. Duas já estavam entregues (W09-001, W09-002); esta
-sessão fechou as outras duas, e a segunda delas é o que a wave inteira existia para produzir.
+O **ADR-016** estabeleceu que barra sem `adjusted_close` **não é armazenada**, e estava certo:
+o fornecedor publica o ajuste um pregão depois, então rejeitar adia um dia e o sync seguinte
+insere completa. Ele até considerou tornar a coluna nula e **rejeitou**, com o argumento certo
+*para aquele caso*: espalharia tratamento de nulo por todo consumidor "em troca de guardar uma
+barra que estará completa amanhã".
 
-### W09-003 — Ações em circulação por exercício (`c1e0796`)
+**O COTAHIST quebra a última oração.** Ele não vai publicar ajuste amanhã nem nunca — é o
+registro de negociação da bolsa. Sob a regra antiga, **100% das suas barras seriam rejeitadas**,
+e o projeto descartaria décadas de histórico aberto para se proteger de um atraso que esta fonte
+não tem.
 
-Era o último insumo que faltava para `pe` e `pb`, e portanto para o pilar de **Valuation** —
-o único dos cinco ainda sem dado nenhum. O dado já estava no arquivo que o projeto **já
-baixava**: `dfp_cia_aberta_composicao_capital_{ano}.csv`, integralizadas menos tesouraria.
+A saída foi mover a semântica da ausência para a **fonte**, não para a barra:
+`reports_adjusted_close` distingue os dois casos, e o validador bifurca. ADR-016 continua valendo
+onde foi escrito, testado, com autocorreção intacta.
 
-**O que mudou o desenho da task**: o arquivo **não tem coluna de escala**, e os declarantes
-não concordam sobre a unidade. Medido nos exercícios de 2020 a 2025, cerca de **um terço
-escreve a contagem em milhares** e o resto em unidades, sem marcador nenhum — e a mesma
-empresa alterna entre um ano e outro. A Petrobras escreve `13.044.497` em 2020 e
-`13.044.496.930` em 2021.
+E a objeção dele foi **respondida, não ignorada**: `app/domain/market_data/series.py` é o **ponto
+único** que constrói série de retorno, e linha sem ajuste não entra. Os três lugares que faziam
+isso à mão (comparativo de ativo, comparativo de carteira, pilar de Risco) passam por ele.
+Nenhum consumidor lê a coluna direto.
 
-Engolir isso não daria um erro pequeno. Contagem mil vezes menor → LPA mil vezes maior →
-P/L mil vezes menor, e numa escala **invertida** o P/L absurdamente baixo **clampa em 100**.
-As leituras mais quebradas iriam para o **topo** do ranking que a alocação consome.
+**O tamanho do erro que isso evita, medido em dado real**: MGLU3 fez grupamento 1:10 em
+2024-05-27. Na série crua, R$ 1,32 → R$ 13,15 = **+896% num pregão**. Tratada como ajustada,
+essa sessão entra em `volatility`, `max_drawdown`, `beta` e `sharpe` — os quatro insumos do
+pilar de Risco. O arquivo **marca** que houve evento (`ESPECI` vira `ON  EG  NM`) e **não diz o
+tamanho**: marcador não é magnitude.
 
-Então a unidade é **reconciliada contra o LPA do próprio arquivo** (`3.99.*`, que é lido
-**cru** — `ESCALA_MOEDA` não se aplica a valor por ação, embora a linha venha marcada `MIL`).
-Aceita a unidade que fecha; ausente quando nenhuma fecha, ou quando a empresa não publica LPA.
-Tolerância larga de propósito (fator 5 para cada lado): o LPA é média ponderada do ano e por
-classe, a contagem é o total na data de fechamento — só precisa separar unidades, e 5 está
-duas ordens de grandeza longe de 1.000.
+Migration `010` aplicada em PostgreSQL 16 real, `alembic check` limpo, downgrade testado.
 
-Validado contra número público: **PETR4 dá LPA de R$ 2,84**, que é o publicado; VALE3 7,40
-contra 7,39; MGLU3 0,61. As séries reproduzem eventos societários reais — desdobramento da
-WEGE3 em 2021, bonificação da PSSA3, grupamento da MGLU3 em 2024.
+### PRICE-003 — O backfill, e a validação que a wave existia para produzir (`7f86cf8`)
 
-### W09-004 — Alocação do aporte mensal ([ADR-021](../decisions/ADR-021-allocation-ranks-by-coverage-tier.md))
+`POST /assets/{ticker}/prices/backfill`, ao lado do `/prices/sync` que vai ao fornecedor. Ambos
+escrevem em `asset_prices`, nenhum sobrescreve data gravada, então compõem em qualquer ordem. A
+tradução de erro que os dois compartilham foi **extraída, não copiada**.
 
-`app/domain/recommendations/allocation.py`, puro e determinístico, e
-`GET /portfolios/{id}/contribution-plan`.
+Contra o banco real, que tinha PETR4 com 6 exercícios da CVM e `asset_prices` **vazia**:
 
-- **Ordena por faixa de cobertura antes do score.** Ordenar por `final_score` é o desenho
-  óbvio e erra **numa direção só**: os pilares que somem são os fundamentalistas, e o que
-  sobrevive a toda lacuna é Diversification, que vale ~100 para o que a carteira ainda não
-  tem. Um ativo sem demonstrativo chega com score alto feito dos dois pilares que nunca
-  estiveram em dúvida. Piso de 0,50, faixas de 0,25 — dentro da faixa o score decide, entre
-  faixas nunca.
-- **Os tetos de 20%/40% são as próprias escalas do score** (`ASSET_WEIGHT_SCALE.at_zero`),
-  não uma segunda cópia livre para divergir.
-- **Todo limite é configurável** (§32) e a política volta dentro da resposta.
-- **Nada é gravado**: o plano é derivado a cada leitura, como as posições.
-- Toda exclusão tem motivo nomeado (`COVERAGE_BELOW_MINIMUM`, `ASSET_LIMIT_REACHED`, …) e
-  toda alocação diz qual regra a limitou (`limited_by`) e quanto de folga havia.
+```
+backfill 2020–2025 → 1.495 pregões inseridos, 0 rejeitados (383 s a frio)
+```
+
+`pe` e `pb` eram `None` nos seis exercícios:
+
+| exercício | P/L | P/VP | LPA |
+|---|---|---|---|
+| 2020-12-31 | 52,01 | 1,20 | R$ 0,54 |
+| 2021-12-31 | 3,48 | 0,96 | R$ 8,18 |
+| **2022-12-31** | **1,70** | 0,88 | R$ 14,44 |
+| 2023-12-31 | 3,87 | 1,27 | R$ 9,63 |
+| **2024-12-31** | **12,74** | **1,27** | R$ 2,84 |
+| 2025-12-31 | 3,61 | 0,96 | R$ 8,54 |
+
+2024 fecha contra número público: LPA R$ 2,84 sobre fechamento de R$ 36,19 dá 12,74; patrimônio
+por ação de R$ 28,40 dá 1,27. E o P/L de **1,70 em 2022** é o que o mercado de fato viu no ano
+dos lucros recordes da Petrobras — difícil de acertar por acidente.
+
+São fechamentos **não ajustados**, e é exatamente o certo aqui: múltiplo *point-in-time* casa o
+preço cotado então com o lucro reportado então. `_price_on_or_before` sempre leu `close`.
+
+**Efeito no score, sem uma linha alterada em `scoring.py`:**
+
+```
+PETR4  final 92,86  cobertura 0,75  (era 0,55)
+  quality 97,8 | valuation 93,5 | growth 76,7 | risk None | diversification 100
+```
+
+O pilar de **Valuation** — o único dos cinco que nunca tinha tido dado — saiu de ausente para
+93,5.
 
 ## Current State
 
-- `pytest` → **617 passed** (596 + 21 novos). `ruff check .` e `black --check .` limpos no
-  **repositório inteiro** — a primeira vez desde a Wave 02.
-- `alembic check` **passa** (sem drift); `npm run lint` e `npm run build` **passam**.
-- **Documentação e código estão alinhados**: a seção *Inconsistências documentação × código*
-  do `PROJECT_STATUS.md` da memória está zerada, e agora registra o que foi corrigido.
-- **Wave 09 🟢 concluída.** 10 de 33 waves.
-- **PostgreSQL 16 no ar, schema `009`**, com CDI/IPCA/IBOV e 6 exercícios da PETR4 pela CVM,
-  agora com contagem de ações.
-- **`asset_prices` está vazia.**
+- `pytest` → **672 passed** (617 → 646 → 660 → 672). `ruff check .` e `black --check .` limpos
+  no repositório inteiro. `alembic check` sem drift.
+- **PostgreSQL 16 no ar, schema `010`**, com **1.495 pregões da PETR4** em `asset_prices`, todos
+  `source='b3_cotahist'` e `adjusted_close` **NULL**.
+- **Cache do COTAHIST em `backend/var/b3/`** (gitignored) com 2020–2025, ~15 MB por ano.
+- **Wave PRICE 🟢 concluída**, inserida entre a W09 e a W10.
 
 ## Important Details
 
-### O resultado medido no banco real, e o que ele revela
+### O que continua ausente, e por que é decisão e não esquecimento
 
-```
-PETR4: score 92,63  cobertura 0,55
-  quality 97,8 | valuation None | growth 76,7 | risk None | diversification 100
-plano: aporte R$ 1.000 → R$ 200 na PETR4 (limitado pelo teto de 20%), R$ 800 sem destino
-```
+**O pilar de Risco.** Não é falta de preço — são 1.495 pregões no banco. É falta de **série de
+retorno total**. Métrica de risco exige que o retorno inclua provento e desconte desdobramento;
+o COTAHIST não dá nem um nem outro. A cobertura do score para em **0,75** por isso.
 
-Duas leituras importantes:
+Isso **não** é remendável na leitura. As alternativas foram enumeradas no ADR-023 e todas
+rejeitadas por motivo nomeado — inclusive derivar o ajuste da contagem de ações da CVM, que o
+projeto já ingere: ela é **anual**, e um desdobramento precisa da **data** do evento.
 
-1. **`pe`/`pb` estão destravados no código e continuam ausentes no banco** — por falta de
-   **preço histórico**, não de contagem de ações. `_price_on_or_before` exige preço na data
-   de referência ou antes, e o teto de 3 meses da Brapi não alcança nenhum fechamento de
-   exercício passado. Mesma causa do `risk` ausente.
-2. **R$ 800 sem destino é a resposta correta**, não uma falha: com um único ativo acompanhado,
-   o teto de 20% não deixa R$ 1.000 caber. O plano reporta em vez de forçar.
+A correção é a montante, e é a mesma pendência do `dy`: **ingerir eventos societários e
+proventos**. Uma ingestão fecha `dy`, o pilar de Risco, a cobertura e o backtesting da W13.
 
-### O defeito que o teste escrito à mão pegou desta vez
+### O engano fácil de cometer aqui
 
-`MAX_POSITIONS = 3` tornava o **primeiro** aporte estruturalmente inexecutável. Na carteira
-vazia a base **é** o próprio aporte, então o teto de 20% vale R$ 200 por ativo — três fatias
-deixariam R$ 400 parados, todo mês, por meses. Corrigido para **5**, que é
-`1 / MAX_ASSET_WEIGHT` e não é coincidência: uma carteira no teto em toda posição tem
-exatamente cinco.
-
-O erro não estava na aritmética; estava em escolher dois números que não podiam valer ao
-mesmo tempo. Só apareceu porque o caso "carteira vazia" foi escrito como teste em vez de
-assumido como trivial.
+`asset_prices` deixou de estar vazia, mas **a carteira ainda não é valorável**: o índice
+time-weighted valoriza posição em `adjusted_close` ([ADR-019](../decisions/ADR-019-portfolio-return-is-time-weighted.md)),
+e as 1.495 linhas têm `adjusted_close` nulo. O que destravou foi múltiplo *point-in-time*, que
+lê `close`. São coisas diferentes e a distinção é o assunto inteiro do ADR-023.
 
 ### Lições de método desta sessão
 
-- **Validar contra número público de novo pagou.** O LPA da Petrobras (R$ 2,84) é
-  difícil de acertar por acidente com a contagem errada, e foi ele que expôs a bagunça de
-  unidades do `composicao_capital` — que nenhuma validação de schema pegaria, porque todos
-  os valores são inteiros válidos.
-- **A fonte aberta ensina o que o mock nunca ensinaria**, de novo: um arquivo sem coluna de
-  escala, com um terço dos declarantes numa unidade e dois terços em outra.
-- **Cobertura só vira defeito quando alguém age sobre o ranking.** No `scoring.py` ela era um
-  aviso no docstring; na alocação ela decide para onde vai dinheiro, e o viés tem direção
-  conhecida.
+- **Reconciliar o arquivo contra ele mesmo pagou de novo.** O `FATCOT` seria fácil de ignorar —
+  502 registros em 320 mil, e todos os preços parecem válidos. Foi o `VOLTOT/QUATOT` do próprio
+  registro que provou qual normalização está certa, sem depender de fonte externa nenhuma.
+- **A fonte aberta ensinou de novo o que o mock não ensinaria**: o grupamento da MGLU3 não foi
+  um caso inventado para o teste — apareceu sozinho, como um `range` de `[1,32; 14,42]` numa
+  listagem de sanidade que eu estava fazendo por outro motivo.
+- **Um ADR anterior estar certo não impede a premissa dele de expirar.** O ADR-016 não foi
+  revogado nem contornado: a premissa ("estará completa amanhã") foi identificada, e a decisão
+  passou a ser condicionada à fonte. Vale reler o ADR-023 antes de mexer em `adjusted_close`.
+- **O teste do Windows pegou um defeito real**: o caminho de 404 apagava o arquivo temporário
+  **enquanto ele estava aberto**, o que no Windows é `PermissionError` — um ano ausente virava
+  erro fatal em vez de ser pulado. Só apareceu porque o teste exercitou o 404 de verdade.
 
 ## Pending Work
 
 **Nenhuma task em andamento.** A decisão da próxima está em [CURRENT_TASK.md](CURRENT_TASK.md):
-Wave 10 (rebalanceamento, a ordem do roadmap) ou **histórico de preços de fonte aberta
-(COTAHIST da B3)**, fora da ordem — que é a recomendação, porque é o que hoje trava mais coisa
-ao mesmo tempo: `pe`/`pb` no banco real, o pilar de Risco, `beta`/`sharpe` com janela decente
-e o backtesting inteiro da W13.
+**eventos societários e proventos** (recomendado, pelo motivo acima) ou **Wave 10,
+rebalanceamento**, na ordem do roadmap.
 
-**A lista de Known Issues foi varrida em 2026-08-19** (FIX-001) e o que sobrou está em
-[PROJECT_STATUS.md](PROJECT_STATUS.md), cada item com o motivo de continuar aberto. Resumindo o
-que **não** tem correção possível hoje:
-
-- **Externo ao projeto**: teto de 3 meses no `range` da Brapi e 1 ativo por requisição.
-- **Task de wave, não remendo**: ingestão de proventos — e portanto `dy` — precisa antes da
-  decisão de fonte (a DMPL da CVM, `5.04.06`/`5.04.07`, é o caminho conhecido).
-- **Mudança de desenho com ADR**: restatements invisíveis e demonstrativos trimestrais, ambos
-  exigindo schema versionado por período.
-- **Território da W11**: caixa modelado na carteira.
-- **Sem consumidor**: as duas colunas `Float` que restam (`intraday_prices`,
-  `portfolio_snapshots`) — converter agora seria migration sem uso.
-- **Decisões, não pendências**: throttle em `0.0` por default, `require_sector` ligado, tabela
-  `recommendations` vazia, cache da CVM que não se invalida sozinho.
-- **Validação com dado ao vivo**: o plano de contas de bancos e seguradoras no DFP precisa ser
-  conferido contra demonstrativo real de instituição financeira.
-
-E uma dependência de dado, que é a mais estruturante: **`pe`/`pb` e o pilar de Risco continuam
-ausentes no banco real por falta de preço histórico**, não por falta de código.
+A lista de Known Issues em [PROJECT_STATUS.md](PROJECT_STATUS.md) foi atualizada: o item 2
+(`pe`/`pb`) fechou, **nasceu o 2b** (pilar de Risco, com o motivo e o remendo proibido escritos),
+e o item 8 ganhou o aviso de que a wave PRICE **não** o resolveu.
 
 ## Next Step
 
-Ler [CURRENT_TASK.md](CURRENT_TASK.md) e escolher entre as duas opções ali. Se for a Wave 10,
-ler também `docs/roadmap.md` §22 e `AGENTS.md` §34 — e note que **peso-alvo não existe em
-lugar nenhum** hoje, que é a pergunta de verdade da wave.
+Ler [CURRENT_TASK.md](CURRENT_TASK.md) e escolher. Se for proventos/eventos societários, ler
+antes o [ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md) — ele já
+enumera as fontes candidatas e por que cada alternativa mais barata foi rejeitada.
 
 ## Relevant Files
 
-- `backend/app/domain/recommendations/allocation.py` — o alocador, puro
-- `backend/app/domain/recommendations/{scoring,service,schemas}.py`
-- `backend/app/integrations/fundamentals/cvm.py` — inclui a reconciliação de unidade
-- `backend/tests/test_contribution_allocation.py` — 28 testes com valores à mão
-- `backend/tests/test_contribution_plan_routes.py` — 13 testes ponta a ponta
-- `docs/decisions/ADR-021-allocation-ranks-by-coverage-tier.md`
+- `backend/app/integrations/market_data/cotahist.py` — provider, arquivo, parser, cache
+- `backend/app/integrations/market_data/base.py` — a separação `DailyHistoryProvider` / `MarketDataProvider`
+- `backend/app/domain/market_data/series.py` — o ponto único da série de retorno
+- `backend/migrations/versions/010_nullable_adj_close.py`
+- `backend/tests/test_cotahist_provider.py` — 29 testes, registros reais verbatim
+- `backend/tests/test_unadjusted_price_history.py` — 14 testes, as duas leituras da ausência
+- `backend/tests/test_price_backfill_routes.py` — 12 testes ponta a ponta
+- `docs/decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md`

@@ -29,9 +29,9 @@ O produto final deve responder: *Como está minha carteira? Estou batendo o CDI?
 - CRUD de carteiras, escopadas por usuário.
 - Ledger de transações (`BUY`, `SELL`, `DIVIDEND`, `DEPOSIT`, `WITHDRAWAL`).
 - Motor de posições consolidadas derivado do ledger (quantidade, preço médio, P&L realizado, dividendos) — determinístico, custo médio móvel.
-- Integração de market data abstraída (`MarketDataProvider` / `BrapiProvider`), ingestão de histórico diário OHLCV com cache local e validação de qualidade de dados.
+- Integração de market data abstraída, com **duas fontes que respondem perguntas diferentes**: o fornecedor (`MarketDataProvider` / `BrapiProvider`) cota ao vivo e ajusta, mas serve ~63 pregões no plano gratuito; a **série COTAHIST da B3** (`DailyHistoryProvider` / `B3CotahistProvider`) é aberta, sem cota, e vai décadas atrás. Ingestão diária idempotente com cache local e validação de qualidade.
 - Ingestão de demonstrativos financeiros anuais (`FundamentalsProvider` / `BrapiFundamentalsProvider`), com validação de qualidade e política point-in-time.
-- Indicadores fundamentalistas derivados: as 10 fórmulas estão implementadas e testadas. **9 têm insumo** com a fonte da CVM; só `dy` continua sem, por falta de dividendos por período. `pe` e `pb` dependem também de **preço histórico**, que hoje não existe no banco — ver Known Issues em [PROJECT_STATUS.md](PROJECT_STATUS.md).
+- Indicadores fundamentalistas derivados: as 10 fórmulas estão implementadas e testadas. **9 têm insumo**, e desde a ingestão do COTAHIST **`pe` e `pb` existem no banco real** (PETR4: P/L 12,74 e P/VP 1,27 em 2024). Só `dy` continua sem, por falta de proventos por período — ver Known Issues em [PROJECT_STATUS.md](PROJECT_STATUS.md).
 - **Quant Engine** puro e determinístico: retorno (diário a anual, YTD, CAGR) e risco (volatilidade, max drawdown, beta, Sharpe, Sortino). Sem I/O, inteiramente em `Decimal`.
 - **Benchmarks**: CDI, IPCA e Selic pelo Banco Central (SGS, aberto e sem cota) e IBOV pelo provedor de market data, atrás de interface abstrata. Ingestão idempotente, com rejeição de período ainda não encerrado.
 - **Comparativo carteira × benchmark**: a carteira vira um índice **time-weighted** (valor de cota) derivado do ledger, o que neutraliza aportes e a torna comparável a um índice. Responde "estou batendo o CDI?" com retorno, excesso, volatilidade, drawdown, beta, Sharpe e Sortino.
@@ -41,8 +41,15 @@ O produto final deve responder: *Como está minha carteira? Estou batendo o CDI?
 
 - **Alocação do aporte mensal** — a resposta a "onde colocar o próximo R$ 1.000". Ordena por **faixa de cobertura antes do score**, porque ordenar por score puro favorece sistematicamente quem tem menos dado; respeita tetos por ativo e por setor lidos das próprias escalas do score; todo limite é configurável; e cada exclusão e cada corte de valor vêm com motivo nomeado. Nada é gravado — o plano é derivado, como as posições.
 
+- **Preço não ajustado é armazenado como não ajustado.** `close` é o que o mercado imprimiu;
+  `adjusted_close` é o preço de retorno total, e **`NULL` significa "esta fonte não calcula
+  ajuste"** — nunca um valor copiado do `close`. Um único ponto de passagem garante que linha sem
+  ajuste não entre em série de retorno. É o que permite ter décadas de preço aberto sem
+  contaminar volatilidade, drawdown e beta com desdobramentos
+  ([ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md)).
+
 ### Em desenvolvimento
-- Nenhuma wave em andamento. A Wave 09 fechou em 2026-08-19; a próxima decisão está em [CURRENT_TASK.md](CURRENT_TASK.md).
+- Nenhuma wave em andamento. A wave **PRICE** (histórico de preços aberto) fechou em 2026-08-19; a próxima decisão está em [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ### Planejado (não existe código)
 Rebalanceamento → Dashboard → AI Engine → Backtesting/Walk-forward → Day Trade (intraday, setups, risco, paper trading) → Observabilidade/Segurança/CI-CD/Deploy.

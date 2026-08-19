@@ -10,7 +10,7 @@ backend/
 ├── app/
 │   ├── main.py                 App FastAPI, CORS, exception handler global, registro de routers
 │   ├── api/
-│   │   ├── dependencies.py     get_current_user · get_{market_data,fundamentals,benchmark}_provider
+│   │   ├── dependencies.py     get_current_user · get_{market_data,historical_price,fundamentals,benchmark}_provider
 │   │   └── routes/             health · auth · assets · portfolios · benchmarks
 │   ├── core/
 │   │   ├── config.py           Settings (pydantic-settings, lê .env) → singleton `settings`
@@ -22,7 +22,7 @@ backend/
 │   ├── quant/                  returns.py · risk.py — puro, sem I/O, tudo em Decimal
 │   ├── integrations/
 │   │   ├── http.py             RetryingJsonClient — transporte compartilhado (retry/throttle)
-│   │   ├── market_data/        base · schemas · exceptions · brapi · factory · data_quality
+│   │   ├── market_data/        base · schemas · exceptions · brapi · cotahist · factory · data_quality
 │   │   ├── fundamentals/       base · schemas · exceptions · factory · brapi · cvm · identity · composite
 │   │   └── benchmarks/         base · schemas · exceptions · bcb · brapi_index · factory
 │   └── data/
@@ -75,6 +75,35 @@ HTTP → CORSMiddleware
 
 ### 1. Toda integração externa atrás de uma interface abstrata
 `integrations/<área>/base.py` define a ABC; `factory.py` escolhe a implementação a partir de `settings.<X>_PROVIDER`; `dependencies.py` expõe como `Depends`. Domínio e rotas **só** conhecem o tipo abstrato. Testes substituem via `app.dependency_overrides` — nunca mockam `httpx`. (AGENTS.md §21, [ADR-004](../decisions/ADR-004-market-data-provider-abstraction.md))
+
+### Duas fontes de preço, duas interfaces
+
+`market_data/base.py` define **duas** ABCs, e a separação não é cerimônia: `DailyHistoryProvider`
+serve barras diárias fechadas; `MarketDataProvider` herda dela e acrescenta a cotação ao vivo.
+
+A série COTAHIST da B3 é arquivo de fim de dia — ela **não cota**, e implementar `get_quote` ali
+significaria devolver o fechamento de ontem com carimbo de agora. Por isso `B3CotahistProvider`
+implementa só a interface estreita, e `sync_daily_history` pede só ela: ingestão precisa de barras
+fechadas e de mais nada.
+
+Duas propriedades declaradas pela fonte atravessam o sistema:
+
+- **`reports_adjusted_close`** — decide o que um `adjusted_close` ausente significa. Fornecedor
+  que ajusta: "ainda não publicou", a barra é rejeitada e entra completa no sync seguinte
+  (ADR-016). Fonte que nunca ajusta: a barra é gravada com `NULL`
+  ([ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md)).
+- **`source_name`** — gravado em cada linha de `asset_prices`. Com duas fontes na mesma tabela e
+  só uma delas ajustando, uma linha que não diz de onde veio não é interpretável.
+
+### O ponto único da série de retorno
+
+`app/domain/market_data/series.py` é o **único** lugar que transforma linha de `asset_prices` em
+`PricePoint`, e ele descarta linha sem `adjusted_close`. Nenhum consumidor lê a coluna direto.
+
+É isso que torna a coluna nula segura: sem esse ponto de passagem, cada chamador teria que lembrar
+de filtrar, e esquecer significaria alimentar o `app.quant` com preço bruto — em que um
+desdobramento aparece como uma sessão de centenas de por cento. Se você precisar de série de
+retorno, chame `adjusted_price_points` / `adjusted_closes_by_asset`; não monte a sua.
 
 A resiliência HTTP não é reescrita por provedor: `integrations/http.py` (`RetryingJsonClient`) concentra timeout, retry limitado, backoff e throttle, recebendo as classes de exceção de cada integração. Um provedor concreto escreve apenas URL e parsing. ([ADR-012](../decisions/ADR-012-shared-http-transport.md))
 

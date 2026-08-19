@@ -227,9 +227,66 @@ A prova de que o desenho da W09-001 estava certo veio duas vezes, medida no banc
 ingerir a CVM levou Quality e Growth de ausentes para 97,8 e 76,7, e a contagem de ações
 destravou Valuation — **as duas vezes sem uma linha alterada em `scoring.py`**.
 
-Achado registrado, **não** resolvido: `pe`/`pb` estão destravados no código e continuam
+Achado registrado, **não** resolvido na wave: `pe`/`pb` estão destravados no código e continuam
 ausentes no banco real por falta de **preço histórico**, não de contagem de ações. É a mesma
 restrição do teto de 3 meses da Brapi, que também deixa o pilar de Risco ausente.
+→ **Resolvido na wave PRICE**, abaixo.
+
+---
+
+## Wave PRICE — Histórico de preços de fonte aberta (B3 COTAHIST) 🟢
+
+> **Inserida fora da ordem do roadmap**, entre a W09 e a W10, por decisão do usuário entre as
+> duas opções que a sessão anterior deixou registradas. Mesmo movimento da W09-002 aplicado a
+> preços: trocar um fornecedor com cota por um arquivo público do próprio mercado.
+
+**PRICE-001 — o provider, o parser e o cache**
+
+- `B3CotahistProvider` + `CotahistArchive` sobre a série COTAHIST (um ZIP por ano civil, ~79 MB,
+  posição fixa, 245 bytes por registro, latin-1)
+- **`MarketDataProvider` foi partido**: `DailyHistoryProvider` (só histórico) e
+  `MarketDataProvider` (histórico **+** cotação). Arquivo de fim de dia não cota, e fingir que
+  cota seria devolver o fechamento de ontem com carimbo de agora
+- Filtros que decidem o que é uma barra: `TIPREG=01` e `TPMERC=010` (mercado à vista)
+- **`FATCOT` normalizado para uma ação**, validado contra o `VOLTOT/QUATOT` do próprio registro:
+  FNOR11 é cotado por 1.000 ações, SMLL11 por 10
+- Arquivo **destilado** no download (só à vista, gzip: 14,9 MB de 79 MB); ano fechado em cache
+  permanente, ano corrente rebaixado quando a série precisa avançar
+- +29 testes, de registros reais copiados verbatim do arquivo de 2024
+
+**PRICE-002 — a ausência de ajuste virou dado**
+([ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md), emenda ao ADR-016)
+
+- `asset_prices.adjusted_close` passou a aceitar `NULL` (migration `010`)
+- A semântica da ausência pertence à **fonte** (`reports_adjusted_close`): "ainda não publicou"
+  continua sendo rejeição (ADR-016 intacto); "nunca publica" é gravado
+- `app/domain/market_data/series.py` — **ponto único** de construção de série de retorno; os três
+  lugares que faziam isso à mão passam por ele. É o que responde a objeção do ADR-016 contra a
+  coluna nula
+- Cada linha grava de qual fonte veio
+- +14 testes (total 660)
+
+**PRICE-003 — o backfill, e a validação contra o banco real**
+
+- `POST /assets/{ticker}/prices/backfill`, sem teto de janela, convivendo com `/prices/sync`
+- Tradução de erro compartilhada pelas duas rotas, **extraída em vez de copiada**
+- +12 testes (total 672)
+
+**Resultado da wave: 🟢 concluída.** Medido no PostgreSQL real, que tinha `asset_prices` vazia:
+
+```
+backfill PETR4 2020–2025 → 1.495 pregões, 0 rejeitados
+pe/pb: None nos 6 exercícios → P/L 12,74 e P/VP 1,27 em 2024, P/L 1,70 em 2022
+score: cobertura 0,55 → 0,75; pilar de Valuation de ausente → 93,5
+```
+
+Terceira vez que o desenho da W09-001 se paga: **nenhuma linha de `scoring.py` foi alterada**.
+
+Pendência deixada explícita, **não** resolvida: o pilar de **Risco** continua ausente, e por
+decisão. Métrica de risco exige série de retorno total, e a bolsa publica preço negociado. O
+remendo proibido está medido em dado real — o grupamento 1:10 da MGLU3 vale **+896% num pregão**
+na série crua. A correção é a montante: ingerir eventos societários e proventos, que é a mesma
+ingestão que destrava o `dy`.
 
 ---
 

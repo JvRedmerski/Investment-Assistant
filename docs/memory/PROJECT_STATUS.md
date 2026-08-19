@@ -6,12 +6,30 @@
 
 ## Current Phase
 
-**Wave 09 concluída** (2026-08-19): sub-scores, fonte CVM, ações em circulação e alocação do aporte.
-10 de 33 waves concluídas (W00–W09). A próxima é a **Wave 10 — Rebalanceamento**.
+**Wave PRICE concluída** (2026-08-19): histórico de preços de fonte aberta (COTAHIST da B3).
+Wave **inserida fora da ordem do roadmap**, por decisão registrada em
+[CURRENT_TASK.md](CURRENT_TASK.md) da sessão anterior — era o que travava mais coisa ao mesmo
+tempo. 10 de 33 waves do roadmap concluídas (W00–W09), mais esta.
+
+✅ **Duas travas caíram**: `pe`/`pb` existem no banco real (P/L de 12,74 e P/VP de 1,27 para a
+PETR4 em 2024, conferidos contra número público) e a cobertura do score foi de **0,55 para
+0,75**, com o pilar de Valuation saindo de ausente para 93,5 — **sem uma linha alterada em
+`scoring.py`**.
+
+⚠️ **Uma trava continua, e agora por decisão explícita**: o pilar de **Risco** segue ausente.
+O COTAHIST imprime preço **negociado** e não publica série ajustada. Métrica de risco exige
+retorno total, e preencher `adjusted_close` com o `close` produziria o grupamento 1:10 da MGLU3
+como uma sessão de **+896%** dentro de `volatility`, `max_drawdown`, `beta` e `sharpe`
+([ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md)). A correção é a
+montante: ingerir eventos societários e proventos.
 
 ✅ **O bloqueio de fundamentals foi contornado em 2026-08-18** ([ADR-020](../decisions/ADR-020-cvm-primary-fundamentals-source.md)). A fonte primária passou a ser os **dados abertos da CVM** — o arquivo entregue ao regulador, aberto, sem token, sem cota e com mais histórico do que o fornecedor dava. A **Brapi continua no projeto** fazendo a ponte que a CVM não faz: seus arquivos não têm coluna de ticker, e o `summaryProfile` (ainda gratuito) traz o CNPJ.
 
-⚠️ **Restrição externa que permanece**: o `range` da Brapi está limitado a `3mo` (HTTP 400, `INVALID_RANGE`) e é **relativo a hoje**, sem parâmetro de data inicial — não há como paginar histórico. Teto absoluto de ~63 pregões para preços de ações e para o IBOV. Já quebra `sync_daily_history` em janelas acima de 3 meses e limita a W13.
+⚠️ **Restrição externa que permanece, mas deixou de ser estruturante**: o `range` da Brapi
+continua limitado a `3mo` e relativo a hoje. Desde a wave PRICE isso **não trava mais o
+histórico**, que vem da B3 de graça e cobre décadas. A Brapi segue necessária para **cotação ao
+vivo** e para o `adjusted_close` das sessões recentes — as duas coisas que o arquivo de fim de
+dia da bolsa não dá.
 
 CDI e IPCA **não** são afetados: vêm do Banco Central (SGS), aberto e sem cota.
 
@@ -19,11 +37,11 @@ CDI e IPCA **não** são afetados: vêm do Banco Central (SGS), aberto e sem cot
 
 | | |
 |---|---|
-| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine · W08 Benchmark Engine · W09 Recommendation Engine |
-| **In Progress** | — nenhuma; a próxima é a W10 (rebalanceamento) |
+| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine · W08 Benchmark Engine · W09 Recommendation Engine · **PRICE Open Price History** (inserida) |
+| **In Progress** | — nenhuma; ver [CURRENT_TASK.md](CURRENT_TASK.md) |
 | **Blocked** | — nenhuma |
 
-Baseline atual: `pytest` → **617 passed** (backend/.venv). `ruff check .` e `black --check .` limpos no repositório inteiro; `alembic check` sem drift; `npm run lint` e `npm run build` funcionando.
+Baseline atual: `pytest` → **672 passed** (backend/.venv). `ruff check .` e `black --check .` limpos no repositório inteiro; `alembic check` sem drift; `npm run lint` e `npm run build` funcionando.
 
 ## Completed Work (nível wave)
 
@@ -55,18 +73,52 @@ Baseline atual: `pytest` → **617 passed** (backend/.venv). `ruff check .` e `b
 
 - **W09-004** (2026-08-19) — **Alocação do aporte mensal**. `app/domain/recommendations/allocation.py`, puro e determinístico, e `GET /portfolios/{id}/contribution-plan`. Ordena por **faixa de cobertura antes do score**, porque ordenar por `final_score` erra numa direção só: o pilar que sobrevive a toda lacuna é Diversification (~100 para o que a carteira não tem), então quem tem menos dado ganharia sistematicamente. Os tetos de 20%/40% são **as próprias escalas do score**, não uma segunda cópia. Todo limite é configurável (§32) e a política volta na resposta. **Nada é gravado** — o plano é derivado como as posições. Decisões em [ADR-021](../decisions/ADR-021-allocation-ranks-by-coverage-tier.md).
 
+- **PRICE-001** (2026-08-19) — **Histórico de preços aberto da B3**. `B3CotahistProvider` +
+  `CotahistArchive` lêem a série COTAHIST (um ZIP por ano civil, ~79 MB, posição fixa, 245 bytes
+  por registro). Implementa a nova interface estreita `DailyHistoryProvider`, **não**
+  `MarketDataProvider`: arquivo de fim de dia não cota. Validado contra o arquivo real de 2024
+  antes de qualquer fixture, e duas descobertas mudaram o código. (a) **`FATCOT` é fator de
+  cotação de verdade** — FNOR11 é cotado por 1.000 ações e SMLL11 por 10; os preços são divididos
+  por ele e o resultado **reconcilia contra o volume financeiro do próprio registro**
+  (`VOLTOT/QUATOT`), técnica idêntica à do LPA na W09-003. (b) **`adjusted_close` é `None`,
+  nunca copiado do `close`.** O arquivo é destilado no download (só mercado à vista, gzip:
+  14,9 MB de 79 MB) porque 89% dele são opções que nada aqui lê.
+
+- **PRICE-002** (2026-08-19) — **A ausência de ajuste virou dado, não erro**
+  ([ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md), emenda ao
+  ADR-016). `asset_prices.adjusted_close` passou a aceitar `NULL` (migration `010`), e a
+  semântica da ausência pertence à **fonte**: `reports_adjusted_close` distingue "o fornecedor
+  ainda não publicou" (rejeita, ADR-016 intacto) de "esta fonte nunca publica" (grava com
+  `NULL`). A objeção que o ADR-016 levantou contra a coluna nula — espalhar tratamento de nulo
+  por todo consumidor — foi **respondida, não ignorada**: `app/domain/market_data/series.py` é o
+  **ponto único** que constrói série de retorno, e os três lugares que faziam isso à mão passam
+  por ele. Cada linha agora também grava de qual fonte veio.
+
+- **PRICE-003** (2026-08-19) — **`POST /assets/{ticker}/prices/backfill`**, e a validação que a
+  wave existia para produzir. Backfill real de 2020–2025 da PETR4: **1.495 pregões, 0 rejeitados**.
+  `pe` e `pb` eram `None` nos 6 exercícios e passaram a ser reais — P/L de **12,74** em 2024
+  (LPA R$ 2,84 sobre fechamento de R$ 36,19) e **1,70** em 2022, que é o que o mercado de fato
+  viu no ano dos lucros recordes. São fechamentos **não ajustados**, e é exatamente o certo aqui:
+  múltiplo *point-in-time* casa o preço cotado então com o lucro reportado então.
+
 Detalhe por task: [../history/COMPLETED_TASKS.md](../history/COMPLETED_TASKS.md).
 
 ## Current Work
 
-Nenhuma. A Wave 09 fechou; a próxima é a **Wave 10 — Rebalanceamento**.
+Nenhuma. A wave PRICE fechou.
 
 ## Next Recommended Step
 
-Duas opções, e a segunda tem retorno maior:
-
-1. **Wave 10 (rebalanceamento)** na ordem do roadmap: peso atual, peso alvo, gap.
-2. **Histórico de preços de fonte aberta (COTAHIST da B3)** — fora da ordem do roadmap, mas é o que hoje trava mais coisa ao mesmo tempo: `pe`/`pb` no banco real, o pilar de Risco, `beta`/`sharpe` com janela decente, e o backtesting inteiro da W13. É o mesmo movimento que a W09-002 fez com os fundamentals, aplicado a preços.
+1. **Eventos societários e proventos** (recomendado). Uma ingestão fecha quatro pendências de
+   uma vez: `dy` (o último dos 10 indicadores ainda `None`), o **pilar de Risco**, a cobertura
+   do score (0,75 → 1,00) e o backtesting da W13. O preço bruto **já está no banco** — a série
+   ajustada é derivável dele mais os eventos, sem rebaixar nada. Caminho conhecido para
+   proventos: DMPL da CVM (`5.04.06`/`5.04.07`), mesma infraestrutura de arquivo anual que já
+   existe. Para desdobramento/grupamento a fonte ainda precisa ser decidida — o COTAHIST
+   **marca** o evento (`ESPECI` → `EG`/`EDJ`/`EB`) mas não dá o fator.
+2. **Wave 10 (rebalanceamento)**, na ordem do roadmap. Mais defensável do que era — os ativos
+   têm valor de mercado e Valuation deixou de ser ausente — mas o score que ela consome ainda
+   tem o pilar de Risco vazio.
 
 Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
@@ -100,12 +152,22 @@ aberto.
    CVM (`5.04.06`/`5.04.07`) é o caminho conhecido.
 2. **1 dos 10 indicadores permanece `None`** (eram 5): só `dy`, que depende exatamente da
    ingestão do item 1. **Nenhum pilar de score consome `dy`** hoje (regra 134).
-   - ⚠️ **`pe`/`pb` estão destravados no código e ainda ausentes no banco real** — por falta de
-     **preço histórico**, não de contagem de ações: `_price_on_or_before` exige preço na data de
-     referência ou antes, e o teto de 3 meses da Brapi não alcança nenhum fechamento de exercício
-     passado. Mesma dependência que trava a W13.
+   - ✅ **`pe`/`pb` deixaram de ser hipotéticos e existem no banco real** desde a wave PRICE
+     (2026-08-19): 6 exercícios da PETR4, P/L de 12,74 e P/VP de 1,27 em 2024. Faltava **preço
+     histórico**, e ele agora vem do COTAHIST.
    - *Registro:* `ebitda_margin`/`debt_ebitda` destravados em 2026-08-18 (W09-002, EBITDA
-     derivado de verdade em vez da cópia de `ebit`); `pe`/`pb` em 2026-08-19 (W09-003).
+     derivado de verdade em vez da cópia de `ebit`); `pe`/`pb` no código em 2026-08-19 (W09-003)
+     e **no banco** no mesmo dia (PRICE-003).
+
+2b. 🔴 **O pilar de Risco continua ausente, e agora é a pendência de maior retorno do projeto.**
+   Não é falta de preço — são **1.495 pregões** no banco. É falta de **série de retorno total**:
+   o COTAHIST publica o preço negociado e nenhum ajuste, então `volatility`, `max_drawdown`,
+   `beta` e `sharpe` ficam `None` e a cobertura do score para em **0,75**.
+   **Não remende com `adjusted_close = close`** — medido em dado real, o grupamento 1:10 da
+   MGLU3 em 2024-05-27 aparece como **+896% num pregão**
+   ([ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md)).
+   A correção é ingerir **eventos societários e proventos**, que é o mesmo trabalho do item 1 —
+   uma ingestão fecha `dy`, o pilar de Risco, a cobertura e o backtesting da W13.
 3. **Reexpressões (restatements) de demonstrativos são invisíveis**: o primeiro valor gravado
    para um `reference_date` nunca é substituído. Corrigir exige schema versionado por período —
    mudança de desenho com ADR, não correção pontual. (Indicadores derivados, ao contrário, podem
@@ -132,6 +194,11 @@ aberto.
    valorada; quando pode — o caso normal — não há distorção. As alternativas seriam fabricar um
    fechamento (regra 44), esconder movimento real, ou descartar o histórico após uma lacuna.
    **A correção verdadeira é a montante**: ingerir os preços faltantes.
+   - ⚠️ **A wave PRICE não resolveu isto**, e é importante não se enganar: o índice da carteira
+     valoriza posição em `adjusted_close` ([ADR-019](../decisions/ADR-019-portfolio-return-is-time-weighted.md)),
+     e as 1.495 linhas do COTAHIST têm `adjusted_close` nulo. Elas destravam múltiplo
+     *point-in-time* (que lê `close`), não a valorização da carteira. Mesma dependência do
+     item 2b.
 9. **Bancos e seguradoras usam plano de contas diferente no DFP.** `3.01` do Banco do Brasil é
    "Receitas de Intermediação Financeira", não receita de vendas, e `2.01.04` pode não existir.
    O mapeamento aceita o que houver e deixa `None` no resto. Fechar isso exige **conferir contra
@@ -230,7 +297,8 @@ Encontradas **durante** esta varredura e corrigidas junto:
 
 ## Important Context
 
-- **Ambiente**: Windows + PowerShell. Virtualenv em `backend/.venv` — invoque como `.venv\Scripts\python.exe -m pytest`. **PostgreSQL 16 no ar via Docker**, schema `009` (migrations `001`…`009_drop_dup_uniques`), com dado real: benchmarks (CDI, IPCA, IBOV) e 6 exercícios de demonstrativos da PETR4 pela CVM. `asset_prices` continua **vazia**.
-- **Há rede de saída** neste ambiente (a Wave 05 foi implementada sem ela — daí a lacuna nº 1, já resolvida). A W08 chamou BCB e Brapi ao vivo. O SGS do Banco Central é aberto e sem cota; a Brapi tem cota mensal e aceita 1 ativo por requisição.
+- **Ambiente**: Windows + PowerShell. Virtualenv em `backend/.venv` — invoque como `.venv\Scripts\python.exe -m pytest`. **PostgreSQL 16 no ar via Docker**, schema `010` (migrations `001`…`010_nullable_adj_close`), com dado real: benchmarks (CDI, IPCA, IBOV), 6 exercícios de demonstrativos da PETR4 pela CVM **com `pe`/`pb` calculados**, e **`asset_prices` com 1.495 pregões da PETR4** (2020-01-02 a 2025-12-30, `source='b3_cotahist'`, `adjusted_close` NULL em todas).
+- **Há rede de saída** neste ambiente (a Wave 05 foi implementada sem ela — daí a lacuna nº 1, já resolvida). A W08 chamou BCB e Brapi ao vivo; a wave PRICE baixou arquivos reais da B3. **Três das quatro fontes são abertas e sem cota** (BCB/SGS, CVM, B3); só a Brapi tem cota mensal e aceita 1 ativo por requisição.
+- **Cache do COTAHIST em `backend/var/b3/`** (gitignored), ~15 MB por ano já destilado, com 2020–2025 baixados. Um ano frio custa ~79 MB de download e ~90 s.
 - **Testes rodam contra SQLite in-memory compartilhado** (`tests/conftest.py`), com `app.dependency_overrides` para `get_db`, `get_market_data_provider` e `get_benchmark_provider`. **Nenhum teste toca rede ou Postgres** — as chamadas ao vivo da W08 foram feitas em scripts de validação avulsos, não na suíte.
 - **A regra mais estruturante do projeto**: posições nunca são armazenadas — sempre derivadas do ledger de transações (AGENTS.md §16, ADR-002). Não crie tabela de posições.

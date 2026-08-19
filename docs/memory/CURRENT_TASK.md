@@ -2,8 +2,12 @@
 
 ## Task
 
-**Nenhuma em andamento.** A **Wave 09 fechou** em 2026-08-19, com quatro tasks:
-sub-scores, fonte CVM, ações em circulação e alocação do aporte.
+**Nenhuma em andamento.** A wave **PRICE — Histórico de preços de fonte aberta (B3 COTAHIST)**
+fechou em 2026-08-19, com três tasks: o provider, o armazenamento da ausência de ajuste, e o
+endpoint de backfill validado contra o banco real.
+
+Era a opção 2 da decisão registrada aqui na sessão anterior — fora da ordem do roadmap, de
+propósito, porque era o que travava mais coisa ao mesmo tempo. Duas das quatro travas caíram.
 
 ## Status
 
@@ -11,84 +15,90 @@ sub-scores, fonte CVM, ações em circulação e alocação do aporte.
 
 ---
 
+## O que a wave PRICE entregou, e o que ela deliberadamente não entregou
+
+| trava de antes | estado agora |
+|---|---|
+| `pe` / `pb` no banco real | ✅ **resolvido** — 6 exercícios da PETR4 com P/L e P/VP reais |
+| cobertura do score | ✅ **0,55 → 0,75**; o pilar de Valuation saiu de ausente para 93,5 |
+| pilar de **Risk** | ❌ **continua ausente**, e por decisão ([ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md)) |
+| `beta` com janela decente | ❌ mesma causa |
+| **Wave 13** (backtesting) | ⚠️ tem preço bruto de anos; falta série de retorno total |
+
+**Por que Risk continua ausente, e por que isso está certo:** o COTAHIST imprime o preço
+**negociado**, e não publica série ajustada — não é atraso, é a natureza do arquivo. Métrica de
+risco exige retorno total. Preencher `adjusted_close` com o `close` produziria, em dado real, o
+grupamento 1:10 da MGLU3 como uma sessão de **+896%** dentro de `volatility`, `max_drawdown`,
+`beta` e `sharpe`. A ausência é gravada como ausência, e o score já trata isso como estado normal.
+
+---
+
 ## A decisão a tomar antes de começar
 
-Duas opções, e a segunda está fora da ordem do roadmap de propósito.
+### Opção 1 — Eventos societários e proventos (**recomendada**)
 
-### Opção 1 — Wave 10, Rebalanceamento (a ordem do roadmap)
+É agora a peça que destrava mais coisa, e a wave PRICE deixou isso explícito em vez de
+implícito. Uma única ingestão fecha quatro pendências:
 
-`docs/roadmap.md` §22, AGENTS.md §34. Calcular `current_weight`, `target_weight`,
-`weight_gap` e priorizar ativos abaixo do alvo, com score adequado, sem violar restrição.
-
-Boa parte da infraestrutura existe: `PortfolioExposure` já dá peso por ativo e por setor,
-`allocation.py` já tem tetos e política configurável, e o motor de score já é relativo à
-carteira. O que falta de verdade é a definição de **peso-alvo**, que hoje não existe em
-lugar nenhum — e é exatamente a pergunta que a wave tem que responder.
-
-### Opção 2 — Histórico de preços de fonte aberta (COTAHIST da B3)
-
-Fora da ordem, mas é o que **hoje trava mais coisa ao mesmo tempo**:
-
-| trava hoje | por quê |
+| destrava | como |
 |---|---|
-| `pe` / `pb` no banco real | `_price_on_or_before` exige preço na data de referência ou antes; não há nenhum |
-| pilar de **Risk** | sem série, `volatility`, `max_drawdown`, `beta` e `sharpe` são todos `None` |
-| cobertura do score | com Risk ausente, o teto prático é 0,75, e o piso da alocação é 0,50 |
-| `beta` estatisticamente útil | ~63 pregões é uma janela pobre |
-| **Wave 13 inteira** (backtesting) | precisa de anos |
+| `dy` | é o **último** dos 10 indicadores ainda `None` (Known Issue nº 1 e nº 2) |
+| pilar de **Risk** | permite construir a série ajustada sobre o preço bruto que já está no banco |
+| cobertura do score | 0,75 → **1,00** |
+| **Wave 13** inteira | backtesting precisa de retorno total, não de preço bruto |
 
-É o mesmo movimento que a W09-002 fez com os demonstrativos: trocar um fornecedor com cota
-por um arquivo público do próprio mercado. A B3 publica o COTAHIST por ano, em layout de
-posição fixa — parecido em espírito com os ZIPs da CVM, e a infraestrutura de cache em disco
-(`CvmArchive`) é um molde pronto.
+O caminho conhecido para proventos é a **DMPL da CVM** (`5.04.06`/`5.04.07`) — mesma
+infraestrutura de arquivo anual que a W09-002 e a W09-003 já usam. Para desdobramento e
+grupamento falta decidir a fonte: o COTAHIST **marca** o evento (`ESPECI` vira `EG`, `EDJ`, `EB`;
+`DISMES` incrementa) mas **não dá o fator** — marcador não é magnitude.
 
-**Recomendação**: a opção 2. Sem preço histórico, o rebalanceamento da W10 nasceria sobre a
-mesma carteira sem valor de mercado e sobre scores com o pilar de Risco ausente.
+⚠️ Note que o preço bruto **já está gravado e não precisa ser rebaixado**: a série ajustada é
+derivável dele mais os eventos.
+
+### Opção 2 — Wave 10, Rebalanceamento (a ordem do roadmap)
+
+`docs/roadmap.md` §22, AGENTS.md §34. `current_weight`, `target_weight`, `weight_gap`.
+Boa parte da infraestrutura existe (`PortfolioExposure`, `allocation.py`, score relativo à
+carteira); o que falta de verdade é a definição de **peso-alvo**, que não existe em lugar nenhum
+— e é a pergunta da wave.
+
+Agora é uma opção mais defensável do que era: os ativos passam a ter valor de mercado e
+Valuation deixou de ser ausente. Mas o score que o rebalanceamento consome ainda tem o pilar de
+Risco vazio.
 
 ---
 
 ## O que já está pronto — não reimplemente
 
-- `app/domain/recommendations/scoring.py` — cinco pilares decomponíveis, ausência de
-  primeira classe, fórmula versionada.
-- `app/domain/recommendations/allocation.py` — política configurável, faixas de cobertura,
-  tetos lidos das escalas do score, motivo nomeado para toda exclusão. **Puro.**
-- `app/domain/recommendations/service.py` — `score_universe`, `plan_contribution`,
-  `build_exposure` (peso **e** valor por ativo e por setor).
-- `app/quant/{returns,risk}.py`, `app/domain/benchmarks/`, `app/domain/portfolio/performance.py`.
-- `app/integrations/fundamentals/{cvm,identity,composite}.py` — demonstrativos da CVM,
-  incluindo contagem de ações por exercício com a unidade reconciliada.
+- `app/integrations/market_data/cotahist.py` — `B3CotahistProvider` + `CotahistArchive`
+  (download em streaming, destilação para mercado à vista, cache por ano).
+- `app/integrations/market_data/base.py` — `DailyHistoryProvider` (histórico) separado de
+  `MarketDataProvider` (histórico **+** cotação), com `reports_adjusted_close` e `source_name`.
+- `app/domain/market_data/series.py` — **ponto único** que transforma linha em `PricePoint`.
+  Toda série de retorno passa por aqui, e linha sem ajuste não entra.
+- `app/domain/recommendations/{scoring,allocation,service}.py`, `app/quant/{returns,risk}.py`,
+  `app/domain/benchmarks/`, `app/integrations/fundamentals/`.
 
-## Endpoints da Wave 09
+## Endpoints da wave PRICE
 
-- `GET /portfolios/{id}/scores`
-- `GET /portfolios/{id}/contribution-plan` — aceita override de todo limite por query param.
+- `POST /assets/{ticker}/prices/backfill` — histórico profundo pelo arquivo aberto da B3.
+  Sem teto de janela. Convive com `POST /assets/{ticker}/prices/sync` (fornecedor): ambos
+  escrevem em `asset_prices` e **nenhum sobrescreve data já gravada**.
 
 ---
 
 ## Estado do ambiente (verificado 2026-08-19)
 
-- **PostgreSQL 16 no ar**, schema em `009`, com dado real: CDI (252 pregões), IPCA (31 meses),
-  IBOV (63 pregões), e **PETR4 com 6 exercícios de demonstrativos da CVM, com
-  `shares_outstanding`**. `docker compose up -d postgres` se estiver parado.
-- **`asset_prices` está vazia** — é por isso que o pilar de Risk e os múltiplos `pe`/`pb`
-  aparecem ausentes numa consulta ao banco real. Não é defeito do código.
-- Alembic do host precisa da URL sobrescrita (o `.env` aponta para o host `postgres` da rede Docker):
+- **PostgreSQL 16 no ar**, schema em **`010`**. `docker compose up -d postgres` se estiver parado.
+- **`asset_prices` deixou de estar vazia**: **1.495 pregões da PETR4, 2020-01-02 a 2025-12-30**,
+  todos com `source='b3_cotahist'` e `adjusted_close` **NULL** — que é o desenho, não uma falha.
+- PETR4 com 6 exercícios da CVM, `shares_outstanding`, e agora **`pe`/`pb` preenchidos**.
+- **Cache do COTAHIST em `backend/var/b3/`** (gitignored), ~15 MB por ano destilado, com
+  2020–2025 já baixados. Um ano frio custa ~90 s e ~79 MB de download.
+- Alembic do host precisa da URL sobrescrita:
   `DATABASE_URL="postgresql://investment_user:investment_pass_dev@localhost:5432/investment_assistant" .venv/Scripts/python.exe -m alembic upgrade head`
-- ⚠️ **`alembic_version.version_num` é `varchar(32)`** — um `revision` mais longo que isso
-  falha **depois** de aplicar o schema. Por isso os nomes curtos (`009_drop_dup_uniques`).
-- ✅ **`alembic check` passa** desde a migration `009` — pode ser usado como guarda de drift.
-- ✅ **Rodar Python de `backend/` carrega o `.env` da raiz** desde 2026-08-19; `BRAPI_TOKEN`
-  não fica mais vazio em silêncio.
-- **Cache da CVM em `backend/var/cvm/`** (gitignored), ~13 MB por exercício. Já tem 2020–2026.
-- **Frontend**: `npm install` já foi rodado (`node_modules/` existe, gitignored);
-  `npm run lint` e `npm run build` passam. **`package-lock.json` é versionado** e o
-  `Dockerfile` usa `npm ci` sobre ele.
-- **Imagens Docker reconstruídas e testadas** (2026-08-19): frontend em `node:20-alpine`
-  (o ESLint 10 não roda em Node 18), backend inalterado. Ambos os contextos agora têm
-  `.dockerignore` — sem ele o `COPY . .` levava `node_modules`/`.venv`/`var/cvm` do host
-  para dentro da imagem.
-- 🔴 **A Brapi limita o `range` a 3 meses** no plano gratuito, e o `range` é relativo a hoje —
-  não há histórico de preços além de ~63 pregões. `sync_daily_history` **não quebra mais** com
-  erro opaco acima disso: recusa localmente com `MARKET_DATA_WINDOW_TOO_LARGE` (HTTP 400) e o
-  teto é configurável em `BRAPI_MAX_RANGE`. A limitação em si continua sendo do plano.
+- ✅ `alembic check` passa (sem drift). `pytest` → **672 passed**. `ruff`/`black` limpos no
+  repositório inteiro.
+- 🔴 O teto de `3mo` da Brapi **continua existindo**, mas deixou de ser a restrição
+  estruturante: o histórico profundo agora vem da B3, de graça. A Brapi segue necessária para
+  **cotação ao vivo** e para o `adjusted_close` das sessões recentes.

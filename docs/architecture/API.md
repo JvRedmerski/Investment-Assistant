@@ -67,7 +67,8 @@ Códigos em uso: `INVALID_CREDENTIALS`, `ASSET_NOT_FOUND`, `ASSET_ALREADY_EXISTS
 | GET | `""` | lista global, ordenada por ticker (assets não são escopados por usuário) |
 | GET | `/{ticker}` | 404 se não cadastrado |
 | POST | `/{ticker}/prices/sync` | chama a API externa; body `{start?, end?}`, default últimos 30 dias até hoje (UTC); `end` não pode ser futura; resposta traz `fetched/inserted/skipped_existing/rejected`. Janela além do teto do plano → **400 `MARKET_DATA_WINDOW_TOO_LARGE`** ([ADR-022](../decisions/ADR-022-provider-plan-limits-are-refused-locally.md)) |
-| GET | `/{ticker}/prices` | lê **só** do banco; query `start`/`end` opcionais |
+| POST | `/{ticker}/prices/backfill` | histórico **profundo** pela série COTAHIST aberta da B3; body `{start?, end?}`, `start` default `B3_COTAHIST_FIRST_YEAR`. **Sem teto de janela** — a fonte é um arquivo por ano civil, sem cota. Bars vêm **sem `adjusted_close`** e a ausência é gravada ([ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md)). Convive com `/prices/sync`: ambos escrevem em `asset_prices` e **nenhum sobrescreve data já gravada**, então compõem em qualquer ordem. Pode levar minutos com cache frio |
+| GET | `/{ticker}/prices` | lê **só** do banco; query `start`/`end` opcionais. `adjusted_close` pode ser `null` — ver `source` para saber qual fonte forneceu a linha |
 | GET | `/{ticker}/quote` | cotação atual, **ao vivo** no provedor; nada é gravado (cotação é um momento, `asset_prices` guarda pregão fechado). Exige o ativo cadastrado, para que um typo não gaste requisição de cota mensal |
 | POST | `/{ticker}/fundamentals/sync` | chama a API externa; sem body; ingere demonstrativos **anuais**; mesma resposta de contagens |
 | GET | `/{ticker}/fundamentals` | lê **só** do banco; query `start`/`end` filtram `reference_date`; itens de linha não reportados vêm `null` |
