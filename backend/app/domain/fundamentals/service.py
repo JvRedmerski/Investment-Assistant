@@ -103,6 +103,7 @@ def sync_annual_statements(
                 ebit=statement.ebit,
                 income_before_tax=statement.income_before_tax,
                 income_tax_expense=statement.income_tax_expense,
+                shares_outstanding=statement.shares_outstanding,
             )
         )
         # Guard against a provider returning the same period twice across
@@ -244,6 +245,7 @@ def _inputs_from(db: Session, asset: Asset, statement: Fundamental) -> Indicator
         ebit=statement.ebit,
         income_before_tax=statement.income_before_tax,
         income_tax_expense=statement.income_tax_expense,
+        shares_outstanding=statement.shares_outstanding,
         price=_price_on_or_before(db, asset.id, statement.reference_date),
     )
 

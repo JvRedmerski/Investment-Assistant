@@ -25,7 +25,12 @@ from app.integrations.fundamentals.schemas import (
 # negative for a distressed company), and `free_cash_flow` (routinely
 # negative for companies in a heavy investment cycle). Rejecting those
 # would discard real, meaningful data.
-_NON_NEGATIVE_FIELDS = ("revenue", "debt", "cash")
+#
+# `shares_outstanding` is here because a negative count is not a company
+# in trouble, it is a broken filing: the 2022 archive holds one with
+# treasury shares recorded as a negative number, and the 2021 one holds a
+# company whose treasury count exceeds its issued capital.
+_NON_NEGATIVE_FIELDS = ("revenue", "debt", "cash", "shares_outstanding")
 
 
 @dataclass

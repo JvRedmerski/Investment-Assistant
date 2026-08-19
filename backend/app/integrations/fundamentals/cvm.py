@@ -86,6 +86,44 @@ that company chose to call non-recurring. It is the unadjusted
 arithmetic, identical across every filer, which is what makes it
 comparable.
 
+## Shares outstanding, and the unit the file forgets to state
+
+`composicao_capital` carries the share count per fiscal year — which is
+the whole reason P/L and P/VP can be computed at all, since the vendor
+only ever published a present-day snapshot with no period attached
+(rules 108/109). Outstanding is `QT_ACAO_TOTAL_CAP_INTEGR` less
+`QT_ACAO_TOTAL_TESOURO`: treasury shares receive no dividend and hold no
+claim on earnings, so counting them would understate EPS.
+
+That file has **no `ESCALA_MOEDA` column**, and filers do not agree on a
+unit. Measured across the 2020-2025 archives, roughly a third write the
+count in thousands and the rest in units, with no marker distinguishing
+them — and companies switch between filings. Petrobras is one: its 2020
+file says `13,044,497` and its 2021 file says `13,044,496,930`, the same
+count a thousand times apart.
+
+Taken at face value, that error is not a small one. A count a thousand
+times too low makes EPS a thousand times too high, which makes P/L a
+thousand times too low, which on the inverted valuation scale clamps to
+a **perfect score**. The most broken readings would sort to the top of
+any ranking built on them.
+
+So the unit is not assumed, it is reconciled against the filing itself.
+The income statement reports earnings per share at `3.99.*`, in reais
+per share, and `net_income / EPS` gives an independent count. The filed
+number is accepted in whichever unit reconciles with it, and where
+neither does — or where the filing reports no EPS to check against —
+`shares_outstanding` stays `None`. An absent Valuation pillar is a state
+the scoring engine handles as normal; a valuation built on a
+thousand-fold error is not.
+
+The tolerance is deliberately loose (a factor of five either way),
+because the two counts are not the same quantity: EPS uses the weighted
+average over the year and is reported per share class, while the filed
+count is the total at the period end. It only has to be tight enough to
+tell one unit from another, and a factor of five is two orders of
+magnitude clear of a factor of a thousand.
+
 ## Free cash flow is not derived
 
 The cash flow statement gives net investing activity (`6.02`), not
@@ -143,6 +181,12 @@ BALANCE_LIABILITIES = "BPP_con"
 INCOME = "DRE_con"
 VALUE_ADDED = "DVA_con"
 
+#: The share count file. Not a statement: it has no account codes, no
+#: `ORDEM_EXERC` and no currency scale, and holds one row per company.
+CAPITAL_COMPOSITION = "composicao_capital"
+SHARES_ISSUED_COLUMN = "QT_ACAO_TOTAL_CAP_INTEGR"
+SHARES_TREASURY_COLUMN = "QT_ACAO_TOTAL_TESOURO"
+
 #: `CD_CONTA` codes, one per figure. See the table in the module
 #: docstring for how each was verified.
 REVENUE = "3.01"
@@ -157,6 +201,28 @@ DEBT_CURRENT = "2.01.04"
 DEBT_NON_CURRENT = "2.02.01"
 CASH = "1.01.01"
 DEPRECIATION = "7.04.01"
+
+#: Earnings per share, in reais per share. Every account under this
+#: prefix is one: `3.99.01.01`/`3.99.01.02` are basic EPS per share
+#: class, `3.99.02.*` diluted, and the shorter codes are the headers
+#: above them. Used only to reconcile the unit of the share count.
+#:
+#: ⚠️ These carry `ESCALA_MOEDA` like every other row and it does **not**
+#: apply to them: Petrobras' 2024 basic EPS reads `2.84` on a row marked
+#: `MIL`, and R$ 2.84 is the figure the company published. Read raw.
+EARNINGS_PER_SHARE_PREFIX = "3.99"
+
+#: The two units filers write share counts in. There is no third: every
+#: count in the 2020-2025 archives reconciles at one of these or at
+#: neither.
+SHARE_COUNT_UNITS = (Decimal(1), Decimal(1000))
+
+#: How far the filed count may sit from the one its own EPS implies and
+#: still be accepted. Wide because the two are different quantities —
+#: year-end total against weighted average per class — and it only has to
+#: separate units, not verify a figure. See the module docstring.
+SHARE_COUNT_TOLERANCE_LOW = Decimal("0.2")
+SHARE_COUNT_TOLERANCE_HIGH = Decimal(5)
 
 
 class CvmArchive:
@@ -320,6 +386,7 @@ class CvmFundamentalsProvider(FundamentalsProvider):
                 liabilities = _company_rows(archive, BALANCE_LIABILITIES, year, cnpj)
                 assets = _company_rows(archive, BALANCE_ASSETS, year, cnpj)
                 value_added = _company_rows(archive, VALUE_ADDED, year, cnpj)
+                capital = _capital_row(archive, year, cnpj)
         except zipfile.BadZipFile as exc:
             raise InvalidFundamentalsResponseError(
                 f"CVM archive for {year} is not a readable ZIP: {exc}"
@@ -331,19 +398,19 @@ class CvmFundamentalsProvider(FundamentalsProvider):
 
         ebit = _amount(income, EBIT)
         depreciation = _amount(value_added, DEPRECIATION)
+        net_income = _amount(income, NET_INCOME_OWNERS) or _amount(
+            income, NET_INCOME_CONSOLIDATED
+        )
 
         return FinancialStatement(
             reference_date=reference_date,
             revenue=_amount(income, REVENUE),
             ebitda=_ebitda(ebit, depreciation),
-            net_income=(
-                _amount(income, NET_INCOME_OWNERS)
-                # A company with no minority interests may report only the
-                # consolidated line. Falling back is safe there and only
-                # there, because the two are equal when there is nothing
-                # to attribute elsewhere.
-                or _amount(income, NET_INCOME_CONSOLIDATED)
-            ),
+            # A company with no minority interests may report only the
+            # consolidated line. Falling back is safe there and only
+            # there, because the two are equal when there is nothing to
+            # attribute elsewhere.
+            net_income=net_income,
             equity=_equity(liabilities),
             debt=_sum(liabilities, DEBT_CURRENT, DEBT_NON_CURRENT),
             cash=_amount(assets, CASH),
@@ -351,6 +418,9 @@ class CvmFundamentalsProvider(FundamentalsProvider):
             ebit=ebit,
             income_before_tax=_amount(income, INCOME_BEFORE_TAX),
             income_tax_expense=_amount(income, INCOME_TAX),
+            shares_outstanding=_shares_outstanding(
+                capital, income, net_income, reference_date
+            ),
         )
 
 
@@ -400,6 +470,30 @@ def _company_rows(
 
     latest = max(_version(row) for row in rows)
     return [row for row in rows if _version(row) == latest]
+
+
+def _capital_row(
+    archive: zipfile.ZipFile, year: int, cnpj: str
+) -> dict[str, str] | None:
+    """The company's share count row, or `None` if it filed none.
+
+    A different shape from the statement files and read separately for
+    that reason: one row per company rather than one per account, no
+    `ORDEM_EXERC` and no `CD_CONTA`. `VERSAO` still applies, and the
+    archives hold exactly one row per company per year, so taking the
+    highest version is a guard rather than a filter.
+    """
+    name = f"dfp_cia_aberta_{CAPITAL_COMPOSITION}_{year}.csv"
+    try:
+        raw = archive.read(name)
+    except KeyError:
+        return None
+
+    reader = csv.DictReader(io.StringIO(raw.decode("latin-1")), delimiter=";")
+    rows = [row for row in reader if row.get("CNPJ_CIA") == cnpj]
+    if not rows:
+        return None
+    return max(rows, key=_version)
 
 
 def _version(row: dict[str, str]) -> int:
@@ -481,6 +575,117 @@ def _equity(rows: list[dict[str, str]]) -> Decimal | None:
         return None
     minority = _amount(rows, EQUITY_MINORITY)
     return total if minority is None else total - minority
+
+
+def _shares_outstanding(
+    capital: dict[str, str] | None,
+    income: list[dict[str, str]],
+    net_income: Decimal | None,
+    reference_date: date,
+) -> Decimal | None:
+    """Shares in circulation at the period end, in the unit the filing meant.
+
+    Issued capital less treasury, then reconciled against the earnings
+    per share the same filing reports — because `composicao_capital`
+    states no scale and filers use two different ones. The module
+    docstring has the evidence; the short version is that a third of
+    filings write the count in thousands, unmarked, and swallowing that
+    would produce a P/L a thousand times too low, which scores as the
+    cheapest share on the exchange.
+
+    `None` whenever the count cannot be trusted, which covers four real
+    cases seen in the archives:
+
+    - no row filed, or the count columns empty;
+    - a count of zero, or treasury exceeding issued capital (nine
+      companies across 2020-2025), which is arithmetic that describes no
+      company;
+    - a filing with no EPS to check the unit against;
+    - a count that reconciles at neither unit — six to seventeen filings
+      a year, whose two figures simply contradict each other.
+
+    Absent, never approximated (rule 44). The Valuation pillar already
+    treats an absent input as a first-class state.
+    """
+    if capital is None:
+        return None
+    if (capital.get("DT_REFER") or "").strip() != reference_date.isoformat():
+        # The count would be attached to a period it does not describe.
+        # Never observed in 2020-2025, where the two dates agree for
+        # every company in the file, but silently mis-dating a figure is
+        # exactly what rule 109 exists to prevent.
+        return None
+
+    issued = _count(capital, SHARES_ISSUED_COLUMN)
+    treasury = _count(capital, SHARES_TREASURY_COLUMN)
+    if issued is None or treasury is None:
+        return None
+    filed = issued - treasury
+    if filed <= 0:
+        return None
+
+    implied = _implied_share_count(income, net_income)
+    if implied is None:
+        return None
+
+    for unit in SHARE_COUNT_UNITS:
+        ratio = (filed * unit) / implied
+        if SHARE_COUNT_TOLERANCE_LOW <= ratio <= SHARE_COUNT_TOLERANCE_HIGH:
+            return filed * unit
+    return None
+
+
+def _implied_share_count(
+    income: list[dict[str, str]], net_income: Decimal | None
+) -> Decimal | None:
+    """The share count the filing's own earnings per share implies.
+
+    `|net_income| / |EPS|`. Only ever used to tell one unit from another,
+    so the largest EPS reported is taken when a company files one per
+    share class: any of them lands within a small factor of the true
+    count, and the question being asked is three orders of magnitude
+    coarser than that.
+    """
+    if net_income is None or net_income == 0:
+        return None
+
+    per_share = [
+        value
+        for row in income
+        if (row.get("CD_CONTA") or "").startswith(EARNINGS_PER_SHARE_PREFIX)
+        # Read raw: `ESCALA_MOEDA` does not apply to a per-share figure,
+        # however the row is marked. See the constant.
+        and (value := abs(_raw_decimal(row))) > 0
+    ]
+    if not per_share:
+        return None
+    return abs(net_income) / max(per_share)
+
+
+def _count(row: dict[str, str], column: str) -> Decimal | None:
+    """A whole-number column, or `None` when it was left blank."""
+    raw = (row.get(column) or "").strip()
+    if not raw:
+        return None
+    try:
+        return Decimal(raw)
+    except InvalidOperation as exc:
+        raise InvalidFundamentalsResponseError(
+            f"CVM column {column} has an unreadable count {raw!r}."
+        ) from exc
+
+
+def _raw_decimal(row: dict[str, str]) -> Decimal:
+    """`VL_CONTA` exactly as written, with no currency scale applied."""
+    raw = (row.get("VL_CONTA") or "").strip()
+    if not raw:
+        return Decimal(0)
+    try:
+        return Decimal(raw)
+    except InvalidOperation as exc:
+        raise InvalidFundamentalsResponseError(
+            f"CVM account {row.get('CD_CONTA')!r} has an unreadable " f"amount {raw!r}."
+        ) from exc
 
 
 def _ebitda(ebit: Decimal | None, depreciation: Decimal | None) -> Decimal | None:

@@ -112,7 +112,8 @@ def test_indicators_blocked_by_missing_inputs_are_stored_as_null(db_session, ass
     (row,) = _stored(db_session, asset)
     assert row.roe == 0.25
     assert row.net_margin == 0.15
-    # No shares outstanding, no dividends, no EBIT, no EBITDA yet.
+    # This statement carries no share count, no dividends, no EBIT and
+    # no EBITDA, so everything resting on them is null rather than zero.
     assert row.pe is None
     assert row.pb is None
     assert row.dy is None
@@ -177,9 +178,38 @@ def test_roic_is_produced_from_the_stored_income_detail(db_session, asset):
     assert row.roic == 0.22
 
 
-def test_ebitda_indicators_stay_null_because_ebitda_is_never_ingested(
+def test_valuation_multiples_are_produced_from_the_stored_share_count(
     db_session, asset
 ):
+    """The point of W09-003: a count belonging to *this* period.
+
+    150 of profit over 100 shares is an EPS of 1.5, and a price of 30
+    is 20 times that. Equity of 600 over the same 100 shares is a book
+    value of 6, and 30 is five times that. Both were null until the CVM
+    supplied a per-period count — the vendor only had today's.
+    """
+    _add_statement(db_session, asset, 2024, shares_outstanding=Decimal(100))
+    _add_price(db_session, asset, date(2024, 12, 31), "30")
+
+    compute_and_store_indicators(db_session, asset)
+
+    (row,) = _stored(db_session, asset)
+    assert row.pe == 20.0
+    assert row.pb == 5.0
+
+
+def test_valuation_multiples_stay_null_without_a_price(db_session, asset):
+    """A share count alone is not a valuation; nothing is substituted."""
+    _add_statement(db_session, asset, 2024, shares_outstanding=Decimal(100))
+
+    compute_and_store_indicators(db_session, asset)
+
+    (row,) = _stored(db_session, asset)
+    assert row.pe is None
+    assert row.pb is None
+
+
+def test_ebitda_indicators_stay_null_when_no_ebitda_was_stored(db_session, asset):
     _add_statement(db_session, asset, 2024, ebit=Decimal(300))
 
     compute_and_store_indicators(db_session, asset)

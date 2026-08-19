@@ -77,4 +77,5 @@ class FundamentalResponse(BaseModel):
     ebit: Decimal | None
     income_before_tax: Decimal | None
     income_tax_expense: Decimal | None
+    shares_outstanding: Decimal | None
     created_at: datetime

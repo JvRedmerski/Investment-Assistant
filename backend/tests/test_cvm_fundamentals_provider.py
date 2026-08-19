@@ -65,6 +65,42 @@ PETR4_INCOME = [
     ("3.11", "Lucro/Prejuizo Consolidado do Periodo", "37009000"),
     ("3.11.01", "Atribuido a Socios da Empresa Controladora", "36606000"),
     ("3.11.02", "Atribuido a Socios Nao Controladores", "403000"),
+    # Earnings per share, in reais per share — on rows the file marks
+    # `MIL` like every other. R$ 2.84 is what PETR4 published; scaling it
+    # would make the reconciliation below reject every filing.
+    ("3.99.01", "Lucro Basico por Acao", "0"),
+    ("3.99.01.01", "ON", "2.84"),
+    ("3.99.01.02", "PN", "2.84"),
+]
+
+#: PETR4's real 2024 share composition, from
+#: dfp_cia_aberta_composicao_capital_2024.csv. Written in units in that
+#: file; the 2020 one writes the same company in thousands.
+PETR4_CAPITAL = {
+    "QT_ACAO_ORDIN_CAP_INTEGR": "7442454142",
+    "QT_ACAO_PREF_CAP_INTEGR": "5602042788",
+    "QT_ACAO_TOTAL_CAP_INTEGR": "13044496930",
+    "QT_ACAO_ORDIN_TESOURO": "222760",
+    "QT_ACAO_PREF_TESOURO": "155541409",
+    "QT_ACAO_TOTAL_TESOURO": "155764169",
+}
+
+#: 13,044,496,930 issued less 155,764,169 in treasury.
+PETR4_SHARES_OUTSTANDING = Decimal(12888732761)
+
+#: Verbatim column set of the real composicao_capital CSV. Note what is
+#: **not** here: no `ESCALA_MOEDA`, no `ORDEM_EXERC`, no `CD_CONTA`.
+CAPITAL_COLUMNS = [
+    "CNPJ_CIA",
+    "DT_REFER",
+    "VERSAO",
+    "DENOM_CIA",
+    "QT_ACAO_ORDIN_CAP_INTEGR",
+    "QT_ACAO_PREF_CAP_INTEGR",
+    "QT_ACAO_TOTAL_CAP_INTEGR",
+    "QT_ACAO_ORDIN_TESOURO",
+    "QT_ACAO_PREF_TESOURO",
+    "QT_ACAO_TOTAL_TESOURO",
 ]
 PETR4_LIABILITIES = [
     ("2.01.04", "Emprestimos e Financiamentos", "68783000"),
@@ -110,12 +146,36 @@ def _csv(rows, cnpj=PETR4, year=2024, scale="MIL", order="ÚLTIMO", version="1")
     return buffer.getvalue().encode("latin-1")
 
 
+def _capital_csv(*rows, cnpj=PETR4, year=2024, refer=None):
+    """The share composition file, one row per company as the CVM ships it.
+
+    Takes any number of rows so the version rule can be exercised; the
+    real files carry exactly one per company per year.
+    """
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=CAPITAL_COLUMNS, delimiter=";")
+    writer.writeheader()
+    for counts in rows:
+        row = {
+            "CNPJ_CIA": cnpj,
+            "DT_REFER": refer or f"{year}-12-31",
+            "VERSAO": "1",
+            "DENOM_CIA": "PETROLEO BRASILEIRO S.A. PETROBRAS",
+        }
+        row.update(counts)
+        writer.writerow({column: row.get(column, "") for column in CAPITAL_COLUMNS})
+    return buffer.getvalue().encode("latin-1")
+
+
 def _archive_bytes(year=2024, **overrides):
     parts = {
         "DRE_con": overrides.get("income", _csv(PETR4_INCOME, year=year)),
         "BPP_con": overrides.get("liabilities", _csv(PETR4_LIABILITIES, year=year)),
         "BPA_con": overrides.get("assets", _csv(PETR4_ASSETS, year=year)),
         "DVA_con": overrides.get("value_added", _csv(PETR4_VALUE_ADDED, year=year)),
+        "composicao_capital": overrides.get(
+            "capital", _capital_csv(PETR4_CAPITAL, year=year)
+        ),
     }
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -259,6 +319,154 @@ def test_free_cash_flow_is_never_derived(cache_dir):
     provider = _provider(cache_dir, {2024: _archive_bytes()})
 
     assert provider.get_annual_statements("PETR4")[0].free_cash_flow is None
+
+
+# -- shares outstanding, and the unit the file does not state ---------
+
+
+def test_shares_outstanding_is_issued_capital_less_treasury(cache_dir):
+    """13,044,496,930 issued less 155,764,169 held in treasury.
+
+    Treasury shares receive no dividend and carry no claim on earnings.
+    Counting them would spread the same profit over more shares and
+    understate EPS — for PETR4 by 1.2%, small here and not always.
+    """
+    provider = _provider(cache_dir, {2024: _archive_bytes()})
+
+    statement = provider.get_annual_statements("PETR4")[0]
+
+    assert statement.shares_outstanding == PETR4_SHARES_OUTSTANDING
+    assert statement.shares_outstanding != Decimal(13044496930)
+
+
+def test_the_derived_eps_matches_the_published_two_eighty_four(cache_dir):
+    """The end-to-end check, the same shape as the ROE one above.
+
+    R$ 36.6 bn over 12.889 bn shares is R$ 2.84, which is the figure on
+    PETR4's own income statement. Getting the share count wrong by a
+    factor of a thousand — the file's actual failure mode — moves this
+    to R$ 2,840.
+    """
+    provider = _provider(cache_dir, {2024: _archive_bytes()})
+
+    statement = provider.get_annual_statements("PETR4")[0]
+
+    assert statement.net_income is not None
+    assert statement.shares_outstanding is not None
+    eps = statement.net_income / statement.shares_outstanding
+    assert eps.quantize(Decimal("0.01")) == Decimal("2.84")
+
+
+def test_a_count_filed_in_thousands_is_reconciled_to_units(cache_dir):
+    """PETR4's own 2020 file, which writes the same company 1000x smaller.
+
+    `composicao_capital` has no scale column and filers disagree: about a
+    third write thousands. The filing's own EPS is what settles it — and
+    it must settle it, because an unnoticed thousandfold error makes P/L
+    a thousand times too low, which scores as the cheapest share on the
+    exchange.
+    """
+    thousands = dict(PETR4_CAPITAL)
+    thousands["QT_ACAO_TOTAL_CAP_INTEGR"] = "13044497"
+    thousands["QT_ACAO_TOTAL_TESOURO"] = "155764"
+    provider = _provider(
+        cache_dir, {2024: _archive_bytes(capital=_capital_csv(thousands))}
+    )
+
+    statement = provider.get_annual_statements("PETR4")[0]
+
+    assert statement.shares_outstanding == Decimal(12888733) * 1000
+
+
+def test_earnings_per_share_is_read_without_the_currency_scale(cache_dir):
+    """The EPS rows say `MIL` and mean reais per share.
+
+    A regression guard on the one place the scale must not be applied: at
+    `MIL` the reconciliation would look for a count a thousand times
+    larger than any that was filed, and reject every company.
+    """
+    provider = _provider(
+        cache_dir,
+        {2024: _archive_bytes(income=_csv(PETR4_INCOME, scale="MIL"))},
+    )
+
+    statement = provider.get_annual_statements("PETR4")[0]
+
+    assert statement.shares_outstanding == PETR4_SHARES_OUTSTANDING
+
+
+def test_a_count_that_reconciles_at_neither_unit_is_absent(cache_dir):
+    """Six to seventeen filings a year contradict their own EPS.
+
+    Absent, not approximated and not "closest guess" (rule 44). The
+    Valuation pillar treats a missing multiple as a first-class state.
+    """
+    wrong = dict(PETR4_CAPITAL)
+    wrong["QT_ACAO_TOTAL_CAP_INTEGR"] = "500000"
+    wrong["QT_ACAO_TOTAL_TESOURO"] = "0"
+    provider = _provider(cache_dir, {2024: _archive_bytes(capital=_capital_csv(wrong))})
+
+    statement = provider.get_annual_statements("PETR4")[0]
+
+    assert statement.shares_outstanding is None
+    assert statement.net_income is not None  # the rest of the row survives
+
+
+def test_shares_are_absent_when_the_filing_reports_no_eps(cache_dir):
+    """No EPS, no way to tell thousands from units — so no count.
+
+    A real gap: roughly a third of filers report no per-share figure at
+    all. Accepting their counts unchecked would be right about two times
+    in three, which is not a standard this project applies to a number
+    that feeds a score.
+    """
+    no_eps = [row for row in PETR4_INCOME if not row[0].startswith("3.99")]
+    provider = _provider(cache_dir, {2024: _archive_bytes(income=_csv(no_eps))})
+
+    statement = provider.get_annual_statements("PETR4")[0]
+
+    assert statement.shares_outstanding is None
+
+
+def test_treasury_exceeding_issued_capital_is_absent(cache_dir):
+    """The 2021 archive holds one. A company cannot hold more than it issued."""
+    impossible = dict(PETR4_CAPITAL)
+    impossible["QT_ACAO_TOTAL_CAP_INTEGR"] = "0"
+    impossible["QT_ACAO_TOTAL_TESOURO"] = "53096770180"
+    provider = _provider(
+        cache_dir, {2024: _archive_bytes(capital=_capital_csv(impossible))}
+    )
+
+    assert provider.get_annual_statements("PETR4")[0].shares_outstanding is None
+
+
+def test_shares_are_absent_when_the_company_filed_no_composition_row(cache_dir):
+    provider = _provider(cache_dir, {2024: _archive_bytes(capital=_capital_csv())})
+
+    assert provider.get_annual_statements("PETR4")[0].shares_outstanding is None
+
+
+def test_a_count_dated_to_another_period_is_not_attached(cache_dir):
+    """The count must describe the period it is stored under (rule 109)."""
+    provider = _provider(
+        cache_dir,
+        {2024: _archive_bytes(capital=_capital_csv(PETR4_CAPITAL, refer="2023-12-31"))},
+    )
+
+    assert provider.get_annual_statements("PETR4")[0].shares_outstanding is None
+
+
+def test_the_highest_version_of_the_composition_row_wins(cache_dir):
+    """Same rule as the statements: a re-delivered filing supersedes."""
+    combined = _capital_csv(
+        {**PETR4_CAPITAL, "QT_ACAO_TOTAL_CAP_INTEGR": "1"},
+        {**PETR4_CAPITAL, "VERSAO": "3"},
+    )
+    provider = _provider(cache_dir, {2024: _archive_bytes(capital=combined)})
+
+    statement = provider.get_annual_statements("PETR4")[0]
+
+    assert statement.shares_outstanding == PETR4_SHARES_OUTSTANDING
 
 
 # -- the four columns that change the answer --------------------------

@@ -17,6 +17,13 @@ from app.data.database import Base, utc_now
 # 4 decimal places is more than any filing reports.
 STATEMENT_MONEY = Numeric(24, 4)
 
+# A share count is neither currency nor a ratio: it is an exact whole
+# number, and the CVM files carry it as one — no filing between 2020 and
+# 2025 reports a fractional share. NUMERIC(20, 0) keeps it exact (rule 17
+# forbids float where drift is unacceptable) and clears the largest count
+# in the archives by five orders of magnitude.
+SHARE_COUNT = Numeric(20, 0)
+
 # Ratios and growth rates, not currency. Float is appropriate and the
 # decision is recorded here as AGENTS.md rule 17 requires.
 INDICATOR = Float
@@ -54,6 +61,14 @@ class Fundamental(Base):
     )
     income_tax_expense: Mapped[Decimal | None] = mapped_column(
         STATEMENT_MONEY, nullable=True
+    )
+    # Added in W09-003 to unblock P/L and P/VP. Shares actually in
+    # circulation at the period end — issued capital less treasury — so
+    # a multiple derived from it belongs to the period it is stored
+    # under rather than to today (rules 108/109). NULL means the filing
+    # reported no count that could be trusted, never zero shares.
+    shares_outstanding: Mapped[Decimal | None] = mapped_column(
+        SHARE_COUNT, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, nullable=False

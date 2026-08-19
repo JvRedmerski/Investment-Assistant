@@ -23,6 +23,7 @@ def _statement(year=2024, **overrides) -> FinancialStatement:
         "ebit": Decimal(145000000000),
         "income_before_tax": Decimal(150000000000),
         "income_tax_expense": Decimal(-39000000000),
+        "shares_outstanding": Decimal(12888732761),
     }
     values.update(overrides)
     return FinancialStatement(**values)
@@ -92,6 +93,18 @@ def test_negative_net_income_and_equity_are_accepted():
     assert len(report.valid_statements) == 1
 
 
+def test_negative_shares_outstanding_is_rejected():
+    # Not a distressed company but a broken filing: the archives hold a
+    # treasury count recorded as negative, and one whose treasury exceeds
+    # the issued capital. Either way the row cannot be trusted.
+    report = validate_financial_statements(
+        [_statement(shares_outstanding=Decimal(-1))], today=TODAY
+    )
+
+    assert report.valid_statements == []
+    assert [issue.code for issue in report.errors] == ["NEGATIVE_VALUE"]
+
+
 def test_negative_free_cash_flow_is_accepted():
     report = validate_financial_statements(
         [_statement(free_cash_flow=Decimal(-42))], today=TODAY
@@ -111,7 +124,7 @@ def test_partially_reported_statement_is_stored_but_warned_about():
     assert report.is_valid
     assert report.valid_statements == [partial]
     assert [issue.code for issue in report.warnings] == ["INCOMPLETE_STATEMENT"]
-    assert "9 of 10" in report.warnings[0].message
+    assert "10 of 11" in report.warnings[0].message
 
 
 def test_valid_and_invalid_statements_are_separated():

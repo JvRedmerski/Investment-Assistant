@@ -29,11 +29,13 @@ is sharper here: a fabricated Quality Score does not look wrong, it looks
 like a bad company. It would then be averaged into the final score and
 become invisible.
 
-That is not hypothetical. Right now the three fundamentals pillars —
-Quality, Valuation, Growth — have **no data at all**, because the Brapi
-statement modules left the free plan. The engine is built so that this is
-a visible absence rather than a silent default, and so that those pillars
-light up with no change to this module once a source is ingested.
+That is not hypothetical, and it has now been demonstrated twice. When
+this module was written the three fundamentals pillars — Quality,
+Valuation, Growth — had **no data at all**, because the vendor's
+statement modules had left its free plan. Ingesting the CVM filings
+(W09-002) lit up Quality and Growth, and the per-period share count
+(W09-003) lit up Valuation, both **with no change to this module**. The
+absence was visible, and it closed by itself when the data arrived.
 
 Absence is also permanent for whole asset classes, not a temporary state
 of the project: an FII or an ETF has no income statement to score for
@@ -268,10 +270,14 @@ def score_valuation(pe: Decimal | None = None, pb: Decimal | None = None) -> Sub
     earnings, or negative book equity, cannot be called cheap on that
     measure.
 
-    Both inputs are currently unobtainable from the configured source —
-    it publishes shares outstanding only as a present-day snapshot, and
-    applying today's count to an old balance sheet would be look-ahead
-    (rules 108/109). The pillar is therefore absent rather than wrong.
+    Both inputs became computable in W09-003, when the share count
+    started arriving per fiscal year from the CVM instead of as the
+    vendor's present-day snapshot — applying today's count to an old
+    balance sheet would have been look-ahead (rules 108/109). They are
+    still absent for any filing whose share count could not be
+    reconciled, and for every asset with no filing at all: an FII, an
+    ETF or a BDR files no DFP, so this pillar is permanently absent for
+    them rather than temporarily missing.
     """
     return _average_pillar(
         "valuation",

@@ -39,6 +39,11 @@ class FinancialStatement(BaseModel):
     ebit: Decimal | None = None
     income_before_tax: Decimal | None = None
     income_tax_expense: Decimal | None = None
+    # Added in W09-003: shares in circulation at the period end, issued
+    # capital less treasury. Not currency — a count — but reported by
+    # the same filing and stored under the same reference date, which is
+    # what makes P/L and P/VP computable without look-ahead.
+    shares_outstanding: Decimal | None = None
 
     @property
     def reported_fields(self) -> dict[str, Decimal]:
@@ -50,9 +55,13 @@ class FinancialStatement(BaseModel):
         }
 
 
-#: Every monetary line item a statement can carry. Kept as a single list
-#: so the data quality checks cannot drift out of sync with the schema
-#: when a field is added.
+#: Every figure a statement can carry. Kept as a single list so the data
+#: quality checks cannot drift out of sync with the schema when a field
+#: is added.
+#:
+#: All but the last are monetary; `shares_outstanding` is a count. It
+#: belongs here anyway, because what this list drives is "did the source
+#: report this figure", and that question is the same for both.
 REPORTED_FIELD_NAMES: tuple[str, ...] = (
     "revenue",
     "ebitda",
@@ -64,4 +73,5 @@ REPORTED_FIELD_NAMES: tuple[str, ...] = (
     "ebit",
     "income_before_tax",
     "income_tax_expense",
+    "shares_outstanding",
 )

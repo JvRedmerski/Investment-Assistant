@@ -15,28 +15,34 @@ look equally plausible.
 
 ## Inputs not ingested
 
-`IndicatorInputs` declares fields the system does not collect, so the
-formulas that need them are written, tested and ready — they simply
-return `None` until a per-period source exists:
+`IndicatorInputs` declares one field the system does not collect, so the
+formula that needs it is written, tested and ready — it simply returns
+`None` until a per-period source exists:
 
-| missing input       | indicators it blocks       | why                    |
-|---------------------|----------------------------|------------------------|
-| shares_outstanding  | pe, pb                     | only a current snapshot|
-| dividends_per_share | dy                         | only a current snapshot|
-| ebitda              | debt_ebitda, ebitda_margin | provider field is fake |
+| missing input       | indicators it blocks | why                     |
+|---------------------|----------------------|-------------------------|
+| dividends_per_share | dy                   | only a current snapshot |
 
-`shares_outstanding` and `dividendYield` exist in Brapi's
-`defaultKeyStatistics`, but as **present-day snapshots with no period end
-date**. Applying today's share count to a 2010 statement would attribute
-present facts to a past period — the point-in-time violation AGENTS.md
-rules 108/109 forbid. They stay uncomputed pending a per-period source.
+Brapi's `dividendYield` is a **present-day snapshot with no period end
+date**. Applying it to a 2010 statement would attribute a present fact to
+a past period — the point-in-time violation AGENTS.md rules 108/109
+forbid. The CVM does report dividends charged to equity per year, in the
+DMPL at `5.04.06` and `5.04.07`, which is the route to a real `dy`; it is
+not ingested yet and is registered as future work.
 
-`ebitda` is blocked on evidence: Brapi's `cleanEbitda` is byte-identical
-to `ebit` in all 16 periods returned, so it is not EBITDA at all. See
-`app.integrations.fundamentals.brapi` and ADR-013.
+The other three inputs arrived, and the formulas that had been waiting on
+them started producing values with no change to this module:
 
-ROIC **is** computable as of W06-003: `ebit`, `income_before_tax` and
-`income_tax_expense` are reported for every period.
+- **`ebitda`** (W09-002) — Brapi's `cleanEbitda` was byte-identical to
+  `ebit` in all 16 periods returned, so it was not EBITDA at all. The CVM
+  allows deriving it (`EBIT + |D&A|`), which unblocked `debt_ebitda` and
+  `ebitda_margin`.
+- **`shares_outstanding`** (W09-003) — per fiscal year, from the CVM's
+  `composicao_capital`, which unblocked `pe` and `pb`. The vendor only
+  ever had a present-day count, with the same look-ahead problem
+  `dividendYield` still has.
+- **`ebit`, `income_before_tax`, `income_tax_expense`** (W06-003) —
+  unblocked `roic`.
 
 ## Units
 
@@ -84,8 +90,12 @@ class IndicatorInputs:
     income_before_tax: Decimal | None = None
     income_tax_expense: Decimal | None = None
 
-    # Not ingested — see module docstring.
+    # From `fundamentals`, added in W09-003: the count at this period's
+    # end, not today's. That distinction is the whole reason `pe` and
+    # `pb` were absent until now (rules 108/109).
     shares_outstanding: Decimal | None = None
+
+    # Not ingested — see module docstring.
     dividends_per_share: Decimal | None = None
 
 
