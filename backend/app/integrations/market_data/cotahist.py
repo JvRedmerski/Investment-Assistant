@@ -64,13 +64,45 @@ error would not be small: an unadjusted series shows a 1:10 split as a
 -90% day, which would land in volatility, drawdown and beta as if the
 market had crashed.
 
-The file does mark that an event *happened* — `ESPECI` carries suffixes
-such as `EDJ` (ex-dividend and interest on capital; VALE3 carried it on
-2026-08-18) and `DISMES` counts distributions. But a marker is not a
-magnitude: neither field says how much was paid, and an adjustment
-factor cannot be derived from the fact that something was paid. Building
-the adjusted series needs the corporate actions themselves, which is a
-separate ingestion (docs/memory/PROJECT_STATUS.md, Known Issue 1).
+The file does mark that an event *happened*, and `get_corporate_events`
+reads precisely that. But a marker is not a magnitude: nothing in the
+archive says how much was paid or in what proportion shares were split,
+so no adjustment factor can be derived here.
+
+## When a paper went ex, and how the file says so
+
+`ESPECI` is the paper's specification, and while a right is on display it
+carries an ex- marker: `ON  EG  NM` is an ordinary share in the Novo
+Mercado trading *ex-grupamento*. The obvious reading — a marker appears,
+therefore an event happened — is wrong twice over, and both failures were
+measured on the real 2024 archive:
+
+- **The marker persists.** B3 keeps displaying it for about eight
+  sessions, so one dividend produces eight marked sessions.
+- **The marker decays.** As the rights inside it age out of the display
+  window `EDJ` becomes `EJ`, which reads like a marker appearing and is
+  nothing of the sort. 132 sessions in 2024 showed a marker token that
+  had not been there the day before while the counter had not moved,
+  and these are most of them.
+
+`DISMES`, the paper's distribution number, is the exact signal instead.
+It is the exchange's own counter, it increments **on the ex-date**, and
+it increments once per distribution even when the marker text does not
+move: BBAS3 reads `ON  EDJ NM` on 2024-06-12, -13 and -14 while the
+counter goes 323, 323, 324 — so detecting runs of a marker would have
+found one event where the exchange counted two.
+
+Across the whole 2024 archive (2,230 papers, 7,312 increments) the
+counter never once decreased, and it carries across the turn of the year:
+ITUB4 goes from 345 on 2024-12-30 to 346 on 2025-01-02, an event on the
+first session of the year. Read the other way round, only 13 ex- letters
+appeared all year without an increment, and **not one of them moved the
+price by as much as 25%** — so nothing capable of corrupting a return
+series is lost by trusting the counter over the marker.
+
+The counter carries the one limit worth knowing: the first session
+scanned has nothing to be compared against, so an event falling exactly
+on it is reported as absent rather than guessed.
 
 ## The archive is distilled, not stored whole
 
@@ -102,13 +134,20 @@ import httpx
 
 from app.core.config import settings
 from app.integrations.http import backoff_seconds
-from app.integrations.market_data.base import DailyHistoryProvider
+from app.integrations.market_data.base import (
+    CorporateEventProvider,
+    DailyHistoryProvider,
+)
 from app.integrations.market_data.exceptions import (
     InvalidMarketDataResponseError,
     MarketDataUnavailableError,
     TickerNotFoundError,
 )
-from app.integrations.market_data.schemas import DailyBar
+from app.integrations.market_data.schemas import (
+    CorporateEvent,
+    CorporateEventKind,
+    DailyBar,
+)
 
 logger = logging.getLogger("investment_assistant.market_data.cotahist")
 
@@ -135,6 +174,9 @@ PREMIN = slice(82, 95)
 PREULT = slice(108, 121)
 QUATOT = slice(152, 170)
 FATCOT = slice(210, 217)
+#: The distribution number, last three bytes of the record. See the
+#: module docstring: this, not the marker, is what dates an event.
+DISMES = slice(242, 245)
 
 #: Price fields carry two implied decimals: `0000000004260` is 42.60.
 PRICE_DECIMALS = Decimal(100)
@@ -143,6 +185,29 @@ PRICE_DECIMALS = Decimal(100)
 #: appear in `CODNEG`, so it is rejected before an archive is opened
 #: rather than scanned for fruitlessly.
 TICKER_PATTERN = re.compile(r"^[A-Z0-9]{4,12}$")
+
+#: One letter of an ex- marker, one right. `EDJ` is `D` and `J` — a
+#: dividend and interest on capital going ex on the same session — and
+#: that is how every composite marker in the archive is built (`EDB`,
+#: `ERA`, `ERB`, `EBG`, `EJS`).
+#:
+#: Each letter here was confirmed against a real 2024 price step before
+#: it was written down: `B` against BBAS3's 1:2 on 2024-04-16 (56.46 ->
+#: 27.91) and NVDC34's 10:1 on 2024-06-10, `G` against MGLU3's 1:10 on
+#: 2024-05-27 (1.32 -> 13.15), `A` against the fund amortisations that
+#: move a price by half. A letter that is *not* here — `X` and `C` both
+#: occur — yields `UNCLASSIFIED`: the event is still reported, because
+#: the exchange counted it, but nothing is invented about its nature
+#: (rule 44).
+RIGHT_BY_LETTER = {
+    "D": CorporateEventKind.DIVIDEND,
+    "J": CorporateEventKind.INTEREST_ON_CAPITAL,
+    "R": CorporateEventKind.OTHER_DISTRIBUTION,
+    "A": CorporateEventKind.AMORTISATION,
+    "B": CorporateEventKind.BONUS_OR_SPLIT,
+    "G": CorporateEventKind.REVERSE_SPLIT,
+    "S": CorporateEventKind.SUBSCRIPTION,
+}
 
 
 class CotahistArchive:
@@ -373,13 +438,17 @@ def _distil(raw_zip: Path, destination: Path) -> date | None:
     return last_session
 
 
-class B3CotahistProvider(DailyHistoryProvider):
-    """Daily bars read out of B3's open COTAHIST year archives.
+class B3CotahistProvider(DailyHistoryProvider, CorporateEventProvider):
+    """Daily bars and corporate events out of B3's open COTAHIST archives.
 
     History only. There is no `get_quote` here and that is deliberate:
     an end-of-day archive cannot answer what a share is worth right now,
     and implementing it would mean returning yesterday's close dressed as
     a quote. `MarketDataProvider` stays the interface for that.
+
+    It does answer both of the questions an end-of-day file can answer,
+    and they come out of the same scan: what the paper traded at, and on
+    which sessions it started trading without a right.
     """
 
     source_name = "b3_cotahist"
@@ -394,30 +463,70 @@ class B3CotahistProvider(DailyHistoryProvider):
         self._archive.close()
 
     def get_daily_history(self, ticker: str, start: date, end: date) -> list[DailyBar]:
-        normalised = ticker.strip().upper()
-        if not TICKER_PATTERN.match(normalised):
-            raise TickerNotFoundError(
-                f"{ticker!r} is not a B3 negotiation code, so no COTAHIST "
-                f"record can carry it."
-            )
+        normalised = _normalised_ticker(ticker)
         if start > end:
             return []
 
+        bars: list[DailyBar] = []
+        for record in self._records_for(normalised, start, end):
+            bar = _parse_bar(record, normalised)
+            if bar is not None and start <= bar.date <= end:
+                bars.append(bar)
+
+        bars.sort(key=lambda bar: bar.date)
+        return bars
+
+    def get_corporate_events(
+        self, ticker: str, start: date, end: date
+    ) -> list[CorporateEvent]:
+        """The sessions within [start, end] on which `ticker` traded ex.
+
+        Detected from the distribution counter rather than from the
+        marker, for the reasons set out in the module docstring. One
+        session can yield more than one event, because one increment can
+        carry several rights (`EDJ`).
+
+        The comparison needs a predecessor, so an event on the very first
+        session the archives hold for this ticker cannot be seen. In
+        practice that is the first session of `start`'s calendar year —
+        the whole year is scanned regardless of where in it `start` falls
+        — or the paper's own first session ever.
+        """
+        normalised = _normalised_ticker(ticker)
+        if start > end:
+            return []
+
+        events: list[CorporateEvent] = []
+        previous: int | None = None
+        for session, specification, number in _distributions_for(
+            self._records_for(normalised, start, end)
+        ):
+            went_ex = previous is not None and number > previous
+            previous = number
+            if went_ex and start <= session <= end:
+                events.extend(_events_on(session, specification, number))
+        return events
+
+    def _records_for(self, ticker: str, start: date, end: date) -> list[str]:
+        """Every record the years spanning [start, end] hold for `ticker`.
+
+        Whole years, deliberately, rather than the requested window: a
+        distribution is read by comparing a session against the one
+        before it, and clipping here would throw away the record that
+        makes the comparison possible. It costs nothing — the archive is
+        opened and scanned a year at a time either way.
+        """
         earliest = settings.B3_COTAHIST_FIRST_YEAR
         today = datetime.now(UTC).date()
-        bars: list[DailyBar] = []
+        records: list[str] = []
         found_any_archive = False
-        traded_at_all = False
 
         for year in range(max(start.year, earliest), end.year + 1):
             path = self._archive.fetch(year, needed_through=min(end, today))
             if path is None:
                 continue
             found_any_archive = True
-            for bar in _read_bars(path, normalised):
-                traded_at_all = True
-                if start <= bar.date <= end:
-                    bars.append(bar)
+            records.extend(_read_records(path, ticker))
 
         if not found_any_archive:
             # Distinct from an empty series: the caller asked about years
@@ -426,38 +535,104 @@ class B3CotahistProvider(DailyHistoryProvider):
             raise MarketDataUnavailableError(
                 f"No COTAHIST archive is available for {start.year}-{end.year}."
             )
-        if not traded_at_all:
+        if not records:
             raise TickerNotFoundError(
-                f"COTAHIST has no spot-market record for {normalised} in "
+                f"COTAHIST has no spot-market record for {ticker} in "
                 f"{start.year}-{end.year}."
             )
 
         # A ticker that exists but did not trade inside the window — not
-        # yet listed, or already delisted — returns an empty series, the
-        # way the vendor provider does. Only never appearing at all is a
-        # "not found".
-        bars.sort(key=lambda bar: bar.date)
-        return bars
+        # yet listed, or already delisted — leaves the caller with an
+        # empty result, the way the vendor provider does. Only never
+        # appearing at all is a "not found".
+        return records
 
 
-def _read_bars(path: Path, ticker: str) -> list[DailyBar]:
-    """Every bar one distilled year holds for `ticker`."""
+def _normalised_ticker(ticker: str) -> str:
+    normalised = ticker.strip().upper()
+    if not TICKER_PATTERN.match(normalised):
+        raise TickerNotFoundError(
+            f"{ticker!r} is not a B3 negotiation code, so no COTAHIST "
+            f"record can carry it."
+        )
+    return normalised
+
+
+def _read_records(path: Path, ticker: str) -> list[str]:
+    """Every record one distilled year holds for `ticker`, decoded."""
     wanted = ticker.ljust(12).encode("latin-1")
-    bars: list[DailyBar] = []
+    records: list[str] = []
     try:
         with gzip.open(path, "rb") as source:
             for raw_line in source:
                 line = raw_line.rstrip(b"\n")
                 if len(line) != RECORD_LENGTH or line[CODNEG] != wanted:
                     continue
-                bar = _parse_bar(line.decode("latin-1"), ticker)
-                if bar is not None:
-                    bars.append(bar)
+                records.append(line.decode("latin-1"))
     except (OSError, EOFError) as exc:
         raise InvalidMarketDataResponseError(
             f"Cached COTAHIST archive {path.name} could not be read: {exc}"
         ) from exc
-    return bars
+    return records
+
+
+def _distributions_for(records: list[str]) -> list[tuple[date, str, int]]:
+    """Session, specification and distribution number, in date order.
+
+    A record whose date or counter cannot be read is dropped rather than
+    fatal: the counter is only ever compared against its own previous
+    value, so an unreadable one costs the events around it and nothing
+    more. That is the opposite trade-off from a price field, where a
+    garbled value would enter a series silently (rule 19).
+    """
+    rows: list[tuple[date, str, int]] = []
+    for record in records:
+        session = _parse_date(record[DATA_PREGAO])
+        number = record[DISMES].strip()
+        if session is None or not number.isdigit():
+            continue
+        rows.append((session, record[ESPECI].rstrip(), int(number)))
+    rows.sort(key=lambda row: row[0])
+    return rows
+
+
+def _events_on(session: date, specification: str, number: int) -> list[CorporateEvent]:
+    return [
+        CorporateEvent(
+            date=session,
+            kind=kind,
+            specification=specification,
+            distribution_number=number,
+        )
+        for kind in _kinds_in(specification)
+    ]
+
+
+def _kinds_in(specification: str) -> list[CorporateEventKind]:
+    """The rights an `ESPECI` says are on display, in the order written.
+
+    The first token is the share class (`ON`, `PN`, `CI`, `DRN`) and the
+    last is usually the listing segment (`NM`, `N1`, `MA`); no class or
+    segment in the archive begins with `E`, but the class is dropped
+    outright rather than trusted not to.
+
+    What comes back describes **the session**, not exclusively the
+    distribution just counted: while two events fall inside one display
+    window the marker shows both rights, and the file offers no way to
+    attribute a letter to one of them. Both events are dated correctly
+    and both carry the union — the file's own statement, which is better
+    than a guess at which half of it is the new one.
+    """
+    kinds: list[CorporateEventKind] = []
+    for token in specification.split()[1:]:
+        if not token.startswith("E") or len(token) < 2:
+            continue
+        for letter in token[1:]:
+            kind = RIGHT_BY_LETTER.get(letter, CorporateEventKind.UNCLASSIFIED)
+            if kind not in kinds:
+                kinds.append(kind)
+    # An increment the specification says nothing about still happened.
+    return kinds or [CorporateEventKind.UNCLASSIFIED]
 
 
 def _parse_bar(record: str, ticker: str) -> DailyBar | None:
