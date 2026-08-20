@@ -2,103 +2,112 @@
 
 ## Task
 
-**Nenhuma em andamento.** A wave **PRICE — Histórico de preços de fonte aberta (B3 COTAHIST)**
-fechou em 2026-08-19, com três tasks: o provider, o armazenamento da ausência de ajuste, e o
-endpoint de backfill validado contra o banco real.
-
-Era a opção 2 da decisão registrada aqui na sessão anterior — fora da ordem do roadmap, de
-propósito, porque era o que travava mais coisa ao mesmo tempo. Duas das quatro travas caíram.
+**EVENTS-003 — série de retorno total.** Terceira e última task da wave **EVENTS** (eventos
+societários e proventos), inserida fora da ordem do roadmap entre a W09 e a W10.
 
 ## Status
 
-⚪ Aguardando escolha da próxima wave.
+🟡 Wave em andamento, **2 de 3 tasks entregues**. A EVENTS-003 ⚪ **não começou**, e há uma
+decisão de fonte a tomar antes de escrever código.
 
 ---
 
-## O que a wave PRICE entregou, e o que ela deliberadamente não entregou
+## O que a wave já entregou
 
-| trava de antes | estado agora |
-|---|---|
-| `pe` / `pb` no banco real | ✅ **resolvido** — 6 exercícios da PETR4 com P/L e P/VP reais |
-| cobertura do score | ✅ **0,55 → 0,75**; o pilar de Valuation saiu de ausente para 93,5 |
-| pilar de **Risk** | ❌ **continua ausente**, e por decisão ([ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md)) |
-| `beta` com janela decente | ❌ mesma causa |
-| **Wave 13** (backtesting) | ⚠️ tem preço bruto de anos; falta série de retorno total |
+| task | entrega | efeito medido |
+|---|---|---|
+| **EVENTS-001** | Distribuições por exercício, da DMPL da CVM (`5.04.06` + `5.04.07`) | `dy` deixou de ser `None`: 0,22 em 2024 e **0,70 em 2022** (PETR4). Os 10 indicadores passaram a ter insumo |
+| **EVENTS-002** | **Data e natureza** de todo evento societário, pelo contador de distribuição da B3 | PETR4 com 47 eventos em 6 anos; MGLU3 com 15, incluindo o 1:4 de 2020, o 1:10 de 2024 e a bonificação de 2025 |
 
-**Por que Risk continua ausente, e por que isso está certo:** o COTAHIST imprime o preço
-**negociado**, e não publica série ajustada — não é atraso, é a natureza do arquivo. Métrica de
-risco exige retorno total. Preencher `adjusted_close` com o `close` produziria, em dado real, o
-grupamento 1:10 da MGLU3 como uma sessão de **+896%** dentro de `volatility`, `max_drawdown`,
-`beta` e `sharpe`. A ausência é gravada como ausência, e o score já trata isso como estado normal.
+Duas decisões novas ficaram registradas:
+[ADR-024](../decisions/ADR-024-refill-fills-null-columns.md) (preenchimento de coluna nula em
+período já gravado) e
+[ADR-025](../decisions/ADR-025-corporate-events-come-from-the-distribution-counter.md) (evento
+lido do contador, com data e natureza e **sem magnitude**).
+
+## O que falta, em uma palavra: **magnitude**
+
+O arquivo da B3 registra **que** houve distribuição e **jamais quanto**. Sem o fator de
+desdobramento/grupamento e sem o valor do provento por pagamento não existe série de retorno
+total, e sem ela continuam `None`: `volatility`, `max_drawdown`, `beta`, `sharpe` — os quatro
+insumos do pilar de **Risco**. A cobertura do score continua em **0,75**, e o backtesting da
+**W13** continua sem o que consumir.
+
+⚠️ **O remendo proibido não mudou.** `adjusted_close = close` põe o grupamento 1:10 da MGLU3
+como **+896% num pregão** dentro dessas quatro métricas
+([ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md)). Derivar o fator
+do degrau de preço é a mesma heurística com outro nome — a §44 proíbe inventar número.
 
 ---
 
-## A decisão a tomar antes de começar
+## A decisão a tomar antes de escrever código: de onde vem a magnitude
 
-### Opção 1 — Eventos societários e proventos (**recomendada**)
+O que mudou desde o ADR-023 é que **a data do evento agora existe**. Vale reavaliar as
+alternativas com esse dado a mais — uma delas foi rejeitada exatamente por não tê-lo.
 
-É agora a peça que destrava mais coisa, e a wave PRICE deixou isso explícito em vez de
-implícito. Uma única ingestão fecha quatro pendências:
+1. **Fator de desdobramento/grupamento pela contagem de ações da CVM + a data da B3.**
+   O ADR-023 rejeitou a contagem de ações **por granularidade**: ela é anual e "um desdobramento
+   precisa da **data** do evento". Essa objeção caiu com a EVENTS-002. A razão entre a contagem
+   de dois exercícios, ancorada na data do evento que a B3 carimba, é candidata a fator —
+   **mas precisa ser verificada contra caso real conhecido** (MGLU3 1:10 em 2024-05-27, BBAS3
+   1:2 em 2024-04-16) antes de virar código, e não fecha quando há mais de um evento de contagem
+   no mesmo exercício ou emissão/recompra no meio.
+2. **Provento por pagamento (data + valor).** É o que falta para a parte em dinheiro; o agregado
+   anual da DMPL **não** serve, porque distribuir um total anual entre as ex-dates seria
+   atribuir valores que ninguém reportou. Fonte a decidir.
+3. **Fornecedor pago.** Resolve os dois de uma vez e custa cota/assinatura. É a mesma decisão de
+   produto já enfrentada nos fundamentals — e lá a resposta foi o dado aberto
+   ([ADR-020](../decisions/ADR-020-cvm-primary-fundamentals-source.md)).
 
-| destrava | como |
-|---|---|
-| `dy` | é o **último** dos 10 indicadores ainda `None` (Known Issue nº 1 e nº 2) |
-| pilar de **Risk** | permite construir a série ajustada sobre o preço bruto que já está no banco |
-| cobertura do score | 0,75 → **1,00** |
-| **Wave 13** inteira | backtesting precisa de retorno total, não de preço bruto |
+Seja qual for a fonte: **um período/valor vem inteiro de uma fonte só**, nunca campo a campo
+(ADR-020), e ausência é gravada como ausência (ADR-014/ADR-023).
 
-O caminho conhecido para proventos é a **DMPL da CVM** (`5.04.06`/`5.04.07`) — mesma
-infraestrutura de arquivo anual que a W09-002 e a W09-003 já usam. Para desdobramento e
-grupamento falta decidir a fonte: o COTAHIST **marca** o evento (`ESPECI` vira `EG`, `EDJ`, `EB`;
-`DISMES` incrementa) mas **não dá o fator** — marcador não é magnitude.
-
-⚠️ Note que o preço bruto **já está gravado e não precisa ser rebaixado**: a série ajustada é
-derivável dele mais os eventos.
-
-### Opção 2 — Wave 10, Rebalanceamento (a ordem do roadmap)
-
-`docs/roadmap.md` §22, AGENTS.md §34. `current_weight`, `target_weight`, `weight_gap`.
-Boa parte da infraestrutura existe (`PortfolioExposure`, `allocation.py`, score relativo à
-carteira); o que falta de verdade é a definição de **peso-alvo**, que não existe em lugar nenhum
-— e é a pergunta da wave.
-
-Agora é uma opção mais defensável do que era: os ativos passam a ter valor de mercado e
-Valuation deixou de ser ausente. Mas o score que o rebalanceamento consome ainda tem o pilar de
-Risco vazio.
+Depois disso, a task tem uma segunda metade previsível: **persistir os eventos** (model,
+migration, endpoint de sync — hoje `get_corporate_events` varre o arquivo em cache a cada
+chamada) e derivar `adjusted_close` a partir do preço bruto que **já está no banco**, sem
+rebaixar nada.
 
 ---
 
 ## O que já está pronto — não reimplemente
 
-- `app/integrations/market_data/cotahist.py` — `B3CotahistProvider` + `CotahistArchive`
-  (download em streaming, destilação para mercado à vista, cache por ano).
-- `app/integrations/market_data/base.py` — `DailyHistoryProvider` (histórico) separado de
-  `MarketDataProvider` (histórico **+** cotação), com `reports_adjusted_close` e `source_name`.
-- `app/domain/market_data/series.py` — **ponto único** que transforma linha em `PricePoint`.
-  Toda série de retorno passa por aqui, e linha sem ajuste não entra.
+- `app/integrations/market_data/cotahist.py` — `B3CotahistProvider` (preço **e** eventos),
+  `CotahistArchive` (download em streaming, destilação, cache por ano). Os dois leitores
+  compartilham uma varredura (`_read_records`).
+- `app/integrations/market_data/base.py` — três ABCs: `DailyHistoryProvider`,
+  `MarketDataProvider` e `CorporateEventProvider`.
+- `app/integrations/market_data/schemas.py` — `CorporateEvent` / `CorporateEventKind`, com a
+  evidência de cada letra no docstring.
+- `app/domain/market_data/series.py` — **ponto único** da série de retorno. É aqui que o
+  `adjusted_close` derivado passa a entrar; linha sem ajuste não entra.
+- `app/integrations/fundamentals/cvm.py` — leitura de DFP/DMPL/`composicao_capital`, com cache
+  anual em `backend/var/cvm/`.
+- `app/domain/fundamentals/service.py` — `sync_annual_statements(..., refill=True)`.
 - `app/domain/recommendations/{scoring,allocation,service}.py`, `app/quant/{returns,risk}.py`,
-  `app/domain/benchmarks/`, `app/integrations/fundamentals/`.
+  `app/domain/benchmarks/`.
 
-## Endpoints da wave PRICE
+## Endpoints relevantes
 
 - `POST /assets/{ticker}/prices/backfill` — histórico profundo pelo arquivo aberto da B3.
-  Sem teto de janela. Convive com `POST /assets/{ticker}/prices/sync` (fornecedor): ambos
-  escrevem em `asset_prices` e **nenhum sobrescreve data já gravada**.
+- `POST /assets/{ticker}/prices/sync` — fornecedor; nenhum dos dois sobrescreve data gravada.
+- `POST /assets/{ticker}/fundamentals/sync?refill=true` — preenche coluna nula de período já
+  gravado, e só ela.
+- **Não existe** endpoint de evento societário. É parte da EVENTS-003.
 
 ---
 
-## Estado do ambiente (verificado 2026-08-19)
+## Estado do ambiente (verificado 2026-08-20)
 
-- **PostgreSQL 16 no ar**, schema em **`010`**. `docker compose up -d postgres` se estiver parado.
-- **`asset_prices` deixou de estar vazia**: **1.495 pregões da PETR4, 2020-01-02 a 2025-12-30**,
-  todos com `source='b3_cotahist'` e `adjusted_close` **NULL** — que é o desenho, não uma falha.
-- PETR4 com 6 exercícios da CVM, `shares_outstanding`, e agora **`pe`/`pb` preenchidos**.
-- **Cache do COTAHIST em `backend/var/b3/`** (gitignored), ~15 MB por ano destilado, com
-  2020–2025 já baixados. Um ano frio custa ~90 s e ~79 MB de download.
+- ✅ `pytest -q` → **701 passed**. `ruff check .` e `black --check .` limpos no repositório
+  inteiro.
+- 🔴 **Docker desligado nesta sessão** — `docker compose up -d postgres` antes de qualquer coisa
+  que toque o banco. Com ele no ar, o schema é **`011`** (`001`…`011_dividends_paid`).
+- No banco (registrado pelas tasks, **não** reconsultado com o Docker desligado): 1.495 pregões
+  da PETR4 em `asset_prices` (2020-01-02 a 2025-12-30, `source='b3_cotahist'`, `adjusted_close`
+  **NULL** — que é o desenho), 6 exercícios da CVM com `pe`, `pb` e agora `dy`.
+- **Cache do COTAHIST em `backend/var/b3/`** (gitignored), ~15 MB por ano destilado, 2020–2025
+  baixados. Ano frio: ~90 s e ~79 MB.
 - Alembic do host precisa da URL sobrescrita:
   `DATABASE_URL="postgresql://investment_user:investment_pass_dev@localhost:5432/investment_assistant" .venv/Scripts/python.exe -m alembic upgrade head`
-- ✅ `alembic check` passa (sem drift). `pytest` → **672 passed**. `ruff`/`black` limpos no
-  repositório inteiro.
-- 🔴 O teto de `3mo` da Brapi **continua existindo**, mas deixou de ser a restrição
-  estruturante: o histórico profundo agora vem da B3, de graça. A Brapi segue necessária para
-  **cotação ao vivo** e para o `adjusted_close` das sessões recentes.
+- 🔴 O teto de `3mo` da Brapi continua existindo. Não trava mais o histórico de **ações** (vem
+  da B3), mas ainda limita o **IBOV**, o que mantém `beta` com janela pobre.

@@ -31,6 +31,8 @@ Um ADR existe aqui porque a decisão (a) teve alternativas reais, (b) afeta arqu
 | [021](ADR-021-allocation-ranks-by-coverage-tier.md) | A alocação do aporte ordena por faixa de cobertura antes do score, reusa os tetos do pilar de Diversification, e o plano é derivado a cada leitura | Accepted | recommendation, allocation, coverage, aporte, perfil conservador, rule 31/32/33 |
 | [022](ADR-022-provider-plan-limits-are-refused-locally.md) | O bucket de `range` da Brapi é medido de `start` até hoje (a API não aceita data inicial), e uma janela acima do teto do plano é recusada localmente com erro nomeado em vez de truncada em silêncio | Accepted | market data, Brapi, range, plano gratuito, ingestão, rule 32 |
 | [023](ADR-023-unadjusted-history-is-stored-as-unadjusted.md) | Histórico sem ajuste é gravado com `adjusted_close` NULL em vez de rejeitado ou preenchido com o `close`; a semântica da ausência pertence à fonte, e um ponto único de passagem mantém a série de retorno só com linhas ajustadas | Accepted | market data, COTAHIST, B3, adjusted close, emenda ADR-016, rule 44 |
+| [024](ADR-024-refill-fills-null-columns.md) | Um período de demonstrativo já gravado aceita preenchimento de coluna **nula**, e só dela; valor presente nunca é tocado | Accepted | fundamentals, coluna de demonstrativo nova, ingestão, emenda operacional ao ADR-013 |
+| [025](ADR-025-corporate-events-come-from-the-distribution-counter.md) | Evento societário vem do contador de distribuição da B3 (não do marcador), com data e natureza e **sem magnitude** | Accepted | eventos societários, proventos, COTAHIST, série de retorno total, rule 44 |
 
 ## Template
 

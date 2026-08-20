@@ -78,8 +78,9 @@ HTTP → CORSMiddleware
 
 ### Duas fontes de preço, duas interfaces
 
-`market_data/base.py` define **duas** ABCs, e a separação não é cerimônia: `DailyHistoryProvider`
-serve barras diárias fechadas; `MarketDataProvider` herda dela e acrescenta a cotação ao vivo.
+`market_data/base.py` define **três** ABCs, e a separação não é cerimônia: `DailyHistoryProvider`
+serve barras diárias fechadas; `MarketDataProvider` herda dela e acrescenta a cotação ao vivo;
+`CorporateEventProvider` (abaixo) responde outra pergunta e não herda de nenhuma das duas.
 
 A série COTAHIST da B3 é arquivo de fim de dia — ela **não cota**, e implementar `get_quote` ali
 significaria devolver o fechamento de ontem com carimbo de agora. Por isso `B3CotahistProvider`
@@ -95,6 +96,28 @@ Duas propriedades declaradas pela fonte atravessam o sistema:
 - **`source_name`** — gravado em cada linha de `asset_prices`. Com duas fontes na mesma tabela e
   só uma delas ajustando, uma linha que não diz de onde veio não é interpretável.
 
+### A terceira interface: em que pregão o papel foi ex
+
+`CorporateEventProvider` (mesmo `base.py`) é **ortogonal** às duas de preço, e por isso é ABC
+separada em vez de método na `DailyHistoryProvider`: fornecedor de cotação não sabe dizer em que
+pregão um papel passou a negociar sem um direito, e obrigá-lo a implementar isso o obrigaria a
+responder mal. É a mesma razão que partiu as duas primeiras na PRICE-001. Só o
+`B3CotahistProvider` a implementa, lendo o **mesmo arquivo já baixado** — nenhuma requisição nova.
+
+O que ela devolve é **data e natureza, nunca magnitude**: o arquivo registra que houve
+distribuição e jamais o tamanho dela ([ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md)).
+
+A detecção é pelo **`DISMES`** — o contador de distribuição do próprio papel — e **não** pelo
+marcador do `ESPECI`. O marcador é uma janela de exibição de ~8 pregões, não um evento, e ainda
+encolhe (`EDJ` → `EJ`) parecendo um evento novo. Medido no arquivo de 2024 inteiro: a BBAS3
+exibe `ON  EDJ NM` em 12, 13 e 14/06 enquanto o contador vai **323, 323, 324** — duas
+distribuições sob um marcador imóvel. Se for mexer aqui, leia antes o
+[ADR-025](../decisions/ADR-025-corporate-events-come-from-the-distribution-counter.md) e o
+docstring de `cotahist.py`: eles trazem as medições que sustentam a escolha.
+
+O evento é **lido, ainda não persistido** — não há tabela, migration nem endpoint de evento
+societário. `get_corporate_events` varre o arquivo já em cache.
+
 ### O ponto único da série de retorno
 
 `app/domain/market_data/series.py` é o **único** lugar que transforma linha de `asset_prices` em
@@ -106,6 +129,19 @@ desdobramento aparece como uma sessão de centenas de por cento. Se você precis
 retorno, chame `adjusted_price_points` / `adjusted_closes_by_asset`; não monte a sua.
 
 A resiliência HTTP não é reescrita por provedor: `integrations/http.py` (`RetryingJsonClient`) concentra timeout, retry limitado, backoff e throttle, recebendo as classes de exceção de cada integração. Um provedor concreto escreve apenas URL e parsing. ([ADR-012](../decisions/ADR-012-shared-http-transport.md))
+
+### Uma coluna de demonstrativo nova e o dado que já está gravado
+
+Período gravado é congelado ([ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md)) — o que
+protege contra reexpressão silenciosa e, como efeito colateral, deixa **toda coluna nova nascer
+vazia** para o que já está no banco. `ebit` (W06-003) e `shares_outstanding` (W09-003) escaparam
+disso por acidente de cronologia: chegaram a um banco vazio.
+
+`sync_annual_statements(..., refill=True)` — `?refill=true` na rota — preenche coluna que está
+`NULL` e **só** ela; valor presente nunca é tocado, então reexpressão continua sem porta de
+entrada ([ADR-024](../decisions/ADR-024-refill-fills-null-columns.md)). A varredura percorre
+`REPORTED_FIELD_NAMES`, então uma coluna futura entra sozinha — o que você precisa fazer ao
+adicionar uma é **acrescentá-la àquela tupla**, não escrever caminho novo no service.
 
 ### 2. Dado externo validado duas vezes
 DTO Pydantic na fronteira (tipos/obrigatoriedade) **e** validador de qualidade de domínio (regras de negócio: OHLC coerente, preço positivo, duplicidade). O validador é uma função pura, sem I/O, testada com valores conhecidos. (AGENTS.md §19/§20)

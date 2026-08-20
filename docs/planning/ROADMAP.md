@@ -1,13 +1,31 @@
 # Roadmap — Waves
 
-> Camada 4. Índice consolidado das 33 waves com status real (2026-08-17).
+> Camada 4. Índice consolidado das 33 waves com status real (2026-08-20).
 > A **especificação funcional completa** (fórmulas, setups, schema, critérios detalhados) está em [../roadmap.md](../roadmap.md) — vá lá só quando for implementar a wave, na seção indicada.
 
 Legenda: 🟢 concluída · 🟡 em progresso · ⚪ não iniciada
 
 ## Estado geral
 
-**10 / 33 concluídas.** Fronteira atual: **Wave 10 — Rebalanceamento** (ver [CURRENT_TASK.md](../memory/CURRENT_TASK.md): há um desvio recomendado antes dela).
+**10 / 33 concluídas** (W00–W09), **mais duas waves inseridas fora da ordem** — ver abaixo.
+Fronteira atual: **EVENTS-003**, a última task da wave em andamento. A **Wave 10 —
+Rebalanceamento** é a próxima do roadmap, depois dela (ver [CURRENT_TASK.md](../memory/CURRENT_TASK.md)).
+
+## Waves inseridas fora da ordem
+
+Não estão entre as 33 do roadmap. Cada uma existe porque destravava mais coisa do que a wave
+seguinte da fila, e ambas trocam **fornecedor com cota** por **arquivo público do mercado** — o
+mesmo movimento que a W09-002 fez com os demonstrativos.
+
+| Wave | Objetivo | Status | Entre |
+|---|---|---|---|
+| PRICE | Histórico de preços de fonte aberta (COTAHIST da B3): provider/parser/cache, ausência de ajuste como dado ([ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md)), endpoint de backfill | 🟢 3/3 | W09 e W10 |
+| EVENTS | Eventos societários e proventos: distribuições por exercício da DMPL da CVM ([ADR-024](../decisions/ADR-024-refill-fills-null-columns.md)), data e natureza do evento pelo arquivo da B3 ([ADR-025](../decisions/ADR-025-corporate-events-come-from-the-distribution-counter.md)), **falta a série de retorno total** | 🟡 2/3 | idem |
+
+**O que a EVENTS existe para destravar**: o pilar de **Risco** — e com ele `volatility`,
+`max_drawdown`, `beta`, `sharpe`, a cobertura do score (0,75 → 1,00) e o backtesting da **W13**,
+que precisa de retorno total e não de preço bruto. As duas primeiras tasks já fecharam o `dy`,
+o último dos 10 indicadores sem insumo.
 
 ## MVP → V1
 
@@ -34,7 +52,7 @@ Legenda: 🟢 concluída · 🟡 em progresso · ⚪ não iniciada
 | W07 | Quant Engine — `returns.py`, `risk.py` (CAGR, vol, beta, drawdown, Sharpe, Sortino) | 🟢 | W05 | §19 |
 | W08 | Benchmark Engine — séries de CDI/IBOV/IPCA e comparativo | 🟢 | W07 | §20 |
 | W09 | Recommendation Engine — sub-scores e alocação do aporte mensal | 🟢 — 4 tasks: sub-scores, fonte CVM, ações em circulação, alocação | W06 (**incl. W06-003**), W07 | §21 |
-| **W10** | **Rebalanceamento** — target weights, weight gaps, restrições conservadoras | ⚪ **próxima** | W09 | §22 |
+| **W10** | **Rebalanceamento** — target weights, weight gaps, restrições conservadoras | ⚪ **próxima do roadmap**, depois da wave EVENTS | W09 | §22 |
 | W11 | Dashboard — patrimônio, rentabilidade, benchmarks, tela de ativo | ⚪ | W07, W08 | §23 |
 
 ⚠️ **W11 é a primeira wave com trabalho de frontend real.** O frontend hoje é só scaffold.
@@ -89,13 +107,12 @@ Não pule para IA ou Day Trade (AGENTS.md §96). Uma wave por vez (§133) — ex
 
 ## Pendências que atravessam waves
 
-Não bloqueiam a W06, mas precisam ser resolvidas antes de produção:
+Não bloqueiam a wave em andamento, mas precisam ser resolvidas antes de produção (revisado em 2026-08-20):
 
-- Aplicar `alembic upgrade head` contra PostgreSQL real (`002`, `003` e `004` nunca rodaram lá).
-- Validar o parser da Brapi com tickers de outros tipos (FII, ETF, BDR, banco) — só a PETR4 foi verificada; bancos e seguradoras têm linhas de balanço próprias.
-- Recomputar indicadores gravados antes da W06-003 (`?recompute=true`).
-- Suportar demonstrativos trimestrais e reexpressões: exige coluna de período / versionamento em `fundamentals` ([ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md)).
-- Task dedicada de lint cleanup no backend (findings pré-existentes da W02).
-- Consertar `npm run lint` no frontend (falta `eslint`).
-- Expor `get_quote()` e implementar ingestão de proventos — entregáveis da W05 (roadmap §17) que ficaram de fora.
-- Converter para `NUMERIC` as colunas monetárias ainda em `Float` (ver [ADR-003](../decisions/ADR-003-decimal-money.md)).
+- ✅ ~~Aplicar `alembic upgrade head` contra PostgreSQL real~~ — feito na W06-004 (2026-08-18); desde então toda migration nova é aplicada em Postgres 16 real, até a `011`.
+- Validar o parser da CVM com tickers de outros tipos — bancos e seguradoras têm plano de contas próprio no DFP (`3.01` do BB é receita de intermediação financeira), e FII/ETF/BDR não arquivam DFP e nunca arquivarão. Validado até aqui contra PETR4 e VALE3.
+- ✅ ~~Recomputar indicadores gravados antes da W06-003~~ — resolvido por `?recompute=true` ([ADR-015](../decisions/ADR-015-indicator-recomputation.md)).
+- Suportar demonstrativos trimestrais e reexpressões: exige coluna de período / versionamento em `fundamentals` ([ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md)). O `refill` da EVENTS-001 **não** resolve isso — ele só preenche coluna nula ([ADR-024](../decisions/ADR-024-refill-fills-null-columns.md)).
+- ✅ ~~Task dedicada de lint cleanup no backend~~ e ~~consertar `npm run lint`~~ — ambas fechadas em FIX-001 (2026-08-19). `ruff`/`black` limpos no repositório inteiro, ESLint 10 rodando.
+- **Ingestão de proventos, entregável da W05 (roadmap §17), ainda incompleta**: `get_quote()` foi exposto em FIX-001, e a EVENTS-001 trouxe o provento **agregado por exercício** (da DMPL da CVM, suficiente para o `dy`). O que falta é o provento **por pagamento, com data e valor** — a magnitude que o arquivo da B3 deliberadamente não dá ([ADR-025](../decisions/ADR-025-corporate-events-come-from-the-distribution-counter.md)) e que a série de retorno total exige.
+- Converter para `NUMERIC` as colunas monetárias ainda em `Float` (ver [ADR-003](../decisions/ADR-003-decimal-money.md)) — sobraram `intraday_prices` OHLC (W15) e `portfolio_snapshots.total_value`/`cash_value` (W11), as duas **sem consumidor** hoje.

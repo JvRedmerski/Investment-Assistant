@@ -70,7 +70,7 @@ Códigos em uso: `INVALID_CREDENTIALS`, `ASSET_NOT_FOUND`, `ASSET_ALREADY_EXISTS
 | POST | `/{ticker}/prices/backfill` | histórico **profundo** pela série COTAHIST aberta da B3; body `{start?, end?}`, `start` default `B3_COTAHIST_FIRST_YEAR`. **Sem teto de janela** — a fonte é um arquivo por ano civil, sem cota. Bars vêm **sem `adjusted_close`** e a ausência é gravada ([ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md)). Convive com `/prices/sync`: ambos escrevem em `asset_prices` e **nenhum sobrescreve data já gravada**, então compõem em qualquer ordem. Pode levar minutos com cache frio |
 | GET | `/{ticker}/prices` | lê **só** do banco; query `start`/`end` opcionais. `adjusted_close` pode ser `null` — ver `source` para saber qual fonte forneceu a linha |
 | GET | `/{ticker}/quote` | cotação atual, **ao vivo** no provedor; nada é gravado (cotação é um momento, `asset_prices` guarda pregão fechado). Exige o ativo cadastrado, para que um typo não gaste requisição de cota mensal |
-| POST | `/{ticker}/fundamentals/sync` | chama a API externa; sem body; ingere demonstrativos **anuais**; mesma resposta de contagens |
+| POST | `/{ticker}/fundamentals/sync` | chama a API externa; sem body; ingere demonstrativos **anuais**; mesma resposta de contagens, mais `refilled`. `?refill=true` preenche colunas que estão **`NULL`** em períodos já gravados, e só elas — valor já presente nunca é tocado, então reexpressão continua não entrando por aqui ([ADR-024](../decisions/ADR-024-refill-fills-null-columns.md)). É como um banco alcança uma coluna de demonstrativo que o código aprendeu a ler depois da ingestão |
 | GET | `/{ticker}/fundamentals` | lê **só** do banco; query `start`/`end` filtram `reference_date`; itens de linha não reportados vêm `null` |
 | POST | `/{ticker}/indicators/compute` | **não** chama API externa — só transforma dado armazenado; devolve `periods/computed/skipped_existing/recomputed`. `?recompute=true` descarta e reconstrói os indicadores do ativo ([ADR-015](../decisions/ADR-015-indicator-recomputation.md)) |
 | GET | `/{ticker}/indicators` | lê **só** do banco; `start`/`end` filtram `reference_date`; `null` = não computável, nunca zero |
@@ -79,6 +79,8 @@ Códigos em uso: `INVALID_CREDENTIALS`, `ASSET_NOT_FOUND`, `ASSET_ALREADY_EXISTS
 Os dois endpoints `*/sync` são as únicas rotas que chamam provedores externos. `indicators/compute` escreve no banco mas não faz I/O de rede.
 
 Unidades dos indicadores: margens, crescimento, ROE, ROIC e DY são **frações** (0.15 = 15%); `pe`, `pb` e `debt_ebitda` são múltiplos adimensionais.
+
+**Os 10 indicadores têm insumo desde a EVENTS-001** — `dy` era o último sem fonte, e passou a vir da DMPL da CVM (`dividends_paid / shares_outstanding / price`, tudo do mesmo exercício). Um `null` na resposta continua significando *não computável para este período*, nunca zero ([ADR-014](../decisions/ADR-014-indicator-missing-data-policy.md)).
 
 ### Portfolios — `/api/v1/portfolios` (todos autenticados, escopados ao dono)
 | Método | Rota | Nota |

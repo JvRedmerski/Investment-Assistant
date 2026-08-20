@@ -25,6 +25,7 @@
   - `009_drop_dup_uniques` — remove as `UniqueConstraint` redundantes de `assets.ticker` e `users.email`. A `001` criou constraint **e** índice único para a mesma coluna, enquanto o model declara só o índice — o que fazia `alembic check` acusar drift em toda execução e inutilizava a checagem como guarda em CI. A unicidade continua garantida pelo índice único.
   - `010_nullable_adj_close` — torna `asset_prices.adjusted_close` **anulável**. `NULL` significa "esta fonte não calcula ajuste", nunca "faltou": a série COTAHIST da B3 imprime o preço negociado e não publica ajuste algum. Sob a regra anterior (`NOT NULL` + rejeição da barra, ADR-016) **toda** barra da B3 seria descartada. O invariante deixou de ser estrutural e passou a ser mantido por `app/domain/market_data/series.py`, o ponto único que constrói série de retorno — ver [ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md). O `downgrade` **apaga** as linhas sem ajuste em vez de inventar um valor.
     ⚠️ O `revision` é curto de propósito: `alembic_version.version_num` é `varchar(32)`, e um id mais longo falha **depois** de o schema já ter sido aplicado.
+  - `011_dividends_paid` — adiciona `fundamentals.dividends_paid` (`NUMERIC(24,4)`): o que a companhia debitou ao patrimônio como distribuição no exercício, dividendos **mais** JCP, somados. Era o último insumo que faltava a algum indicador — destravou o `dy`. Guardado como **agregado, não por ação**, pelo mesmo motivo de `net_income` e `equity`: o valor por ação é derivado no cálculo do indicador, a partir da contagem **do mesmo período**, então uma reexpressão de qualquer um dos dois não deixa os dois fora de passo. `NULL` significa "a peça não reportou linha de distribuição", nunca zero — ver [ADR-024](../decisions/ADR-024-refill-fills-null-columns.md) para como períodos já gravados ganharam a coluna.
 - Todas foram **escritas manualmente**, não por autogenerate.
 
 ```powershell
@@ -84,7 +85,7 @@ arredondada em 6 casas perde dois dígitos significativos, e o erro compõe 252 
 ### Fundamentos
 | Tabela | Campos-chave | Usada? |
 |---|---|---|
-| `fundamentals` | `asset_id`, `reference_date`, `revenue`, `ebitda`, `net_income`, `equity`, `debt`, `cash`, `free_cash_flow`, `ebit`, `income_before_tax`, `income_tax_expense` (todos nullable, `NUMERIC(24,4)`) + `shares_outstanding` (nullable, `NUMERIC(20,0)`) | ✅ W06-001/003, `shares_outstanding` na W09-003 — só demonstrativos **anuais** |
+| `fundamentals` | `asset_id`, `reference_date`, `revenue`, `ebitda`, `net_income`, `equity`, `debt`, `cash`, `free_cash_flow`, `ebit`, `income_before_tax`, `income_tax_expense`, `dividends_paid` (todos nullable, `NUMERIC(24,4)`) + `shares_outstanding` (nullable, `NUMERIC(20,0)`) | ✅ W06-001/003, `shares_outstanding` na W09-003, `dividends_paid` na EVENTS-001 — só demonstrativos **anuais** |
 | `financial_indicators` | `asset_id`, `reference_date`, `pe`, `pb`, `roe`, `roic`, `dy`, `debt_ebitda`, `net_margin`, `ebitda_margin`, `revenue_growth`, `profit_growth` (`Float`, deliberado — são razões, não moeda) | ✅ W06-002/003 — 5 dos 10 populados; os demais `NULL` por limitação evidenciada da fonte |
 
 ### Recomendações e Day Trade
