@@ -180,12 +180,28 @@ BALANCE_ASSETS = "BPA_con"
 BALANCE_LIABILITIES = "BPP_con"
 INCOME = "DRE_con"
 VALUE_ADDED = "DVA_con"
+#: Statement of changes in equity. Shaped unlike the others: every
+#: account is repeated once per equity column, so a row is identified by
+#: `CD_CONTA` *and* `COLUNA_DF`.
+EQUITY_CHANGES = "DMPL_con"
 
 #: The share count file. Not a statement: it has no account codes, no
 #: `ORDEM_EXERC` and no currency scale, and holds one row per company.
 CAPITAL_COMPOSITION = "composicao_capital"
 SHARES_ISSUED_COLUMN = "QT_ACAO_TOTAL_CAP_INTEGR"
 SHARES_TREASURY_COLUMN = "QT_ACAO_TOTAL_TESOURO"
+
+#: The DMPL column holding equity attributable to the parent. Written
+#: exactly like this in the file, accents included. `Patrimônio Líquido
+#: Consolidado` is the sibling that *includes* non-controlling interests,
+#: and picking it would count distributions to owners the shareholder
+#: does not have — the same trap as `3.11` versus `3.11.01`.
+EQUITY_COLUMN = "Patrimônio Líquido"
+
+#: Distributions charged to equity during the period. Both are debits,
+#: so the filing writes them negative.
+DIVIDENDS = "5.04.06"
+INTEREST_ON_CAPITAL = "5.04.07"
 
 #: `CD_CONTA` codes, one per figure. See the table in the module
 #: docstring for how each was verified.
@@ -386,6 +402,7 @@ class CvmFundamentalsProvider(FundamentalsProvider):
                 liabilities = _company_rows(archive, BALANCE_LIABILITIES, year, cnpj)
                 assets = _company_rows(archive, BALANCE_ASSETS, year, cnpj)
                 value_added = _company_rows(archive, VALUE_ADDED, year, cnpj)
+                equity_changes = _company_rows(archive, EQUITY_CHANGES, year, cnpj)
                 capital = _capital_row(archive, year, cnpj)
         except zipfile.BadZipFile as exc:
             raise InvalidFundamentalsResponseError(
@@ -421,6 +438,7 @@ class CvmFundamentalsProvider(FundamentalsProvider):
             shares_outstanding=_shares_outstanding(
                 capital, income, net_income, reference_date
             ),
+            dividends_paid=_distributions(equity_changes),
         )
 
 
@@ -561,6 +579,58 @@ def _sum(rows: list[dict[str, str]], *codes: str) -> Decimal | None:
     if not parts:
         return None
     return sum(parts, Decimal(0))
+
+
+def _distributions(equity_changes: list[dict[str, str]]) -> Decimal | None:
+    """Dividends plus interest on capital charged to equity in the period.
+
+    The DMPL is the only statement that says what was actually
+    distributed *for* a period, dated to that period — which is what a
+    point-in-time yield needs and what a vendor's present-day
+    `dividendYield` snapshot can never provide (rules 108/109).
+
+    Three things decide whether this number is right.
+
+    **The column.** Every DMPL account is repeated once per equity
+    column, so `CD_CONTA` alone selects eight rows. Only
+    `Patrimônio Líquido` is read: its sibling `Patrimônio Líquido
+    Consolidado` adds distributions made to non-controlling interests,
+    which the shareholder has no claim on. It is the same distinction
+    that makes `net_income` `3.11.01` rather than `3.11` — every figure
+    in a statement here describes the parent's owners.
+
+    **The sign.** A distribution is a debit to equity, so the filing
+    writes it negative. The magnitude is the quantity; the sign is
+    presentation, exactly as with D&A in the value-added statement.
+
+    **What is left out.** `5.04.11` (*dividendos prescritos*) is money
+    returning to the company because shareholders never claimed it —
+    a reversal of some earlier period's distribution, not a negative
+    distribution of this one. Netting it here would understate the
+    period that paid and misattribute the correction. PETR4's 2024
+    filing carries R$ 316 M of it.
+
+    Interest on capital is summed with dividends because both are cash
+    leaving equity for shareholders. They differ in tax treatment, not
+    in whether the holder received them, and several filers report the
+    whole payout under one code and nothing under the other.
+    """
+    parts = [
+        amount
+        for code in (DIVIDENDS, INTEREST_ON_CAPITAL)
+        if (amount := _amount_in_column(equity_changes, code, EQUITY_COLUMN))
+        is not None
+    ]
+    if not parts:
+        return None
+    return abs(sum(parts, Decimal(0)))
+
+
+def _amount_in_column(
+    rows: list[dict[str, str]], code: str, column: str
+) -> Decimal | None:
+    """`_amount`, but for a statement whose accounts repeat per column."""
+    return _amount([row for row in rows if row.get("COLUNA_DF") == column], code)
 
 
 def _equity(rows: list[dict[str, str]]) -> Decimal | None:

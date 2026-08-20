@@ -24,6 +24,7 @@ def _statement(year=2024, **overrides) -> FinancialStatement:
         "income_before_tax": Decimal(150000000000),
         "income_tax_expense": Decimal(-39000000000),
         "shares_outstanding": Decimal(12888732761),
+        "dividends_paid": Decimal("100900000000.0000"),
     }
     values.update(overrides)
     return FinancialStatement(**values)
@@ -124,7 +125,7 @@ def test_partially_reported_statement_is_stored_but_warned_about():
     assert report.is_valid
     assert report.valid_statements == [partial]
     assert [issue.code for issue in report.warnings] == ["INCOMPLETE_STATEMENT"]
-    assert "10 of 11" in report.warnings[0].message
+    assert "11 of 12" in report.warnings[0].message
 
 
 def test_valid_and_invalid_statements_are_separated():

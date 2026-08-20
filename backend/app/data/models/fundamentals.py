@@ -70,6 +70,15 @@ class Fundamental(Base):
     shares_outstanding: Mapped[Decimal | None] = mapped_column(
         SHARE_COUNT, nullable=True
     )
+    # Added in EVENTS-001 to unblock `dy`, the last indicator that had
+    # no input. Distributions charged to equity during the period -
+    # dividends plus interest on capital - stored as a positive
+    # magnitude and belonging to the period it was declared in, which
+    # is what makes a point-in-time yield possible (rules 108/109).
+    # NULL means the filing reported no distribution line, never zero.
+    dividends_paid: Mapped[Decimal | None] = mapped_column(
+        STATEMENT_MONEY, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, nullable=False
     )

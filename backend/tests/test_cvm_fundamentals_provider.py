@@ -116,6 +116,26 @@ PETR4_VALUE_ADDED = [
     ("7.04.01", "Depreciacao, Amortizacao e Exaustao", "-67033000"),
 ]
 
+#: PETR4's real 2024 DMPL rows, verbatim from
+#: `dfp_cia_aberta_DMPL_con_2024.csv`, as (account, column, value) in
+#: thousands. Every account repeats once per equity column, which is
+#: exactly what makes reading `CD_CONTA` alone wrong.
+PETR4_EQUITY_CHANGES = [
+    ("5.04.06", "Reservas de Lucro", "-64768000"),
+    ("5.04.06", "Lucros ou Prejuízos Acumulados", "-36132000"),
+    ("5.04.06", "Patrimônio Líquido", "-100900000"),
+    ("5.04.06", "Participação dos Não Controladores", "-302000"),
+    # Includes the minority's share — the column that must NOT be read.
+    ("5.04.06", "Patrimônio Líquido Consolidado", "-101202000"),
+    ("5.04.07", "Patrimônio Líquido", "0"),
+    # Unclaimed dividends reverting to the company: a credit, and a
+    # reversal of an earlier period, not a negative payout of this one.
+    ("5.04.11", "Patrimônio Líquido", "316000"),
+]
+
+#: The DMPL carries one extra column over the other statements.
+DMPL_COLUMNS = COLUMNS[:11] + ["COLUNA_DF"] + COLUMNS[11:]
+
 BILLION = Decimal(1_000_000_000)
 
 
@@ -167,12 +187,44 @@ def _capital_csv(*rows, cnpj=PETR4, year=2024, refer=None):
     return buffer.getvalue().encode("latin-1")
 
 
+def _dmpl_csv(rows, cnpj=PETR4, year=2024, scale="MIL", order="ÚLTIMO", version="1"):
+    """The statement of changes in equity, one row per account *per column*."""
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=DMPL_COLUMNS, delimiter=";")
+    writer.writeheader()
+    for code, column, value in rows:
+        writer.writerow(
+            {
+                "CNPJ_CIA": cnpj,
+                "DT_REFER": f"{year}-12-31",
+                "VERSAO": version,
+                "DENOM_CIA": "PETROLEO BRASILEIRO S.A. PETROBRAS",
+                "CD_CVM": "009512",
+                "GRUPO_DFP": "DF Consolidado",
+                "MOEDA": "REAL",
+                "ESCALA_MOEDA": scale,
+                "ORDEM_EXERC": order,
+                "DT_INI_EXERC": f"{year}-01-01",
+                "DT_FIM_EXERC": f"{year}-12-31",
+                "COLUNA_DF": column,
+                "CD_CONTA": code,
+                "DS_CONTA": "Dividendos",
+                "VL_CONTA": value,
+                "ST_CONTA_FIXA": "S",
+            }
+        )
+    return buffer.getvalue().encode("latin-1")
+
+
 def _archive_bytes(year=2024, **overrides):
     parts = {
         "DRE_con": overrides.get("income", _csv(PETR4_INCOME, year=year)),
         "BPP_con": overrides.get("liabilities", _csv(PETR4_LIABILITIES, year=year)),
         "BPA_con": overrides.get("assets", _csv(PETR4_ASSETS, year=year)),
         "DVA_con": overrides.get("value_added", _csv(PETR4_VALUE_ADDED, year=year)),
+        "DMPL_con": overrides.get(
+            "equity_changes", _dmpl_csv(PETR4_EQUITY_CHANGES, year=year)
+        ),
         "composicao_capital": overrides.get(
             "capital", _capital_csv(PETR4_CAPITAL, year=year)
         ),
@@ -755,3 +807,112 @@ def test_closing_the_composite_closes_every_source():
 def test_a_composite_needs_at_least_one_source():
     with pytest.raises(ValueError):
         CompositeFundamentalsProvider([])
+
+
+# -- distributions, and the column that decides the answer -------------
+
+
+def test_distributions_come_from_the_parent_equity_column(cache_dir):
+    provider = _provider(cache_dir, {2024: _archive_bytes()})
+
+    (statement,) = provider.get_annual_statements("PETR4")
+
+    # R$ 100.9 bn — PETR4's real 2024 payout, from the
+    # `Patrimônio Líquido` column of `5.04.06`. The filing writes it as a
+    # debit; the magnitude is the quantity.
+    assert statement.dividends_paid == Decimal("100.9") * BILLION
+
+
+def test_the_consolidated_column_is_not_the_one_read(cache_dir):
+    provider = _provider(cache_dir, {2024: _archive_bytes()})
+
+    (statement,) = provider.get_annual_statements("PETR4")
+
+    # `Patrimônio Líquido Consolidado` is R$ 101.202 bn: it adds the
+    # R$ 302 M paid to non-controlling interests, which the shareholder
+    # has no claim on. Same distinction as 3.11.01 versus 3.11.
+    assert statement.dividends_paid != Decimal("101.202") * BILLION
+
+
+def test_interest_on_capital_is_summed_with_dividends(cache_dir):
+    rows = [
+        ("5.04.06", "Patrimônio Líquido", "-60000000"),
+        ("5.04.07", "Patrimônio Líquido", "-40900000"),
+    ]
+    provider = _provider(
+        cache_dir, {2024: _archive_bytes(equity_changes=_dmpl_csv(rows))}
+    )
+
+    (statement,) = provider.get_annual_statements("PETR4")
+
+    # Filers split the payout between the two codes differently, and some
+    # put all of it under one. Both are cash leaving equity for holders.
+    assert statement.dividends_paid == Decimal("100.9") * BILLION
+
+
+def test_prescribed_dividends_are_not_netted_off(cache_dir):
+    provider = _provider(cache_dir, {2024: _archive_bytes()})
+
+    (statement,) = provider.get_annual_statements("PETR4")
+
+    # `5.04.11` carries R$ 316 M of unclaimed dividends returning to the
+    # company. Netting it would understate the period that paid and
+    # attribute an earlier period's correction to this one.
+    assert statement.dividends_paid == Decimal("100.9") * BILLION
+
+
+def test_a_company_that_distributed_nothing_reports_no_figure(cache_dir):
+    rows = [("5.04.04", "Patrimônio Líquido", "-1919000")]
+    provider = _provider(
+        cache_dir, {2024: _archive_bytes(equity_changes=_dmpl_csv(rows))}
+    )
+
+    (statement,) = provider.get_annual_statements("PETR4")
+
+    # No distribution line filed at all. `None`, not zero: nobody said
+    # zero (rule 44 / ADR-014).
+    assert statement.dividends_paid is None
+
+
+def test_a_missing_dmpl_file_leaves_the_rest_of_the_statement_intact(cache_dir):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for statement_name, payload in (
+            ("DRE_con", _csv(PETR4_INCOME)),
+            ("BPP_con", _csv(PETR4_LIABILITIES)),
+            ("BPA_con", _csv(PETR4_ASSETS)),
+            ("DVA_con", _csv(PETR4_VALUE_ADDED)),
+        ):
+            archive.writestr(f"dfp_cia_aberta_{statement_name}_2024.csv", payload)
+
+    provider = _provider(cache_dir, {2024: buffer.getvalue()})
+    (statement,) = provider.get_annual_statements("PETR4")
+
+    assert statement.dividends_paid is None
+    assert statement.net_income == Decimal("36.606") * BILLION
+
+
+def test_the_scale_column_applies_to_distributions_too(cache_dir):
+    rows = [("5.04.06", "Patrimônio Líquido", "-100900000000")]
+    provider = _provider(
+        cache_dir,
+        {2024: _archive_bytes(equity_changes=_dmpl_csv(rows, scale="UNIDADE"))},
+    )
+
+    (statement,) = provider.get_annual_statements("PETR4")
+
+    assert statement.dividends_paid == Decimal("100.9") * BILLION
+
+
+def test_only_the_current_period_column_of_the_dmpl_is_read(cache_dir):
+    rows = [("5.04.06", "Patrimônio Líquido", "-94030000")]
+    provider = _provider(
+        cache_dir,
+        {2024: _archive_bytes(equity_changes=_dmpl_csv(rows, order="PENÚLTIMO"))},
+    )
+
+    (statement,) = provider.get_annual_statements("PETR4")
+
+    # The comparative column is the prior year restated; that year has
+    # its own filing with what was actually delivered (ADR-020).
+    assert statement.dividends_paid is None

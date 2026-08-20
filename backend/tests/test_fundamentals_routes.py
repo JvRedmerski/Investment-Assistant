@@ -114,6 +114,7 @@ def test_sync_then_read_returns_stored_statements(client):
         "inserted": 2,
         "skipped_existing": 0,
         "rejected": 0,
+        "refilled": 0,
     }
 
     # Swap in a provider that would fail loudly if the read path used it.

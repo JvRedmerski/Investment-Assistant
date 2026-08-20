@@ -338,6 +338,7 @@ def list_asset_prices(
 @router.post("/{ticker}/fundamentals/sync", response_model=FundamentalsSyncResponse)
 def sync_asset_fundamentals(
     ticker: str,
+    refill: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     provider: FundamentalsProvider = Depends(get_fundamentals_provider),
@@ -349,11 +350,17 @@ def sync_asset_fundamentals(
     external provider; reading fundamentals never does (AGENTS.md rule
     23). Already-stored reference dates are kept as-is, never
     overwritten — see `app.domain.fundamentals.service`.
+
+    `?refill=true` fills columns that are **NULL** on periods already
+    stored, and nothing else. It is how a database catches up when the
+    code learns to read a figure the source was reporting all along —
+    without it, every period ingested before this release would keep a
+    permanently empty `dividends_paid`, and therefore no `dy`.
     """
     asset = _get_asset_by_ticker(db, ticker)
 
     try:
-        result = sync_annual_statements(db, provider, asset)
+        result = sync_annual_statements(db, provider, asset, refill=refill)
     except FundamentalsNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -393,6 +400,7 @@ def sync_asset_fundamentals(
         inserted=result.inserted,
         skipped_existing=result.skipped_existing,
         rejected=result.rejected,
+        refilled=result.refilled,
     )
 
 

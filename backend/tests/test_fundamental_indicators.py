@@ -145,12 +145,28 @@ def test_dy_is_none_without_dividend_data():
     assert result.dy is None
 
 
-def test_dy_is_computed_once_dividends_are_supplied():
+def test_dy_is_computed_from_distributions_and_the_period_share_count():
     result = compute_indicators(
-        _inputs(price=Decimal(30), dividends_per_share=Decimal("1.8"))
+        _inputs(
+            price=Decimal(30),
+            # R$ 1.80 per share: the aggregate over the count that
+            # belongs to the same period, never over today's count.
+            dividends_paid=Decimal(1_800_000),
+            shares_outstanding=Decimal(1_000_000),
+        )
     )
 
     assert result.dy == 0.06
+
+
+def test_dy_stays_absent_without_a_share_count_to_divide_by():
+    result = compute_indicators(
+        _inputs(price=Decimal(30), dividends_paid=Decimal(1_800_000))
+    )
+
+    # An aggregate payout says nothing about yield on its own, and
+    # guessing a count would invent the answer (rule 44).
+    assert result.dy is None
 
 
 def test_ebitda_indicators_are_none_because_ebitda_is_never_ingested():

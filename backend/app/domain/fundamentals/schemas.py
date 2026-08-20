@@ -12,6 +12,9 @@ class FundamentalsSyncResponse(BaseModel):
     inserted: int
     skipped_existing: int
     rejected: int
+    #: Already-stored periods that gained a value in a column that was
+    #: NULL, when `refill` was asked for. Zero otherwise.
+    refilled: int = 0
 
 
 class IndicatorsComputeResponse(BaseModel):

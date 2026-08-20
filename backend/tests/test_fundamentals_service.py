@@ -187,3 +187,131 @@ def test_empty_provider_response_stores_nothing(db_session, asset):
 
     assert (result.fetched, result.inserted, result.rejected) == (0, 0, 0)
     assert _stored(db_session, asset) == []
+
+
+# -- refilling a column the code only learned to read later ------------
+
+
+def _full_statement(year: int) -> FinancialStatement:
+    return FinancialStatement(
+        reference_date=date(year, 12, 31),
+        revenue=Decimal("100.5"),
+        net_income=Decimal("10.25"),
+        equity=Decimal("500.75"),
+        debt=Decimal(300),
+        cash=Decimal(60),
+        shares_outstanding=Decimal(1_000_000),
+        dividends_paid=Decimal(1_800_000),
+    )
+
+
+def test_a_stored_period_keeps_its_null_columns_without_refill(db_session, asset):
+    db_session.add(
+        Fundamental(
+            asset_id=asset.id,
+            reference_date=date(2024, 12, 31),
+            revenue=Decimal("100.5"),
+        )
+    )
+    db_session.commit()
+
+    result = sync_annual_statements(
+        db_session, FakeProvider([_full_statement(2024)]), asset
+    )
+
+    # The default is unchanged: a stored period is not revisited at all.
+    assert result.skipped_existing == 1
+    assert result.refilled == 0
+    (row,) = db_session.query(Fundamental).all()
+    assert row.dividends_paid is None
+
+
+def test_refill_fills_a_column_that_was_null(db_session, asset):
+    db_session.add(
+        Fundamental(
+            asset_id=asset.id,
+            reference_date=date(2024, 12, 31),
+            revenue=Decimal("100.5"),
+        )
+    )
+    db_session.commit()
+
+    result = sync_annual_statements(
+        db_session, FakeProvider([_full_statement(2024)]), asset, refill=True
+    )
+
+    # Without this, every period ingested before the code learned to read
+    # `dividends_paid` would keep an empty column for good — and no `dy`.
+    assert result.refilled == 1
+    assert result.inserted == 0
+    (row,) = db_session.query(Fundamental).all()
+    assert row.dividends_paid == Decimal(1_800_000)
+    assert row.shares_outstanding == Decimal(1_000_000)
+
+
+def test_refill_never_overwrites_a_value_that_is_already_there(db_session, asset):
+    db_session.add(
+        Fundamental(
+            asset_id=asset.id,
+            reference_date=date(2024, 12, 31),
+            revenue=Decimal("100.5"),
+            dividends_paid=Decimal(999),
+        )
+    )
+    db_session.commit()
+
+    result = sync_annual_statements(
+        db_session, FakeProvider([_full_statement(2024)]), asset, refill=True
+    )
+
+    # This is what keeps refill from becoming a back door around ADR-013:
+    # a figure the source already gave us is never rewritten, so a
+    # restatement cannot slip in this way.
+    (row,) = db_session.query(Fundamental).all()
+    assert row.dividends_paid == Decimal(999)
+    # Something else was still filled, so the period does count as refilled.
+    assert result.refilled == 1
+    assert row.shares_outstanding == Decimal(1_000_000)
+
+
+def test_refill_reports_nothing_when_there_was_nothing_to_fill(db_session, asset):
+    # Everything the statement reports is already stored.
+    db_session.add(
+        Fundamental(
+            asset_id=asset.id,
+            reference_date=date(2024, 12, 31),
+            revenue=Decimal("100.5"),
+            net_income=Decimal("10.25"),
+            equity=Decimal("500.75"),
+            debt=Decimal(300),
+            cash=Decimal(60),
+            shares_outstanding=Decimal(1_000_000),
+            dividends_paid=Decimal(1_800_000),
+        )
+    )
+    db_session.commit()
+
+    result = sync_annual_statements(
+        db_session, FakeProvider([_full_statement(2024)]), asset, refill=True
+    )
+
+    assert result.refilled == 0
+
+
+def test_refill_does_not_invent_a_value_the_source_omitted(db_session, asset):
+    db_session.add(
+        Fundamental(
+            asset_id=asset.id,
+            reference_date=date(2024, 12, 31),
+            revenue=Decimal("100.5"),
+        )
+    )
+    db_session.commit()
+
+    # The provider has no distribution line for this period either.
+    sync_annual_statements(
+        db_session, FakeProvider([_statement(2024)]), asset, refill=True
+    )
+
+    (row,) = db_session.query(Fundamental).all()
+    assert row.dividends_paid is None

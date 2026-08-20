@@ -44,6 +44,13 @@ class FinancialStatement(BaseModel):
     # the same filing and stored under the same reference date, which is
     # what makes P/L and P/VP computable without look-ahead.
     shares_outstanding: Decimal | None = None
+    # Added in EVENTS-001: what the company charged to equity as
+    # distributions during the period - dividends plus interest on
+    # capital. Reported as a positive magnitude, though the filing
+    # writes it as a debit (negative). Aggregate, not per share: the
+    # per-share figure is derived at indicator time, the same way EPS
+    # and book value per share are.
+    dividends_paid: Decimal | None = None
 
     @property
     def reported_fields(self) -> dict[str, Decimal]:
@@ -59,7 +66,7 @@ class FinancialStatement(BaseModel):
 #: quality checks cannot drift out of sync with the schema when a field
 #: is added.
 #:
-#: All but the last are monetary; `shares_outstanding` is a count. It
+#: All are monetary except `shares_outstanding`, which is a count. It
 #: belongs here anyway, because what this list drives is "did the source
 #: report this figure", and that question is the same for both.
 REPORTED_FIELD_NAMES: tuple[str, ...] = (
@@ -74,4 +81,5 @@ REPORTED_FIELD_NAMES: tuple[str, ...] = (
     "income_before_tax",
     "income_tax_expense",
     "shares_outstanding",
+    "dividends_paid",
 )

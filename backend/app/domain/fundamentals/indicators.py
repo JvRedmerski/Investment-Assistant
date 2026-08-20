@@ -19,9 +19,9 @@ look equally plausible.
 formula that needs it is written, tested and ready — it simply returns
 `None` until a per-period source exists:
 
-| missing input       | indicators it blocks | why                     |
-|---------------------|----------------------|-------------------------|
-| dividends_per_share | dy                   | only a current snapshot |
+**Every input is now ingested.** The table that used to sit here listed
+`dividends_per_share` as the last gap; EVENTS-001 closed it, and all ten
+formulas have a real source.
 
 Brapi's `dividendYield` is a **present-day snapshot with no period end
 date**. Applying it to a 2010 statement would attribute a present fact to
@@ -95,8 +95,12 @@ class IndicatorInputs:
     # `pb` were absent until now (rules 108/109).
     shares_outstanding: Decimal | None = None
 
-    # Not ingested — see module docstring.
-    dividends_per_share: Decimal | None = None
+    # From `fundamentals`, added in EVENTS-001: what the company
+    # charged to equity as distributions during this period, dividends
+    # plus interest on capital. Aggregate rather than per share, for the
+    # same reason `net_income` and `equity` are: the per-share figure is
+    # derived below, from the count that belongs to the same period.
+    dividends_paid: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -139,7 +143,7 @@ def compute_indicators(
       ebit × (1 − effective tax rate), the effective rate is
       |income_tax_expense| / income_before_tax for that same period, and
       invested capital = debt + equity − cash.
-    - **dy** = dividends_per_share / price.
+    - **dy** = (dividends_paid / shares_outstanding) / price.
     - **debt_ebitda** = debt / ebitda.
     - **net_margin** = net_income / revenue.
     - **ebitda_margin** = ebitda / revenue.
@@ -149,13 +153,14 @@ def compute_indicators(
     """
     eps = _ratio_decimal(current.net_income, current.shares_outstanding)
     bvps = _ratio_decimal(current.equity, current.shares_outstanding)
+    dps = _ratio_decimal(current.dividends_paid, current.shares_outstanding)
 
     return IndicatorSet(
         pe=_to_float(_ratio_decimal(current.price, eps)),
         pb=_to_float(_ratio_decimal(current.price, bvps)),
         roe=_to_float(_ratio_decimal(current.net_income, current.equity)),
         roic=_to_float(_ratio_decimal(_nopat(current), _invested_capital(current))),
-        dy=_to_float(_ratio_decimal(current.dividends_per_share, current.price)),
+        dy=_to_float(_ratio_decimal(dps, current.price)),
         debt_ebitda=_to_float(_ratio_decimal(current.debt, current.ebitda)),
         net_margin=_to_float(_ratio_decimal(current.net_income, current.revenue)),
         ebitda_margin=_to_float(_ratio_decimal(current.ebitda, current.revenue)),

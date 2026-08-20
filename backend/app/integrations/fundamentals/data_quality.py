@@ -30,7 +30,18 @@ from app.integrations.fundamentals.schemas import (
 # in trouble, it is a broken filing: the 2022 archive holds one with
 # treasury shares recorded as a negative number, and the 2021 one holds a
 # company whose treasury count exceeds its issued capital.
-_NON_NEGATIVE_FIELDS = ("revenue", "debt", "cash", "shares_outstanding")
+#
+# `dividends_paid` is here for a different reason: the DMPL writes a
+# distribution as a *debit*, so the parser takes its magnitude. A
+# negative value arriving anyway means the sign convention was misread
+# somewhere, and a negative payout is not a thing a company can do.
+_NON_NEGATIVE_FIELDS = (
+    "revenue",
+    "debt",
+    "cash",
+    "shares_outstanding",
+    "dividends_paid",
+)
 
 
 @dataclass

@@ -34,6 +34,10 @@ from app.domain.fundamentals.indicators import (
 )
 from app.integrations.fundamentals.base import FundamentalsProvider
 from app.integrations.fundamentals.data_quality import validate_financial_statements
+from app.integrations.fundamentals.schemas import (
+    REPORTED_FIELD_NAMES,
+    FinancialStatement,
+)
 
 logger = logging.getLogger("investment_assistant.fundamentals.ingestion")
 
@@ -45,15 +49,33 @@ class FundamentalsSyncResult:
     inserted: int
     skipped_existing: int
     rejected: int = 0
+    #: Periods already stored that gained a value in a column that was
+    #: NULL. Only ever non-zero when `refill` is asked for.
+    refilled: int = 0
 
 
 def sync_annual_statements(
     db: Session,
     provider: FundamentalsProvider,
     asset: Asset,
+    refill: bool = False,
 ) -> FundamentalsSyncResult:
     """Fetch annual statements for `asset`, validate them, and insert the
     ones that are both valid and not already stored.
+
+    `refill` fills columns that are **NULL** on periods already stored,
+    and only those. It exists because a stored period is otherwise frozen
+    with whatever fields the code knew about on the day it was ingested
+    (ADR-013), so every new statement field — `ebit` in W06-003,
+    `shares_outstanding` in W09-003, `dividends_paid` here — would be
+    permanently absent from data already in the database, on a source
+    that reported it all along.
+
+    This is **not** an exception to ADR-013, which forbids rewriting what
+    the source said. A value already present is never touched, so a
+    restatement still cannot slip in this way; what gets written is only
+    what nobody had read yet. Restatements remain the separate, unsolved
+    problem they were, needing a schema versioned per period.
     """
     statements = provider.get_annual_statements(asset.ticker)
 
@@ -75,18 +97,20 @@ def sync_annual_statements(
             issue.code,
         )
 
-    existing_dates = {
-        row.reference_date
-        for row in db.query(Fundamental.reference_date).filter(
-            Fundamental.asset_id == asset.id
-        )
+    stored = {
+        row.reference_date: row
+        for row in db.query(Fundamental).filter(Fundamental.asset_id == asset.id)
     }
+    existing_dates = set(stored)
 
     inserted = 0
     skipped = 0
+    refilled = 0
     for statement in report.valid_statements:
         if statement.reference_date in existing_dates:
             skipped += 1
+            if refill and _refill_missing(stored[statement.reference_date], statement):
+                refilled += 1
             continue
 
         db.add(
@@ -104,6 +128,7 @@ def sync_annual_statements(
                 income_before_tax=statement.income_before_tax,
                 income_tax_expense=statement.income_tax_expense,
                 shares_outstanding=statement.shares_outstanding,
+                dividends_paid=statement.dividends_paid,
             )
         )
         # Guard against a provider returning the same period twice across
@@ -119,7 +144,27 @@ def sync_annual_statements(
         inserted=inserted,
         skipped_existing=skipped,
         rejected=report.rejected_count,
+        refilled=refilled,
     )
+
+
+def _refill_missing(stored: Fundamental, statement: FinancialStatement) -> bool:
+    """Copy reported figures into columns of `stored` that are NULL.
+
+    Returns whether anything was written. A column that already holds a
+    value is left exactly as it is — that is what keeps this from
+    becoming a back door around ADR-013.
+    """
+    changed = False
+    for name in REPORTED_FIELD_NAMES:
+        if getattr(stored, name, None) is not None:
+            continue
+        value = getattr(statement, name, None)
+        if value is None:
+            continue
+        setattr(stored, name, value)
+        changed = True
+    return changed
 
 
 @dataclass
@@ -246,6 +291,7 @@ def _inputs_from(db: Session, asset: Asset, statement: Fundamental) -> Indicator
         income_before_tax=statement.income_before_tax,
         income_tax_expense=statement.income_tax_expense,
         shares_outstanding=statement.shares_outstanding,
+        dividends_paid=statement.dividends_paid,
         price=_price_on_or_before(db, asset.id, statement.reference_date),
     )
 
