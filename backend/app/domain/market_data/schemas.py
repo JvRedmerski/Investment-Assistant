@@ -61,6 +61,75 @@ class PriceBackfillRequest(BaseModel):
         return self
 
 
+class CorporateActionSyncRequest(BaseModel):
+    """Requested window of corporate actions to ingest.
+
+    The window filters on the action's **last date prior** — B3's own
+    date — not on the ex-date it resolves to, so an action whose data-com
+    falls on the last day of the window is still fetched even though it
+    goes ex the session after.
+    """
+
+    start: date | None = None
+    end: date | None = None
+
+    @model_validator(mode="after")
+    def _validate_range(self) -> "CorporateActionSyncRequest":
+        if self.start is not None and self.end is not None and self.start > self.end:
+            raise ValueError("start date must not be after end date.")
+        if self.end is not None and self.end > datetime.now(UTC).date():
+            raise ValueError("end date must not be in the future.")
+        return self
+
+
+class CorporateActionSyncResponse(BaseModel):
+    """Result of ingesting corporate actions and rebuilding adjusted closes.
+
+    The absence fields carry the answer to "why is this asset's risk
+    still missing", which is otherwise invisible: `unaccounted` lists the
+    sessions B3's own archive counted ex and that no published action
+    sizes, and the most recent of those is exactly why
+    `first_adjustable` is where it is.
+    """
+
+    ticker: str
+    start: date
+    end: date
+    fetched: int
+    inserted: int
+    skipped_existing: int
+    unplaced: int
+    unaccounted: list[date]
+    unusable: list[date]
+    adjusted_written: int
+    first_adjustable: date | None
+    last_adjustable: date | None
+
+
+class CorporateActionResponse(BaseModel):
+    """One stored corporate action, read from the local cache.
+
+    Exactly one of `cash_amount` (reais per share) and `share_ratio`
+    (shares after per share before) is set, and which one is implied by
+    `kind`. The other is `None` rather than zero or one, because a
+    neutral-looking number in an empty slot is indistinguishable from a
+    measured one.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    asset_id: int
+    ex_date: date
+    last_date_prior: date
+    kind: str
+    cash_amount: Decimal | None
+    share_ratio: Decimal | None
+    label: str
+    source: str
+    created_at: datetime
+
+
 class QuoteResponse(BaseModel):
     """The latest quote for an asset, fetched live from the provider.
 

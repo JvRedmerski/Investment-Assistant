@@ -10,7 +10,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class DailyBar(BaseModel):
@@ -79,6 +79,29 @@ class CorporateEventKind(str, Enum):
     REVERSE_SPLIT = "REVERSE_SPLIT"
     #: `S` — subscrição. A right to buy, not something received.
     SUBSCRIPTION = "SUBSCRIPTION"
+    #: `ATZ` — *atualização*. The one marker that is a whole token rather
+    #: than a letter inside an `E...` group, and the one counted
+    #: increment on which **nothing leaves the holder**. Named on
+    #: evidence, the same way `EB` and `R` were: across the 2020-2025
+    #: archives there are 151 increments whose specification carries
+    #: `ATZ` and no ex- marker, their **median price step is 1.0028** —
+    #: three tenths of a percent, ordinary daily noise — and B3's own
+    #: corporate-events service reports no distribution against any of
+    #: them. PETR4 alone has five (2021-04-12, 2024-02-22, 2025-03-14,
+    #: 2025-08-11, 2025-11-17), none moving price by as much as 3.1%.
+    #:
+    #: Six of the 151 did move price by more than 15%, and they are named
+    #: here rather than rounded away: two BDRs (A2MC34, L1RC34), a fund
+    #: quota (SNLG11) and three shares in drawdowns of 15-20% (RRRP3,
+    #: AMBP3, AZUL4). So this name is a statement about what the marker
+    #: accompanies, not a promise that the session was quiet.
+    #:
+    #: It matters because completeness is what decides whether a total
+    #: return series may be built at all (ADR-026): an increment that
+    #: carries no entitlement needs no magnitude, and reading it as a
+    #: missing one would cut PETR4's adjustable history from 1,495
+    #: sessions to 28.
+    NOMINAL_UPDATE = "NOMINAL_UPDATE"
     #: The exchange counted a distribution this session, and what went ex
     #: cannot be read off the file: either the specification carries no
     #: ex- marker at all (7.5% of the 2024 events), or it carries a
@@ -126,3 +149,118 @@ class Quote(BaseModel):
     price: Decimal
     currency: str
     as_of: datetime
+
+
+class SecurityIdentity(BaseModel):
+    """Which security a negotiation code actually is.
+
+    A ticker is how a paper is traded; it is not what a corporate action
+    is filed against. B3's corporate-events service keys share events on
+    the **ISIN** and cash payouts on the **share class**, and both are
+    printed on every COTAHIST record — so the join is exact rather than
+    inferred from the ticker's trailing digit.
+
+    Reading them off the archive is what stops one event being counted
+    several times. B3 repeats a share event once per ISIN the issuer has
+    ever had: BBAS3's 1:2 split arrives three times, under
+    `BRBBASA04OR8`, `BRBBASA05OR5` and `BRBBASACNOR3`, of which only the
+    last is the paper that trades. Composing all three raises the factor
+    to the cube — 8.0 against a measured price step of 2.02 — and while
+    this was being validated *every* disagreement was exactly that, an
+    exact power of the right answer.
+    """
+
+    ticker: str
+    #: `BRPETRACNPR6`. `CODISI` in the archive.
+    isin: str
+    #: `ON`, `PN`, `PNA`, `UNT`, `CI`, `DRN` — the first token of
+    #: `ESPECI`, and what the cash service calls `typeStock`.
+    share_class: str
+
+
+class CorporateActionKind(str, Enum):
+    """What a sized corporate action did, as its source labels it.
+
+    Deliberately a different vocabulary from `CorporateEventKind`, which
+    reads B3's end-of-day archive. The archive writes one marker for
+    several acts and so can only say `BONUS_OR_SPLIT`; the
+    corporate-events service names the act itself, so the finer
+    distinction here is the source's and not this project's.
+
+    The four cash kinds move money and leave the share count alone; the
+    three share kinds move the count.
+    """
+
+    #: `DIVIDENDO`.
+    CASH_DIVIDEND = "CASH_DIVIDEND"
+    #: `JRS CAP PROPRIO` — juros sobre capital próprio.
+    INTEREST_ON_CAPITAL = "INTEREST_ON_CAPITAL"
+    #: `RENDIMENTO` — a fund quota's monthly income, and what a share
+    #: occasionally carries alongside another payout.
+    INCOME = "INCOME"
+    #: `REST CAP DIN` — capital returned in cash.
+    CAPITAL_RETURN = "CAPITAL_RETURN"
+    #: `BONIFICACAO` — free shares of the same paper. **Changes the
+    #: share count.**
+    BONUS = "BONUS"
+    #: `DESDOBRAMENTO`. **Changes the share count.**
+    SPLIT = "SPLIT"
+    #: `GRUPAMENTO`. **Changes the share count.**
+    REVERSE_SPLIT = "REVERSE_SPLIT"
+
+
+class CorporateAction(BaseModel):
+    """One corporate action, with the magnitude the exchange published.
+
+    This is the half `CorporateEvent` deliberately does not carry
+    (ADR-025). The two are separate observations of the same fact by two
+    separate B3 systems, and they stay separate rather than being merged
+    field by field (ADR-020): the archive dates the event by its own
+    distribution counter, this carries the size, and each is whole from
+    one source. That they agree is **evidence, not construction** —
+    across PETR3, PETR4, VALE3, ITUB4 and BBAS3 every one of **157**
+    in-window payout dates resolved to a session the counter had
+    independently marked ex.
+
+    ## The date is the last date *with* the right, not the ex-date
+
+    `last_date_prior` is B3's `lastDatePrior`/`lastDatePriorEx` verbatim:
+    the final session on which buying the paper still earned the right.
+    The action takes effect on the **next trading session**, which is a
+    calendar lookup rather than a magnitude, so it is resolved in the
+    domain layer against the sessions actually stored for the asset
+    instead of being guessed at here with a weekday rule.
+
+    ## Exactly one magnitude, in the unit its kind implies
+
+    `cash_amount` is reais **per share**; `share_ratio` is shares held
+    after per share held before, so a 1:2 split is `2` and a 1:10 reverse
+    split is `0.1`. Precisely one of the two is set, enforced below — a
+    cash payout has no ratio and a split has no amount, and a zero or a
+    one in the empty slot would be a fabricated number that reads as a
+    real one (rule 44).
+    """
+
+    last_date_prior: date
+    kind: CorporateActionKind
+    cash_amount: Decimal | None = None
+    share_ratio: Decimal | None = None
+    #: The source's own label (`JRS CAP PROPRIO`, `GRUPAMENTO`), kept
+    #: verbatim for the same reason `CorporateEvent.specification` is: a
+    #: classification that turns out wrong should be revisable without
+    #: re-fetching anything.
+    label: str
+
+    @model_validator(mode="after")
+    def _exactly_one_magnitude(self) -> "CorporateAction":
+        cash, ratio = self.cash_amount, self.share_ratio
+        if (cash is None) == (ratio is None):
+            raise ValueError(
+                "A corporate action carries either a cash amount or a share "
+                "ratio, never both and never neither."
+            )
+        if cash is not None and cash <= 0:
+            raise ValueError("A cash amount that is not positive is not a payout.")
+        if ratio is not None and ratio <= 0:
+            raise ValueError("A share ratio that is not positive is not a ratio.")
+        return self

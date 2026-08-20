@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import (
+    get_corporate_action_provider,
+    get_corporate_event_provider,
     get_current_user,
     get_fundamentals_provider,
     get_historical_price_provider,
@@ -11,7 +13,7 @@ from app.api.dependencies import (
 )
 from app.core.config import settings
 from app.data.database import get_db
-from app.data.models.assets import Asset, AssetPrice
+from app.data.models.assets import Asset, AssetPrice, CorporateAction
 from app.data.models.fundamentals import FinancialIndicator, Fundamental
 from app.data.models.users import User
 from app.domain.assets.schemas import AssetCreate, AssetResponse
@@ -28,8 +30,15 @@ from app.domain.fundamentals.service import (
     compute_and_store_indicators,
     sync_annual_statements,
 )
+from app.domain.market_data.corporate_actions import (
+    CorporateActionSyncResult,
+    sync_corporate_actions,
+)
 from app.domain.market_data.schemas import (
     AssetPriceResponse,
+    CorporateActionResponse,
+    CorporateActionSyncRequest,
+    CorporateActionSyncResponse,
     PriceBackfillRequest,
     PriceSyncRequest,
     PriceSyncResponse,
@@ -43,6 +52,8 @@ from app.integrations.fundamentals.exceptions import (
     InvalidFundamentalsResponseError,
 )
 from app.integrations.market_data.base import (
+    CorporateActionProvider,
+    CorporateEventProvider,
     DailyHistoryProvider,
     MarketDataProvider,
 )
@@ -249,6 +260,92 @@ def _price_source_http_error(exc: MarketDataError, ticker: str) -> HTTPException
                 "message": "Market data provider is currently unavailable.",
             }
         },
+    )
+
+
+@router.post(
+    "/{ticker}/corporate-actions/sync", response_model=CorporateActionSyncResponse
+)
+def sync_asset_corporate_actions(
+    ticker: str,
+    payload: CorporateActionSyncRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    event_provider: CorporateEventProvider = Depends(get_corporate_event_provider),
+    action_provider: CorporateActionProvider = Depends(get_corporate_action_provider),
+) -> CorporateActionSyncResponse:
+    """Ingest sized corporate actions and rebuild the adjusted closes.
+
+    This is what turns stored raw prices into a total-return series, and
+    therefore what makes `volatility`, `max_drawdown`, `beta` and
+    `sharpe` computable at all. Run `POST /{ticker}/prices/backfill`
+    first: the adjustment restates prices that are already stored and
+    fetches none.
+
+    Nothing already carrying an adjusted close is touched, so running
+    this after a vendor sync cannot mix two different restatements into
+    one series (ADR-020, ADR-024).
+
+    The response is mostly about what is **missing**. `unaccounted` lists
+    the sessions B3's own end-of-day archive counted as ex and that no
+    published action sizes; the most recent of them is why
+    `first_adjustable` sits where it does, because a series adjusted past
+    an unknown event would be wrong rather than short (ADR-026).
+    """
+    asset = _get_asset_by_ticker(db, ticker)
+
+    end = payload.end or datetime.now(UTC).date()
+    start = payload.start or date(settings.B3_COTAHIST_FIRST_YEAR, 1, 1)
+
+    try:
+        result = sync_corporate_actions(
+            db, event_provider, action_provider, asset, start, end
+        )
+    except MarketDataError as exc:
+        raise _price_source_http_error(exc, asset.ticker) from exc
+
+    return _as_action_sync_response(result)
+
+
+@router.get("/{ticker}/corporate-actions", response_model=list[CorporateActionResponse])
+def list_asset_corporate_actions(
+    ticker: str,
+    start: date | None = None,
+    end: date | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[CorporateAction]:
+    """Stored corporate actions for an asset, by ex-date.
+
+    Reads the local cache only and never calls B3 (rule 23) — use
+    `POST /{ticker}/corporate-actions/sync` to populate it.
+    """
+    asset = _get_asset_by_ticker(db, ticker)
+
+    query = db.query(CorporateAction).filter(CorporateAction.asset_id == asset.id)
+    if start is not None:
+        query = query.filter(CorporateAction.ex_date >= start)
+    if end is not None:
+        query = query.filter(CorporateAction.ex_date <= end)
+    return query.order_by(CorporateAction.ex_date).all()
+
+
+def _as_action_sync_response(
+    result: CorporateActionSyncResult,
+) -> CorporateActionSyncResponse:
+    return CorporateActionSyncResponse(
+        ticker=result.ticker,
+        start=result.start,
+        end=result.end,
+        fetched=result.fetched,
+        inserted=result.inserted,
+        skipped_existing=result.skipped_existing,
+        unplaced=result.unplaced,
+        unaccounted=result.unaccounted,
+        unusable=result.unusable,
+        adjusted_written=result.adjusted_written,
+        first_adjustable=result.first_adjustable,
+        last_adjustable=result.last_adjustable,
     )
 
 

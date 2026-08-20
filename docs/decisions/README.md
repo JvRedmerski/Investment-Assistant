@@ -33,6 +33,7 @@ Um ADR existe aqui porque a decisão (a) teve alternativas reais, (b) afeta arqu
 | [023](ADR-023-unadjusted-history-is-stored-as-unadjusted.md) | Histórico sem ajuste é gravado com `adjusted_close` NULL em vez de rejeitado ou preenchido com o `close`; a semântica da ausência pertence à fonte, e um ponto único de passagem mantém a série de retorno só com linhas ajustadas | Accepted | market data, COTAHIST, B3, adjusted close, emenda ADR-016, rule 44 |
 | [024](ADR-024-refill-fills-null-columns.md) | Um período de demonstrativo já gravado aceita preenchimento de coluna **nula**, e só dela; valor presente nunca é tocado | Accepted | fundamentals, coluna de demonstrativo nova, ingestão, emenda operacional ao ADR-013 |
 | [025](ADR-025-corporate-events-come-from-the-distribution-counter.md) | Evento societário vem do contador de distribuição da B3 (não do marcador), com data e natureza e **sem magnitude** | Accepted | eventos societários, proventos, COTAHIST, série de retorno total, rule 44 |
+| [026](ADR-026-corporate-action-magnitude-and-the-completeness-rule.md) | A **magnitude** vem do serviço aberto de eventos da B3, junta pelo ISIN; `adjusted_close` só é derivado onde **toda** sessão contada tem ação dimensionada, com o `ATZ` como única exceção | Accepted | eventos societários, magnitude, retorno total, `adjusted_close`, pilar de Risco, completa ADR-023/ADR-025 |
 
 ## Template
 

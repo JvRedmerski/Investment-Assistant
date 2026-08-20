@@ -55,6 +55,62 @@ class Asset(Base):
     intraday_prices: Mapped[list["IntradayPrice"]] = relationship(
         "IntradayPrice", back_populates="asset", cascade="all, delete-orphan"
     )
+    corporate_actions: Mapped[list["CorporateAction"]] = relationship(
+        "CorporateAction", back_populates="asset", cascade="all, delete-orphan"
+    )
+
+
+class CorporateAction(Base):
+    """One sized corporate action, as B3's events service published it.
+
+    Stored, unlike `CorporateEvent`, because this is what an adjusted
+    price series is rebuilt from and because it comes from a paginated
+    remote service rather than a file already on disk — re-fetching a
+    decade of payouts on every read would be exactly what rule 23
+    forbids.
+
+    Two nullable magnitude columns rather than one, because they are
+    different quantities in different units and a single column would
+    mean whatever `kind` said it meant — the same conflation that made
+    `close` and `adjusted_close` worth separating (ADR-023). Exactly one
+    is set on any row; `app.integrations.market_data.schemas.
+    CorporateAction` is where that is enforced, before anything reaches
+    here.
+    """
+
+    __tablename__ = "corporate_actions"
+    __table_args__ = (Index("idx_corporate_action_ex_date", "asset_id", "ex_date"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    asset_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("assets.id", ondelete="CASCADE"), nullable=False
+    )
+    # The session the action takes effect on: the first trading session
+    # after `last_date_prior`. Resolved against the sessions actually
+    # stored for this asset, never from a weekday rule, so a holiday
+    # cannot silently move an adjustment onto a day that never traded.
+    ex_date: Mapped[date] = mapped_column(Date, nullable=False)
+    # What B3 reported: the last session on which buying the paper still
+    # earned the right. Kept alongside the resolved date so the source's
+    # own statement survives, and so a re-resolution against a longer
+    # price history can be checked rather than guessed at.
+    last_date_prior: Mapped[date] = mapped_column(Date, nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Reais per share. NULL for an action that moves the share count.
+    cash_amount: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    # Shares held after per share held before: 2 for a 1:2 split, 0.1 for
+    # a 1:10 reverse split. NULL for a cash payout. Wider scale than
+    # MONEY because a ratio is not money and 1/3 bonuses are filed to
+    # eleven decimal places.
+    share_ratio: Mapped[Decimal | None] = mapped_column(Numeric(24, 12), nullable=True)
+    # The source's own label, verbatim (`JRS CAP PROPRIO`, `GRUPAMENTO`).
+    label: Mapped[str] = mapped_column(String(64), nullable=False)
+    source: Mapped[str] = mapped_column(String(50), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now, nullable=False
+    )
+
+    asset: Mapped["Asset"] = relationship("Asset", back_populates="corporate_actions")
 
 
 class AssetPrice(Base):

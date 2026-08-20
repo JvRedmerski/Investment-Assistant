@@ -78,9 +78,10 @@ HTTP → CORSMiddleware
 
 ### Duas fontes de preço, duas interfaces
 
-`market_data/base.py` define **três** ABCs, e a separação não é cerimônia: `DailyHistoryProvider`
+`market_data/base.py` define **quatro** ABCs, e a separação não é cerimônia: `DailyHistoryProvider`
 serve barras diárias fechadas; `MarketDataProvider` herda dela e acrescenta a cotação ao vivo;
-`CorporateEventProvider` (abaixo) responde outra pergunta e não herda de nenhuma das duas.
+`CorporateEventProvider` e `CorporateActionProvider` (abaixo) respondem outras perguntas e não
+herdam de nenhuma das duas.
 
 A série COTAHIST da B3 é arquivo de fim de dia — ela **não cota**, e implementar `get_quote` ali
 significaria devolver o fechamento de ontem com carimbo de agora. Por isso `B3CotahistProvider`
@@ -115,8 +116,53 @@ distribuições sob um marcador imóvel. Se for mexer aqui, leia antes o
 [ADR-025](../decisions/ADR-025-corporate-events-come-from-the-distribution-counter.md) e o
 docstring de `cotahist.py`: eles trazem as medições que sustentam a escolha.
 
-O evento é **lido, ainda não persistido** — não há tabela, migration nem endpoint de evento
-societário. `get_corporate_events` varre o arquivo já em cache.
+A mesma interface também responde `get_security_identity`: o **ISIN** e a **classe** impressos
+nos registros do próprio papel. Estão ali porque é neles que uma ação societária é arquivada — e
+porque adivinhar a classe pelo dígito final do ticker funcionaria para PETR4 e falharia para
+TAEE11 (`UNT`).
+
+### A quarta interface: quanto o evento valeu
+
+`CorporateActionProvider` carrega o que a terceira se recusa a inventar — a **magnitude**: reais
+por ação num provento, ações-depois-por-ação-antes num desdobramento. É a EVENTS-003, e o
+[ADR-026](../decisions/ADR-026-corporate-action-magnitude-and-the-completeness-rule.md) traz as
+medições inteiras.
+
+Fonte: o serviço aberto de eventos corporativos da própria B3, sem token e sem cota, atrás de
+`B3CorporateActionProvider`. **O adaptador é fino de propósito** — é o backend JSON das páginas
+da B3, com parâmetros em base64 no *path* e sem contrato publicado, então a interface é a costura:
+se o endpoint mudar, quebra um arquivo, e a degradação é para **magnitude ausente** — o estado
+anterior a esta task — e nunca para número errado.
+
+Duas armadilhas moram no adaptador e ambas foram medidas antes de virar código:
+
+- **A junção é o ISIN.** A B3 repete um evento de contagem uma vez por ISIN que o emissor já teve;
+  o desdobramento 1:2 da BBAS3 chega três vezes. Compor as três dá 2³ = 8,0 contra um degrau real
+  de 2,02 — e **todo** desacordo visto na validação era uma potência exata da resposta certa.
+- **`factor` significa duas coisas.** Porcentagem em `DESDOBRAMENTO`/`BONIFICACAO`, razão crua em
+  `GRUPAMENTO`. E `valueCash` é cotado por `quotedPerShares`, que é 1000 em 332 de 2.305 linhas —
+  o mesmo erro de mil vezes que o `FATCOT` e o `ESCALA_MOEDA` já tentaram.
+
+### Onde `adjusted_close` nasce, e a regra que decide se ele pode nascer
+
+`domain/market_data/adjustment.py` é puro e sem I/O: recebe barras, ações e eventos, devolve
+números. Ajuste retroativo, do mais novo para o mais antigo — o último fechamento é a verdade e
+nunca é tocado.
+
+A aritmética é fácil; a honestidade não. **Uma série ajustada com *parte* das ações não é uma
+série de retorno mais curta, é uma errada e plausível.** Então a completude é julgada pelo
+**contador da B3**, não pelo serviço de eventos — que demonstravelmente omite: a ITUB4 foi ex em
+2025-03-18 com marcador `EB` e degrau de -8,60%, e o serviço não reporta nada ali. Toda sessão
+contada precisa de ação dimensionada; a mais recente que não tiver é um piso, e nada antes dela é
+ajustável. A lacuna volta **nomeada e datada** na resposta do sync.
+
+A única exceção é o `ATZ` (`CorporateEventKind.NOMINAL_UPDATE`): incremento em que nada sai do
+titular, logo não há magnitude a faltar. Sem ela a PETR4 teria 28 de 1.495 pregões ajustáveis.
+
+`domain/market_data/corporate_actions.py` faz a ingestão e resolve a **ex-date**: a B3 publica a
+data-com, e o pregão seguinte é procurado no calendário **realmente gravado** para o ativo, não
+somando um dia e pulando fim de semana — um feriado poria o ajuste numa data que nunca negociou.
+O preenchimento só toca coluna **nula**, pela mesma regra do ADR-024.
 
 ### O ponto único da série de retorno
 

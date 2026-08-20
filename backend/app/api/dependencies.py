@@ -16,10 +16,14 @@ from app.integrations.fundamentals.base import FundamentalsProvider
 from app.integrations.fundamentals.factory import build_fundamentals_provider
 from app.integrations.fundamentals.identity import BrapiCnpjResolver
 from app.integrations.market_data.base import (
+    CorporateActionProvider,
+    CorporateEventProvider,
     DailyHistoryProvider,
     MarketDataProvider,
 )
 from app.integrations.market_data.factory import (
+    build_corporate_action_provider,
+    build_corporate_event_provider,
     build_historical_price_provider,
     build_market_data_provider,
 )
@@ -95,6 +99,40 @@ def get_historical_price_provider() -> Generator[DailyHistoryProvider, None, Non
     of the two answers its question.
     """
     provider = build_historical_price_provider()
+    try:
+        yield provider
+    finally:
+        close = getattr(provider, "close", None)
+        if callable(close):
+            close()
+
+
+def get_corporate_event_provider() -> Generator[CorporateEventProvider, None, None]:
+    """Provide the source that dates events and identifies the security.
+
+    Distinct from the price dependency even though B3's archive backs
+    both today: a route that needs ex-dates and an ISIN is asking a
+    different question from one that needs bars, and separating them
+    keeps a future price source from having to answer this one.
+    """
+    provider = build_corporate_event_provider()
+    try:
+        yield provider
+    finally:
+        close = getattr(provider, "close", None)
+        if callable(close):
+            close()
+
+
+def get_corporate_action_provider() -> Generator[CorporateActionProvider, None, None]:
+    """Provide the source that sizes corporate events.
+
+    The seam that keeps B3's undocumented events endpoint replaceable
+    (ADR-026): routes and services see only `CorporateActionProvider`,
+    and a test overrides this with a fake rather than reaching the
+    network.
+    """
+    provider = build_corporate_action_provider()
     try:
         yield provider
     finally:

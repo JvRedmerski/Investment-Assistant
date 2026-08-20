@@ -6,178 +6,138 @@
 
 ## Last Completed Work
 
-### DOC-002 — a documentação alcançou o código (2026-08-20)
+### EVENTS-003 — a série de retorno total existe ([ADR-026](../decisions/ADR-026-corporate-action-magnitude-and-the-completeness-rule.md))
 
-Sessão sem alteração de código. As duas primeiras tasks da wave EVENTS estavam entregues e
-commitadas (`f330a4c`, `a4700d2`), com `PROJECT_CONTEXT.md` e `BACKEND.md` já atualizados, mas o
-resto da documentação ainda descrevia o projeto como *"entre waves, wave PRICE concluída"* —
-inclusive dando o `dy` como pendente quando ele já tinha fonte.
+Última task da wave EVENTS, e a que fecha a trava de maior retorno do projeto. Faltava uma
+palavra — **magnitude** — e a task começou por decidir de onde ela viria.
 
-Direção da correção seguiu o CLAUDE.md §3: **o código é a fonte de verdade**, então quem mudou
-foi o documento.
+**A fonte apareceu medindo, e não estava na lista.** O `CURRENT_TASK.md` enumerava três
+candidatas (contagem de ações da CVM, provento por pagamento de fonte a decidir, fornecedor
+pago). A quarta é o **serviço aberto de eventos corporativos da própria B3**, que publica reais
+por ação num provento e fator num desdobramento, sem token e sem cota — o mesmo critério que
+escolheu a CVM (ADR-020) e o COTAHIST (ADR-023).
 
-**Escritos os dois ADRs que as tasks produziram e que não existiam:**
+**Nada foi codificado antes de conferir contra dado real:**
 
-- **[ADR-024](../decisions/ADR-024-refill-fills-null-columns.md)** — período já gravado aceita
-  preenchimento de coluna **nula**, e só dela.
-- **[ADR-025](../decisions/ADR-025-corporate-events-come-from-the-distribution-counter.md)** —
-  evento societário vem do contador de distribuição da B3, com data e natureza e **sem
-  magnitude**.
+| verificação | resultado |
+|---|---|
+| Datas contra o contador `DISMES`, sinal **independente** da EVENTS-002 | **157/157** em janela (PETR3, PETR4, VALE3, ITUB4, BBAS3) |
+| Fatores contra o degrau de preço em cache | **49/50**; o único fora é a IRBR3 a R$ 0,93, onde o degrau não mede nada |
 
-**Atualizados:** índice de ADRs, `DATABASE.md` (migration `011` e a coluna nova), `API.md`
-(`?refill=true` e `refilled`; os 10 indicadores com insumo), `BACKEND.md` (o padrão de "coluna de
-demonstrativo nova e o dado que já está gravado"; ADR-025 linkado), `ROADMAP.md`,
-`docs/PROJECT_STATUS.md` (ledger) e as quatro camadas de memória.
+**A junção é o ISIN, e descobrir isso foi o momento decisivo.** A B3 repete um evento de contagem
+uma vez por ISIN que o emissor já teve — o 1:2 da BBAS3 chega três vezes. Compondo tudo, o acordo
+era 32/50; e **todo** desacordo era uma **potência exata** da resposta certa (2³ na BBAS3, 4³ na
+BPAC11, 10³ na CPLE3, 1,1³ na UNIP3). Foi esse padrão que apontou duplicação em vez de fator
+errado. Filtrando por `CODISI`: 49/50.
 
-**Achados de documentação estagnada, corrigidos junto:** o `ROADMAP.md` **nunca registrou a wave
-PRICE** — as duas waves inseridas agora constam numa seção própria — e listava como pendentes
-seis itens já fechados (aplicar migrations em Postgres real, recomputar indicadores, lint do
-backend, `npm run lint`, drift do `alembic check`, destino da ingestão de fundamentals). O ledger
-também não tinha entrada de *Technical Decision* para o ADR-023, escrito na sessão anterior.
+**Duas armadilhas de unidade, ambas já vistas neste projeto sob outro nome.** `factor` é
+porcentagem em `DESDOBRAMENTO`/`BONIFICACAO` e **razão crua** em `GRUPAMENTO`, sob um campo só; e
+`valueCash` é cotado por `quotedPerShares`, que é **1000 em 332 de 2.305 linhas** — o erro de mil
+vezes que o `FATCOT` e o `ESCALA_MOEDA` já tinham tentado.
+
+### A parte difícil não foi a aritmética, foi decidir quando ela pode rodar
+
+Um ajuste feito com *parte* das ações não é uma série mais curta — é uma **errada e plausível**.
+Então `adjusted_close` só é derivado onde toda sessão que a bolsa contou como ex tem ação
+dimensionada.
+
+**E a completude não pode ser julgada pelo serviço de eventos, porque ele omite.** A ITUB4 foi ex
+em **2025-03-18** com o marcador `EB` do arquivo e degrau de **-8,60%**, e o serviço não reporta
+ação nenhuma ali. Quem julga é o contador da B3.
+
+**A exceção do `ATZ` foi decisão do dono do projeto, não do implementador.** Sob a regra estrita,
+PETR4 ficaria com **28** de 1.495 pregões ajustáveis, VALE3 com 47, MGLU3 com 7 — a wave não
+destravaria nada, porque quase todo incremento não dimensionado carrega `ATZ` (*atualização*), em
+que nada sai do titular. Medido: **151 incrementos, degrau mediano 1,0028**, e **6 exceções
+nomeadas** (dois BDRs, uma cota de fundo, três ações em queda de 15–20%). A pergunta foi
+apresentada com esses números e a decisão foi abrir a exceção. Está no ADR-026 §6, marcada como o
+único ponto da task em que uma leitura foi preferida por conveniência de cobertura.
+
+### Medido no banco real, depois do sync
+
+| papel | ajustado | leitura |
+|---|---|---|
+| **PETR4** | 1.495/1.495 | 62 proventos. Volatilidade **41,8%**, drawdown **-63,4%** com fundo em **2020-03-18** — a COVID. Pior sessão ajustada **idêntica** à crua (-29,7% em 2020-03-09): nenhum evento vazou |
+| **BBAS3** | 1.495/1.495 | desdobramento 1:2 desfeito; pior sessão 17,1% |
+| **ITUB4** | 198/1.495 | **truncada corretamente** em `[2021-10-04, 2025-03-18]` |
+| **MGLU3** | 478/1.495 | truncada na subscrição; **grupamento 1:10 desfeito** — 13,5%, não +896% |
+
+O fator de retorno total da PETR4 é 3,43× em seis anos (8,94 → 30,82 ajustado contra 30,70 →
+30,82 cru), consistente com ~R$ 39/ação de provento acumulado sobre um papel de ~R$ 30.
+
+**750 testes** (era 701); migration `012` aplicada em PostgreSQL 16 real, `alembic check` sem
+drift, downgrade testado.
 
 ---
 
-### Wave EVENTS — eventos societários e proventos (2026-08-19, 2 de 3 tasks)
+### EVENTS-001 e EVENTS-002 (2026-08-19)
 
-Segunda wave **inserida fora da ordem do roadmap**, pelo mesmo critério da PRICE: destrava mais
-coisa do que a wave seguinte da fila.
-
-### EVENTS-001 — proventos por exercício, da DMPL da CVM (`f330a4c`, [ADR-024](../decisions/ADR-024-refill-fills-null-columns.md))
-
-`dy` era o último indicador com fórmula escrita (desde a W06-002) e nenhuma fonte. O fornecedor
-só publica `dividendYield` como **snapshot de hoje, sem data-fim**, e aplicá-lo a um balanço de
-2020 é a violação de *point-in-time* que as regras 108/109 proíbem. A **DMPL** reporta por
-exercício e datada nele, num arquivo que o projeto **já baixa**.
-
-Três detalhes decidem se o número está certo, e os três foram conferidos contra o arquivo real:
-
-1. **A coluna.** Toda conta da DMPL se repete uma vez por coluna de patrimônio — `CD_CONTA`
-   sozinho seleciona oito linhas. Só `Patrimônio Líquido` é lida; a irmã `Consolidado` soma o
-   pago a não-controladores (R$ 302 mi na PETR4 em 2024), sobre o qual o acionista não tem
-   direito. Mesma distinção que faz `net_income` ser `3.11.01` e não `3.11`.
-2. **O sinal.** Distribuição é débito; a peça escreve negativo, e a grandeza é o módulo.
-3. **O que fica de fora.** `5.04.11` (*dividendos prescritos*) é dinheiro não reclamado voltando
-   à companhia — estorno de período anterior, não distribuição negativa deste (R$ 316 mi na
-   PETR4 em 2024).
-
-Dividendos e JCP são **somados**: declarantes dividem diferentemente e vários reportam o
-*payout* inteiro sob um código só.
-
-**A armadilha operacional que a task expôs vale mais que a coluna.** Período gravado é congelado
-com os campos que o código conhecia no dia da ingestão (ADR-013), então os seis exercícios da
-PETR4 já no banco ficariam com a coluna vazia **para sempre**, e o `dy` nunca sairia de `None`.
-As duas colunas anteriores (`ebit` na W06-003, `shares_outstanding` na W09-003) só funcionaram
-por terem chegado a um banco **vazio** — ninguém percebeu. Daí `?refill=true`, que preenche
-coluna `NULL` e **só** ela; valor presente jamais é tocado, então reexpressão continua sem porta
-de entrada.
-
-Medido no banco real, após preencher seis períodos:
-
-| exercício | distribuído | DPS | preço | `dy` |
-|---|---|---|---|---|
-| 2020-12-31 | R$ 4,41 bi | 0,34 | 28,34 | 0,01 |
-| **2022-12-31** | **R$ 224,06 bi** | 17,18 | 24,50 | **0,70** |
-| 2024-12-31 | R$ 100,90 bi | 7,83 | 36,19 | 0,22 |
-
-Os 70% de 2022 não são erro de parsing — é o *payout* que a Petrobras de fato fez no ano
-recorde. **686 testes** (era 672); migration `011` aplicada em PostgreSQL 16 real.
-
-### EVENTS-002 — em que pregão o papel foi ex, dito pela bolsa (`a4700d2`, [ADR-025](../decisions/ADR-025-corporate-events-come-from-the-distribution-counter.md))
-
-O arquivo de fim de dia responde isso num campo que o parser de preço já lia e descartava. Só
-que **não onde parece**.
-
-**O marcador do `ESPECI` é janela de exibição, não evento**, e as duas falhas foram medidas no
-arquivo real de 2024: ele **persiste** (~8 pregões — um dividendo seria contado oito vezes) e
-**decai** (`EDJ` → `EJ`, que lido como texto parece marcador novo: **132 sessões** no ano).
-Detectar por início de sequência também não fecha — a BBAS3 exibe `ON  EDJ NM` em 12, 13 e
-14/06 enquanto o contador vai **323, 323, 324**: duas distribuições sob marcador imóvel. Esse
-caso virou teste, com os três registros verbatim.
-
-O sinal exato é o **`DISMES`**, contador de distribuição do próprio papel. Conferido no sentido
-inverso no arquivo inteiro de 2024 — **2.230 papéis, 7.312 incrementos**: nunca decresceu,
-atravessa a virada do ano (ITUB4 345 → 346 em 2025-01-02), e só **13 letras de ex- apareceram
-sem incremento**, **nenhuma movendo preço em 25% ou mais**.
-
-**Duas letras mudaram de nome por evidência**, não por gosto:
-
-- `EB` **não é "bonificação"**: carrega o desdobramento 1:2 da BBAS3 (56,46 → 27,91), o 10:1 da
-  NVDC34 **e** a bonificação de 4,5% da MGLU3 em 2025 (9,35 → 8,94). Nomear pelo ato jurídico
-  afirmaria uma distinção que o arquivo não faz → `BONUS_OR_SPLIT`.
-- `R` **não é "rendimento"**: é rendimento de fundo em 3.544 eventos de 2024, mas também cai em
-  ação ao lado de outro provento (PETR4 com `EDR`, VIVT3 com `ERJ`). O que todos compartilham é
-  dinheiro saindo com a contagem intacta → `OTHER_DISTRIBUTION`.
-
-Letra sem evidência e incremento sem marcador (7,5% de 2024) viram `UNCLASSIFIED`, nunca palpite
-(§44), e o `ESPECI` cru fica **verbatim** para revisar classificação sem reler dezenas de GB.
-`CorporateEventProvider` é interface própria pela mesma razão que partiu `MarketDataProvider` na
-PRICE-001. **701 testes**; 20 fixtures conferidas byte a byte.
+- **EVENTS-001** (`f330a4c`, [ADR-024](../decisions/ADR-024-refill-fills-null-columns.md)) —
+  proventos por exercício da DMPL da CVM, que fecharam o `dy`. A armadilha que a task expôs vale
+  mais que a coluna: período gravado é congelado com os campos que o código conhecia no dia
+  (ADR-013), então os seis exercícios já no banco ficariam vazios **para sempre**. Daí
+  `?refill=true`, que preenche coluna `NULL` e só ela.
+- **EVENTS-002** (`a4700d2`, [ADR-025](../decisions/ADR-025-corporate-events-come-from-the-distribution-counter.md)) —
+  data e natureza pelo contador `DISMES`, nunca pelo marcador do `ESPECI`, que é janela de
+  exibição de ~8 pregões e ainda decai (`EDJ` → `EJ`, 132 sessões em 2024).
 
 ## Current State
 
-- `pytest` → **701 passed** (672 → 686 → 701), verificado em 2026-08-20. `ruff check .` e
-  `black --check .` limpos no repositório inteiro.
-- 🔴 **Docker desligado** — `docker compose up -d postgres` antes de qualquer coisa que toque o
-  banco. Com ele no ar, schema **`011`**.
-- **Wave EVENTS 🟡 em andamento**, 2/3. Nenhuma task com código pela metade.
+- `pytest` → **750 passed** (701 → 750), verificado em 2026-08-20. `ruff check` e `black --check`
+  limpos.
+- ✅ **Docker no ar**, schema **`012`**.
+- **Wave EVENTS 🟢 concluída**, 3/3. Nenhuma task com código pela metade.
+- No banco real: PETR4, ITUB4, BBAS3 e MGLU3, 1.495 pregões cada, com `adjusted_close` derivado.
 
 ## Important Details
 
-### O que ainda falta é uma palavra: **magnitude**
+### O que o pilar de Risco passou a ter, e o que ele ainda não tem
 
-O pilar de Risco continua ausente e a cobertura do score continua em **0,75**. Não é falta de
-preço (1.495 pregões no banco) nem mais falta de **data** do evento (a EVENTS-002 entregou). É
-falta do **fator** de desdobramento/grupamento e do **valor do provento por pagamento**. O
-arquivo da B3 registra que houve distribuição e jamais quanto, e derivar o tamanho do degrau de
-preço é a heurística que o ADR-023 rejeitou.
-
-### O que mudou e reabre uma alternativa antes rejeitada
-
-O ADR-023 descartou derivar o ajuste da contagem de ações da CVM **por granularidade**: ela é
-anual e "um desdobramento precisa da **data** do evento". **Essa objeção caiu.** A data existe
-agora. A combinação (razão entre contagens de exercícios + data carimbada pela B3) é a primeira
-candidata a avaliar na EVENTS-003 — mas precisa ser **verificada contra caso conhecido** (MGLU3
-1:10 em 2024-05-27, BBAS3 1:2 em 2024-04-16) antes de virar código.
+Tem insumo real para papel com eventos completos. **Não** tem para papel cujos eventos ninguém
+dimensionou — e isso é o desenho, com a lacuna voltando **nomeada e datada** em `unaccounted`.
+Continua faltando **subscrição**: a B3 a publica numa lista própria, com percentual e preço de
+exercício, e dimensioná-la exige um **modelo do valor do direito**, não uma medição. Foi o que
+cortou a MGLU3.
 
 ### O engano fácil de cometer aqui
 
-`dy` existir **não** move o score: nenhum pilar consome `dy`. O ganho é o conjunto de
-indicadores ficar completo, não a cobertura. Quem move a cobertura é a EVENTS-003.
+`adjusted_close` **não é recomputado**. O preenchimento só toca coluna nula (ADR-024), então uma
+correção tardia da B3 sobre data já ajustada não é reaplicada. Recomputar exige limpar a coluna
+antes — operação manual deliberada.
 
-### Lições de método destas tasks
+E um papel recém-cadastrado **não** ganha risco só com o backfill de preço: o
+`corporate-actions/sync` tem que rodar depois.
 
-- **Medir o sinal antes de confiar nele.** O marcador de ex- é o campo óbvio e teria produzido
-  oito eventos por dividendo. Só uma varredura do arquivo inteiro mostrou o contador como o
-  sinal exato — e mostrou também, no sentido inverso, **o que se perde** ao escolhê-lo (13
-  casos, nenhum relevante).
-- **Nomear pelo que se observa, não pelo que se supõe.** `BONUS_OR_SPLIT` e
-  `OTHER_DISTRIBUTION` são feios de propósito: cada um afirma exatamente o que a fonte sustenta.
-- **Uma coluna nova num banco vazio não prova nada.** `ebit` e `shares_outstanding` passaram
-  batidos por sorte de cronologia; a terceira coluna encontrou dado gravado e expôs a armadilha.
-- **Documentação atrasa em silêncio.** Duas tasks commitadas, e quatro documentos ainda diziam
-  "entre waves". O ledger e a memória não se atualizam sozinhos ao fim de uma task — a wave
-  seguinte herda a versão errada.
+### Lições de método desta task
+
+- **A alternativa certa pode não estar na lista.** As três candidatas registradas eram razoáveis
+  e todas piores do que uma quarta que só apareceu porque a pergunta "o que a própria bolsa
+  publica?" foi feita de novo.
+- **Um padrão no erro vale mais que o erro.** O acordo de 32/50 não dizia nada; que **todo**
+  desacordo fosse uma potência exata do valor certo dizia tudo — e apontou para a chave de
+  junção, não para a fórmula.
+- **Medir o que se perde, não só o que se acerta.** A varredura do `ATZ` só é confiável porque
+  contou também as 6 exceções, em vez de parar no número que confirmava a hipótese.
+- **Quando a decisão é de produto, ela é do dono.** A exceção do `ATZ` não era uma leitura mais
+  correta da fonte, era uma escolha entre cobertura e rigor, com números dos dois lados.
 
 ## Pending Work
 
-**EVENTS-003 — série de retorno total**, com a decisão de fonte da magnitude antes do código.
-Ver [CURRENT_TASK.md](CURRENT_TASK.md). Depois que a wave fechar:
-`docs/history/COMPLETED_TASKS.md` recebe a wave EVENTS (ainda não recebeu, porque a wave não
-fechou), e a **Wave 10 — Rebalanceamento** volta a ser a próxima do roadmap.
+**Wave 10 — Rebalanceamento**, na ordem do roadmap. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ## Next Step
 
-Ler [CURRENT_TASK.md](CURRENT_TASK.md), e antes de decidir a fonte da magnitude reler o
-[ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md) — ele enumera as
-alternativas e o motivo nomeado de cada rejeição, e uma dessas objeções expirou.
+Ler [CURRENT_TASK.md](CURRENT_TASK.md) e
+[../planning/ROADMAP.md](../planning/ROADMAP.md) para a Wave 10. O score que ela consome está
+completo pela primeira vez.
 
 ## Relevant Files
 
-- `backend/app/integrations/fundamentals/cvm.py` — `_distributions`, a leitura da DMPL
-- `backend/app/domain/fundamentals/service.py` — `sync_annual_statements(refill=...)`, `_refill_missing`
-- `backend/migrations/versions/011_dividends_paid.py`
-- `backend/app/integrations/market_data/cotahist.py` — `get_corporate_events`, `_kinds_in`
-- `backend/app/integrations/market_data/{base,schemas}.py` — `CorporateEventProvider`, `CorporateEvent`
-- `backend/tests/test_cotahist_provider.py` — inclui o caso BBAS3 (323/323/324) verbatim
-- `backend/tests/test_fundamentals_service.py` — o `refill` que não sobrescreve
-- `docs/decisions/ADR-024-refill-fills-null-columns.md`, `docs/decisions/ADR-025-corporate-events-come-from-the-distribution-counter.md`
+- `backend/app/integrations/market_data/b3_corporate_actions.py` — o adaptador e suas medições
+- `backend/app/integrations/market_data/base.py` — as quatro ABCs
+- `backend/app/integrations/market_data/schemas.py` — `CorporateAction`, `SecurityIdentity`, `CorporateEventKind.NOMINAL_UPDATE`
+- `backend/app/domain/market_data/adjustment.py` — aritmética + regra de completude
+- `backend/app/domain/market_data/corporate_actions.py` — ingestão e ex-date
+- `backend/migrations/versions/012_corporate_actions.py`
+- `backend/tests/test_b3_corporate_actions.py`, `test_price_adjustment.py`, `test_corporate_action_routes.py`
+- `docs/decisions/ADR-026-corporate-action-magnitude-and-the-completeness-rule.md`

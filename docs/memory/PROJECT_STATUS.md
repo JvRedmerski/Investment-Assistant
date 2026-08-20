@@ -6,36 +6,43 @@
 
 ## Current Phase
 
-**Wave EVENTS em andamento** (iniciada em 2026-08-19): eventos societários e proventos.
+**Wave EVENTS concluída** (2026-08-19 → 2026-08-20): eventos societários e proventos.
 Segunda wave **inserida fora da ordem do roadmap**, entre a W09 e a W10, pelo mesmo critério da
-PRICE — é o que destrava mais coisa ao mesmo tempo. **2 de 3 tasks entregues.**
-10 de 33 waves do roadmap concluídas (W00–W09), mais a PRICE (🟢) e esta (🟡).
+PRICE. **3 de 3 tasks entregues.** 10 de 33 waves do roadmap concluídas (W00–W09), mais a PRICE
+e esta. **A próxima é a Wave 10 — Rebalanceamento**, de volta à ordem do roadmap.
+
+✅ **A série de retorno total existe** (EVENTS-003). Era a trava de maior retorno do projeto e
+estava reduzida a uma palavra: **magnitude**. Ela veio do **serviço aberto de eventos corporativos
+da própria B3** — reais por ação num provento, fator num desdobramento, sem token e sem cota
+([ADR-026](../decisions/ADR-026-corporate-action-magnitude-and-the-completeness-rule.md)).
+
+Medido no banco real: **PETR4 com 1.495 de 1.495 pregões ajustados**, volatilidade 41,8% e
+drawdown -63,4% com fundo em 2020-03-18 (a COVID). A pior sessão ajustada é **idêntica** à crua
+(-29,7% em 2020-03-09), que é a prova de que nenhum evento vazou para a série. BBAS3 idem.
+**ITUB4 fica corretamente truncada** em 2025-03-19 e a **MGLU3** em 2024-02-02 — por eventos que
+ninguém dimensionou, que é o desenho funcionando, não uma falha.
 
 ✅ **Os 10 indicadores têm insumo real** (EVENTS-001). O `dy` era o último com fórmula e sem
-fonte desde a W06-002; passou a vir da **DMPL da CVM**, que reporta a distribuição por exercício
-e datada nele — 0,22 em 2024 e **0,70 em 2022** para a PETR4, que é o *payout* do ano recorde,
-não erro de parsing. Antes disso a wave PRICE já tinha destravado `pe`/`pb` no banco real (P/L
-12,74 e P/VP 1,27 em 2024) e levado a cobertura do score de 0,55 para **0,75**.
+fonte desde a W06-002; passou a vir da **DMPL da CVM** — 0,22 em 2024 e **0,70 em 2022** para a
+PETR4, o *payout* do ano recorde e não erro de parsing.
 
 ✅ **A data e a natureza de todo evento societário são legíveis** (EVENTS-002), décadas atrás,
-sem cota e sem requisição nova — do mesmo arquivo da B3 que já está em cache. Pelo **contador de
-distribuição** do papel, nunca pelo marcador de ex-, que é janela de exibição de ~8 pregões
+pelo **contador de distribuição** do papel e nunca pelo marcador de ex-
 ([ADR-025](../decisions/ADR-025-corporate-events-come-from-the-distribution-counter.md)).
 
-⚠️ **A trava do pilar de Risco continua, e agora está reduzida a uma palavra: magnitude.**
-O arquivo registra **que** houve distribuição e jamais **quanto**. Sem fator de
-desdobramento/grupamento e sem valor por provento não há série de retorno total, e sem ela
-`volatility`, `max_drawdown`, `beta` e `sharpe` seguem `None`. Preencher `adjusted_close` com o
-`close` produziria o grupamento 1:10 da MGLU3 como uma sessão de **+896%**
-([ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md)). É a EVENTS-003.
+⚠️ **A regra que decide se `adjusted_close` pode existir vale ser sabida antes de mexer aqui**:
+toda sessão que o contador da B3 marcou ex precisa de uma ação dimensionada. Não é o serviço de
+eventos que julga isso, porque ele **omite** — a ITUB4 foi ex em 2025-03-18 com degrau de -8,60%
+e o serviço não reporta nada ali. A única exceção é o marcador `ATZ`, medido em 151 incrementos
+com degrau mediano de 1,0028; sem essa exceção a PETR4 teria **28** pregões ajustáveis em vez de
+1.495, e a decisão de abri-la foi tomada pelo dono do projeto, com os números à vista.
 
 ✅ **O bloqueio de fundamentals foi contornado em 2026-08-18** ([ADR-020](../decisions/ADR-020-cvm-primary-fundamentals-source.md)). A fonte primária passou a ser os **dados abertos da CVM** — o arquivo entregue ao regulador, aberto, sem token, sem cota e com mais histórico do que o fornecedor dava. A **Brapi continua no projeto** fazendo a ponte que a CVM não faz: seus arquivos não têm coluna de ticker, e o `summaryProfile` (ainda gratuito) traz o CNPJ.
 
 ⚠️ **Restrição externa que permanece, mas deixou de ser estruturante**: o `range` da Brapi
 continua limitado a `3mo` e relativo a hoje. Desde a wave PRICE isso **não trava mais o
 histórico**, que vem da B3 de graça e cobre décadas. A Brapi segue necessária para **cotação ao
-vivo** e para o `adjusted_close` das sessões recentes — as duas coisas que o arquivo de fim de
-dia da bolsa não dá.
+vivo**; o `adjusted_close` deixou de depender dela para papel com eventos completos.
 
 CDI e IPCA **não** são afetados: vêm do Banco Central (SGS), aberto e sem cota.
 
@@ -43,11 +50,11 @@ CDI e IPCA **não** são afetados: vêm do Banco Central (SGS), aberto e sem cot
 
 | | |
 |---|---|
-| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine · W08 Benchmark Engine · W09 Recommendation Engine · **PRICE Open Price History** (inserida) |
-| **In Progress** | **EVENTS Corporate Actions & Distributions** (inserida) — 2/3 tasks; falta a EVENTS-003, ver [CURRENT_TASK.md](CURRENT_TASK.md) |
+| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine · W08 Benchmark Engine · W09 Recommendation Engine · **PRICE Open Price History** (inserida) · **EVENTS Corporate Actions & Distributions** (inserida) |
+| **In Progress** | — nenhuma. Próxima: **Wave 10 — Rebalanceamento**, ver [CURRENT_TASK.md](CURRENT_TASK.md) |
 | **Blocked** | — nenhuma |
 
-Baseline atual: `pytest` → **701 passed** (backend/.venv), verificado em 2026-08-20. `ruff check .` e `black --check .` limpos no repositório inteiro; `alembic check` sem drift na última execução (2026-08-19, com o banco no ar); `npm run lint` e `npm run build` funcionando.
+Baseline atual: `pytest` → **750 passed** (backend/.venv), verificado em 2026-08-20. `ruff check .` e `black --check .` limpos no repositório inteiro; `alembic check` sem drift na última execução (2026-08-19, com o banco no ar); `npm run lint` e `npm run build` funcionando.
 
 ## Completed Work (nível wave)
 
@@ -138,22 +145,18 @@ Detalhe por task: [../history/COMPLETED_TASKS.md](../history/COMPLETED_TASKS.md)
 
 ## Current Work
 
-**Wave EVENTS, 2 de 3 tasks.** Nenhuma task com código pela metade — a próxima, **EVENTS-003**
-(série de retorno total), ainda não começou, e a decisão de fonte para a **magnitude** vem antes
-dela. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
+**Nenhuma.** A wave EVENTS fechou em 2026-08-20 com as três tasks entregues e nada de código
+pela metade. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ## Next Recommended Step
 
-1. **EVENTS-003 — série de retorno total**, a última task da wave em andamento. Duas das quatro
-   pendências que a wave existia para fechar já caíram (`dy` e a **data** dos eventos). O que
-   falta é a **magnitude** — fator de desdobramento/grupamento e valor do provento por pagamento
-   — e o `adjusted_close` derivado dela, que destrava o **pilar de Risco**, a cobertura do score
-   (0,75 → 1,00) e o backtesting da W13. **A decisão de fonte vem antes do código**: o arquivo da
-   B3 dá data e natureza e nunca o tamanho, e derivar o fator do degrau de preço é a heurística
-   que o [ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md) rejeitou.
-2. **Wave 10 (rebalanceamento)**, na ordem do roadmap, **depois** que a EVENTS fechar. Uma wave
-   por vez (AGENTS.md §133), e o score que o rebalanceamento consome fica completo justamente com
-   a EVENTS-003.
+1. **Wave 10 — Rebalanceamento**, de volta à ordem do roadmap. É a hora certa: o score que o
+   rebalanceamento consome ficou **completo** com a EVENTS-003 — o pilar de Risco tem insumo e a
+   cobertura saiu de 0,75.
+2. **Antes de confiar no Risco de um ativo novo, rode o sync de ações societárias.** Um papel só
+   com preço bruto continua sem `adjusted_close`, e portanto sem risco — o que é o estado normal
+   que o motor de score já trata, não um defeito. O comando é
+   `POST /assets/{ticker}/corporate-actions/sync` **depois** do `prices/backfill`.
 
 Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
@@ -181,13 +184,19 @@ aberto.
 
 ### Abertos
 
-1. **Ingestão de proventos: metade feita.** O **agregado por exercício** entrou na EVENTS-001
-   (DMPL da CVM), o que basta para o `dy`. O que **não** existe é o provento **por pagamento,
-   com data e valor** — nem tabela, nem endpoint —, e é dele que a série de retorno total
-   precisa. O roadmap lista isso como entregável da Wave 5 (`docs/roadmap.md` §17); continua
-   sendo task de wave, não defeito a remendar, e a fonte da magnitude ainda é decisão em aberto.
-   - ⚠️ **O evento societário também é lido e não persistido**: `get_corporate_events` varre o
-     arquivo em cache a cada chamada (EVENTS-002). Sem model e sem migration.
+1. ✅ ~~**Ingestão de proventos: metade feita**~~ — **fechado em 2026-08-20** (EVENTS-003).
+   O provento **por pagamento, com data e valor**, passou a vir do serviço aberto de eventos da
+   B3, persistido em `corporate_actions` (migration `012`) com endpoint de sync e de leitura
+   ([ADR-026](../decisions/ADR-026-corporate-action-magnitude-and-the-completeness-rule.md)).
+   O agregado por exercício da DMPL (EVENTS-001) continua onde estava, servindo o `dy` — são
+   perguntas diferentes e nenhuma substitui a outra.
+   - ⚠️ **Subscrição continua sem dimensionar.** O serviço a publica numa lista própria
+     (`subscriptions`), com percentual e preço de exercício, e dimensioná-la exige um **modelo do
+     valor do direito**, não uma medição. Por ora ela trunca a série — foi o que cortou a MGLU3
+     em 2024-02-01. É task de wave, não remendo.
+   - ⚠️ **O `CorporateEvent` (data + natureza) segue lido e não persistido**, e agora é de
+     propósito: ele é varrido do arquivo já em cache a cada sync para servir de **verificação de
+     completude**, e gravá-lo criaria uma segunda cópia do que o arquivo já é.
 2. ✅ ~~**1 dos 10 indicadores permanece `None`**~~ — **fechado em 2026-08-19** (EVENTS-001).
    O `dy` era o último e passou a ter fonte: distribuições da DMPL sobre a contagem de ações do
    mesmo exercício, sobre o preço da data de referência. **Nenhum pilar de score consome `dy`**
@@ -201,18 +210,21 @@ aberto.
      e **no banco** no mesmo dia (PRICE-003); `dy` em 2026-08-19 (EVENTS-001). O caminho foi de
      **5 `None` → 1 → nenhum**.
 
-2b. 🔴 **O pilar de Risco continua ausente, e agora é a pendência de maior retorno do projeto.**
-   Não é falta de preço — são **1.495 pregões** no banco. É falta de **série de retorno total**:
-   o COTAHIST publica o preço negociado e nenhum ajuste, então `volatility`, `max_drawdown`,
-   `beta` e `sharpe` ficam `None` e a cobertura do score para em **0,75**.
-   **Não remende com `adjusted_close = close`** — medido em dado real, o grupamento 1:10 da
-   MGLU3 em 2024-05-27 aparece como **+896% num pregão**
-   ([ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md)).
-   ✅ **A EVENTS-002 entregou metade da correção**: a **data e a natureza** de todo evento, de
-   graça e décadas atrás, pelo contador de distribuição da B3
-   ([ADR-025](../decisions/ADR-025-corporate-events-come-from-the-distribution-counter.md)).
-   ⚠️ **A metade que falta é a magnitude**, e ela é o item que ainda mantém este issue aberto:
-   o arquivo registra que houve distribuição e jamais quanto. É a EVENTS-003.
+2b. ✅ ~~**O pilar de Risco continua ausente**~~ — **fechado em 2026-08-20** (EVENTS-003).
+   A série de retorno total existe, e com ela `volatility`, `max_drawdown`, `beta` e `sharpe`
+   têm insumo real. Medido no banco: **PETR4 com 1.495 de 1.495 pregões ajustados**,
+   volatilidade 41,8%, drawdown -63,4% com fundo em 2020-03-18; **a pior sessão ajustada é a
+   mesma da série crua**, o que prova que nenhum evento vazou. O grupamento 1:10 da MGLU3
+   aparece como 13,5%, não como os +896% que o
+   [ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md) descreve.
+   - ⚠️ **Continua ausente para papel cujos eventos ninguém dimensionou**, e isso é o desenho:
+     ITUB4 tem 198 de 1.495 pregões ajustáveis (a cisão de 2021 e um `EB` de 2025 que a B3 não
+     reporta) e MGLU3 tem 478 (a subscrição de 2024). A lacuna volta **nomeada e datada** em
+     `unaccounted` na resposta do sync, em vez de virar "esse ativo não tem risco, sabe-se lá
+     por quê".
+   - ⚠️ **Uma correção tardia da B3 sobre data já ajustada não é reaplicada**: o preenchimento
+     só toca coluna nula (ADR-024). Recomputar exige limpar `adjusted_close` antes, e isso é
+     operação manual deliberada.
 3. **Reexpressões (restatements) de demonstrativos são invisíveis**: o primeiro valor gravado
    para um `reference_date` nunca é substituído. Corrigir exige schema versionado por período —
    mudança de desenho com ADR, não correção pontual. (Indicadores derivados, ao contrário, podem
@@ -239,11 +251,13 @@ aberto.
    valorada; quando pode — o caso normal — não há distorção. As alternativas seriam fabricar um
    fechamento (regra 44), esconder movimento real, ou descartar o histórico após uma lacuna.
    **A correção verdadeira é a montante**: ingerir os preços faltantes.
-   - ⚠️ **A wave PRICE não resolveu isto**, e é importante não se enganar: o índice da carteira
-     valoriza posição em `adjusted_close` ([ADR-019](../decisions/ADR-019-portfolio-return-is-time-weighted.md)),
-     e as 1.495 linhas do COTAHIST têm `adjusted_close` nulo. Elas destravam múltiplo
-     *point-in-time* (que lê `close`), não a valorização da carteira. Mesma dependência do
-     item 2b.
+   - ✅ **A EVENTS-003 resolveu a dependência que a PRICE não tinha resolvido.** O índice da
+     carteira valoriza posição em `adjusted_close`
+     ([ADR-019](../decisions/ADR-019-portfolio-return-is-time-weighted.md)), e as 1.495 linhas do
+     COTAHIST estavam com a coluna nula; agora elas são preenchidas para papel com eventos
+     completos. Onde os eventos **não** estão completos a data continua não valorável, e o
+     `performance_index` segue neutralizando — a aproximação acima continua sendo a descrição
+     correta desse caso.
 9. **Bancos e seguradoras usam plano de contas diferente no DFP.** `3.01` do Banco do Brasil é
    "Receitas de Intermediação Financeira", não receita de vendas, e `2.01.04` pode não existir.
    O mapeamento aceita o que houver e deixa `None` no resto. Fechar isso exige **conferir contra

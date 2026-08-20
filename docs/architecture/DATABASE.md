@@ -26,6 +26,8 @@
   - `010_nullable_adj_close` — torna `asset_prices.adjusted_close` **anulável**. `NULL` significa "esta fonte não calcula ajuste", nunca "faltou": a série COTAHIST da B3 imprime o preço negociado e não publica ajuste algum. Sob a regra anterior (`NOT NULL` + rejeição da barra, ADR-016) **toda** barra da B3 seria descartada. O invariante deixou de ser estrutural e passou a ser mantido por `app/domain/market_data/series.py`, o ponto único que constrói série de retorno — ver [ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md). O `downgrade` **apaga** as linhas sem ajuste em vez de inventar um valor.
     ⚠️ O `revision` é curto de propósito: `alembic_version.version_num` é `varchar(32)`, e um id mais longo falha **depois** de o schema já ter sido aplicado.
   - `011_dividends_paid` — adiciona `fundamentals.dividends_paid` (`NUMERIC(24,4)`): o que a companhia debitou ao patrimônio como distribuição no exercício, dividendos **mais** JCP, somados. Era o último insumo que faltava a algum indicador — destravou o `dy`. Guardado como **agregado, não por ação**, pelo mesmo motivo de `net_income` e `equity`: o valor por ação é derivado no cálculo do indicador, a partir da contagem **do mesmo período**, então uma reexpressão de qualquer um dos dois não deixa os dois fora de passo. `NULL` significa "a peça não reportou linha de distribuição", nunca zero — ver [ADR-024](../decisions/ADR-024-refill-fills-null-columns.md) para como períodos já gravados ganharam a coluna.
+  - `012_corporate_actions` — cria `corporate_actions`: a **magnitude** de um evento societário, que é o que faltava para existir série de retorno total. O arquivo de fim de dia data todo evento e jamais o dimensiona ([ADR-025](../decisions/ADR-025-corporate-events-come-from-the-distribution-counter.md)); o tamanho vem do serviço aberto de eventos da própria B3 ([ADR-026](../decisions/ADR-026-corporate-action-magnitude-and-the-completeness-rule.md)). **Duas colunas de magnitude anuláveis, não uma**: `cash_amount` é reais por ação e `share_ratio` é ações depois por ação antes — juntá-las numa coluna cujo sentido dependesse de `kind` seria a mesma confusão que fez `close` e `adjusted_close` valerem a pena separados. Exatamente uma é preenchida por linha, garantido no schema Pydantic antes de chegar ao banco. **Sem unique constraint, de propósito**: a identidade de uma ação é a tupla de tudo que foi reportado, duas colunas dela anuláveis — e constraint sobre coluna anulável não dispara no PostgreSQL, então anunciaria uma garantia que não cumpre. A supressão de duplicata mora no service, como já mora para `asset_prices`.
+
 - Todas foram **escritas manualmente**, não por autogenerate.
 
 ```powershell
@@ -38,7 +40,7 @@ Regras invioláveis (AGENTS.md §14/§15): nunca alterar tabela fora de migratio
 
 ✅ **`001`→`005` aplicadas contra PostgreSQL 16 real** (2026-08-18). Para isso foi preciso corrigir `migrations/env.py`, que chamava `context.is_offline()` (o correto é `is_offline_mode()`) e abortava com `AttributeError` — ou seja, **o Alembic nunca havia executado** antes disso. `alembic heads`/`history` não carregam `env.py`, e é por isso que a "validação estrutural" anterior não pegou o erro. Lição: validado estruturalmente não é validado.
 
-## Entidades (13 tabelas)
+## Entidades (14 tabelas)
 
 Agrupadas por domínio; `id` serial PK e `created_at` são universais e foram omitidos.
 
@@ -53,6 +55,7 @@ Agrupadas por domínio; `id` serial PK e `created_at` são universais e foram om
 |---|---|---|
 | `assets` | `ticker` (unique, index), `name`, `asset_type`, `sector`, `currency`, `is_active`, `cnpj` | ✅ |
 | `asset_prices` | `asset_id`, `date`, OHLC (`NUMERIC`), `adjusted_close` (`NUMERIC`, **anulável**), `volume` (`Float`), `source` | ✅ |
+| `corporate_actions` | `asset_id`, `ex_date`, `last_date_prior`, `kind`, `cash_amount` (`NUMERIC(18,6)`, anulável), `share_ratio` (`NUMERIC(24,12)`, anulável), `label`, `source` | ✅ |
 | `intraday_prices` | `asset_id`, `timestamp`, `timeframe` (1m/5m/15m), OHLCV (`Float`) | ❌ Wave 15 |
 
 ### Benchmarks

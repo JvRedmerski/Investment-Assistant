@@ -292,6 +292,75 @@ ingestão que destrava o `dy`.
 
 ---
 
+## Wave EVENTS — Eventos societários e proventos (2026-08-19 → 2026-08-20) 🟢
+
+Segunda wave **inserida fora da ordem do roadmap**, entre a W09 e a W10, pelo mesmo critério da
+PRICE: destrava mais coisa do que a wave seguinte da fila.
+
+**EVENTS-001 — proventos por exercício, da DMPL da CVM** ([ADR-024](../decisions/ADR-024-refill-fills-null-columns.md))
+
+- `dy` era o último indicador com fórmula escrita (desde a W06-002) e nenhuma fonte
+- Três detalhes decidem se o número está certo, e os três foram conferidos no arquivo real: a
+  **coluna** (só `Patrimônio Líquido`, porque a irmã `Consolidado` soma o pago a
+  não-controladores — R$ 302 mi na PETR4 em 2024), o **sinal** (distribuição é débito) e o que
+  **fica de fora** (`5.04.11`, dividendos prescritos, é estorno de período anterior)
+- **A armadilha que a task expôs vale mais que a coluna**: período gravado é congelado com os
+  campos que o código conhecia no dia (ADR-013), então os seis exercícios já no banco ficariam
+  vazios para sempre. Daí `?refill=true`, que preenche coluna `NULL` e **só** ela. As duas
+  colunas anteriores (`ebit`, `shares_outstanding`) só funcionaram por terem chegado a um banco
+  **vazio** — ninguém tinha percebido
+- +14 testes (total 686); migration `011`
+
+**EVENTS-002 — em que pregão o papel foi ex, dito pela bolsa** ([ADR-025](../decisions/ADR-025-corporate-events-come-from-the-distribution-counter.md))
+
+- O marcador do `ESPECI` é **janela de exibição, não evento**: persiste ~8 pregões e ainda decai
+  (`EDJ` → `EJ`, 132 sessões em 2024). A BBAS3 exibe `ON  EDJ NM` em 12, 13 e 14/06 enquanto o
+  contador vai **323, 323, 324** — duas distribuições sob marcador imóvel
+- O sinal exato é o **`DISMES`**. Conferido no sentido inverso no arquivo inteiro de 2024:
+  **2.230 papéis, 7.312 incrementos**, nunca decresceu, e só 13 letras de ex- apareceram sem
+  incremento — **nenhuma movendo preço em 25% ou mais**
+- Duas letras mudaram de nome por evidência: `EB` → `BONUS_OR_SPLIT` e `R` → `OTHER_DISTRIBUTION`
+- +15 testes (total 701); 20 fixtures conferidas byte a byte
+
+**EVENTS-003 — a série de retorno total** ([ADR-026](../decisions/ADR-026-corporate-action-magnitude-and-the-completeness-rule.md))
+
+- **A fonte da magnitude não estava na lista de candidatas.** É o serviço aberto de eventos
+  corporativos da própria B3 — reais por ação num provento, fator num desdobramento, sem token e
+  sem cota
+- **Conferido antes de virar código**: datas contra o contador `DISMES`, um sinal independente,
+  **157/157** em janela; fatores contra o degrau de preço, **49/50**
+- **A junção é o ISIN.** A B3 repete um evento uma vez por ISIN que o emissor já teve; compondo
+  tudo o acordo caía para 32/50, e **todo** desacordo era uma **potência exata** da resposta certa
+  (2³ na BBAS3, 10³ na CPLE3) — foi esse padrão que apontou duplicação em vez de fórmula errada
+- **A parte difícil foi decidir quando o ajuste pode rodar.** `adjusted_close` só é derivado onde
+  toda sessão contada tem ação dimensionada, e quem julga isso é o **contador da B3**, não o
+  serviço — que **omite**: ITUB4 foi ex em 2025-03-18 com degrau de -8,60% e ele não reporta nada
+- A exceção do marcador `ATZ` (151 incrementos, degrau mediano 1,0028, 6 exceções nomeadas) foi
+  **decisão do dono do projeto**, com o custo da alternativa medido: sem ela a PETR4 teria 28 de
+  1.495 pregões ajustáveis
+- +49 testes (total 750); migration `012`
+
+**Resultado da wave: 🟢 concluída.** Medido no PostgreSQL real:
+
+```
+dy: None nos 6 exercícios → 0,22 em 2024 e 0,70 em 2022 (PETR4)
+adjusted_close: 0 de 1.495 → 1.495 de 1.495 (PETR4 e BBAS3)
+PETR4: volatilidade 41,8%, drawdown -63,4% com fundo em 2020-03-18 (a COVID)
+       pior sessão ajustada = pior sessão crua (-29,7%) → nenhum evento vazou
+MGLU3: grupamento 1:10 aparece como 13,5%, não como os +896% do ADR-023
+ITUB4: truncada em 2025-03-19, corretamente, por um evento que a B3 não dimensiona
+```
+
+O pilar de **Risco** deixou de ser ausente, que é o que a wave existia para fazer.
+
+Pendência deixada explícita, **não** resolvida: **subscrição** não é dimensionada — a B3 publica
+percentual e preço de exercício, e transformar isso em fator exige um **modelo do valor do
+direito**, não uma medição.
+
+---
+
+---
+
 ## Marcos de infraestrutura de conhecimento
 
 - **2026-08-17** — Sistema de memória persistente criado: `CLAUDE.md` na raiz + `docs/{memory,architecture,decisions,planning,history}/`, com 11 ADRs extraídos do código e do histórico de decisões.

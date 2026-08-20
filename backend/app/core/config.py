@@ -98,6 +98,24 @@ class Settings(BaseSettings):
     # another few megabytes on disk once distilled.
     B3_COTAHIST_FIRST_YEAR: int = 2015
 
+    # Corporate action magnitudes (EVENTS-003). The archive above counts
+    # distributions and never sizes them; this is B3's own listed-company
+    # service, which publishes reais per share and split factors, open and
+    # without a token. It is the JSON backend of B3's public pages rather
+    # than a published data product, so it sits behind
+    # `CorporateActionProvider` and nothing outside that adapter knows its
+    # shape (ADR-026).
+    CORPORATE_ACTION_PROVIDER: str = "b3_events"
+    B3_EVENTS_BASE_URL: str = (
+        "https://sistemaswebb3-listados.b3.com.br/listedCompaniesProxy/CompanyCall"
+    )
+    B3_EVENTS_TIMEOUT_SECONDS: float = 30.0
+    B3_EVENTS_MAX_RETRIES: int = 3
+    # A full payout history is paginated, so one sync is a handful of
+    # calls in a row against a service that publishes no rate limit.
+    # Spacing them is politeness, and cheap: a sync is a manual operation.
+    B3_EVENTS_MIN_REQUEST_INTERVAL_SECONDS: float = 0.2
+
     # Benchmarks (Wave 08). The CDI/IPCA/Selic come from the Banco
     # Central's SGS API, which is open, needs no token and enforces no
     # quota - but it is noticeably slower than Brapi, and a multi-decade

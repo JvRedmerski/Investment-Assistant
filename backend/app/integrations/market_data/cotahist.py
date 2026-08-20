@@ -147,6 +147,7 @@ from app.integrations.market_data.schemas import (
     CorporateEvent,
     CorporateEventKind,
     DailyBar,
+    SecurityIdentity,
 )
 
 logger = logging.getLogger("investment_assistant.market_data.cotahist")
@@ -174,6 +175,10 @@ PREMIN = slice(82, 95)
 PREULT = slice(108, 121)
 QUATOT = slice(152, 170)
 FATCOT = slice(210, 217)
+#: The paper's ISIN. Not needed to price a bar, and essential to size an
+#: event: B3's corporate-events service files a share action against the
+#: ISIN, and an issuer usually has several (ADR-026).
+CODISI = slice(230, 242)
 #: The distribution number, last three bytes of the record. See the
 #: module docstring: this, not the marker, is what dates an event.
 DISMES = slice(242, 245)
@@ -208,6 +213,15 @@ RIGHT_BY_LETTER = {
     "G": CorporateEventKind.REVERSE_SPLIT,
     "S": CorporateEventKind.SUBSCRIPTION,
 }
+
+#: The one marker written as a token of its own instead of a letter
+#: inside an `E...` group, which is why the letter table above cannot
+#: reach it and why increments carrying it read as `UNCLASSIFIED` until
+#: now. See `CorporateEventKind.NOMINAL_UPDATE` for the 151 increments
+#: this was measured on, the six that contradict it, and why an
+#: increment that carries no entitlement has to be told apart from one
+#: whose magnitude is merely missing.
+NOMINAL_UPDATE_TOKEN = "ATZ"
 
 
 class CotahistArchive:
@@ -507,6 +521,46 @@ class B3CotahistProvider(DailyHistoryProvider, CorporateEventProvider):
                 events.extend(_events_on(session, specification, number))
         return events
 
+    def get_security_identity(
+        self, ticker: str, start: date, end: date
+    ) -> SecurityIdentity:
+        """The ISIN and share class printed on `ticker`'s own records.
+
+        Both are read from the **latest** session in the window rather
+        than the earliest. A paper that was reclassified keeps trading
+        under the code, and the identity a corporate action will be filed
+        against is the current one; taking the oldest would key today's
+        events to a retired ISIN.
+
+        Raises `InvalidMarketDataResponseError` if the archive holds
+        records for the ticker but no legible identity on any of them —
+        an empty ISIN would silently match nothing at the events service
+        and read as "this paper never had a corporate action", which is
+        the kind of quiet wrong answer rule 19 exists to prevent.
+        """
+        normalised = _normalised_ticker(ticker)
+        if start > end:
+            raise TickerNotFoundError(f"An empty window cannot identify {normalised}.")
+
+        latest: tuple[date, str, str] | None = None
+        for record in self._records_for(normalised, start, end):
+            session = _parse_date(record[DATA_PREGAO])
+            isin = record[CODISI].strip()
+            tokens = record[ESPECI].split()
+            if session is None or not isin or not tokens:
+                continue
+            if latest is None or session > latest[0]:
+                latest = (session, isin, tokens[0])
+
+        if latest is None:
+            raise InvalidMarketDataResponseError(
+                f"COTAHIST records for {normalised} carry no legible ISIN or "
+                f"share class in {start}-{end}."
+            )
+        return SecurityIdentity(
+            ticker=normalised, isin=latest[1], share_class=latest[2]
+        )
+
     def _records_for(self, ticker: str, start: date, end: date) -> list[str]:
         """Every record the years spanning [start, end] hold for `ticker`.
 
@@ -625,12 +679,23 @@ def _kinds_in(specification: str) -> list[CorporateEventKind]:
     """
     kinds: list[CorporateEventKind] = []
     for token in specification.split()[1:]:
+        if token == NOMINAL_UPDATE_TOKEN:
+            if CorporateEventKind.NOMINAL_UPDATE not in kinds:
+                kinds.append(CorporateEventKind.NOMINAL_UPDATE)
+            continue
         if not token.startswith("E") or len(token) < 2:
             continue
         for letter in token[1:]:
             kind = RIGHT_BY_LETTER.get(letter, CorporateEventKind.UNCLASSIFIED)
             if kind not in kinds:
                 kinds.append(kind)
+
+    # `ATZ` alongside a real ex- marker says nothing about the marker, so
+    # the marker wins and the update is not reported on its own. Only an
+    # increment whose *sole* explanation is `ATZ` is a nominal update.
+    if len(kinds) > 1 and CorporateEventKind.NOMINAL_UPDATE in kinds:
+        kinds.remove(CorporateEventKind.NOMINAL_UPDATE)
+
     # An increment the specification says nothing about still happened.
     return kinds or [CorporateEventKind.UNCLASSIFIED]
 

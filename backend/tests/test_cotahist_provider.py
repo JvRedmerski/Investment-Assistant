@@ -833,6 +833,107 @@ def test_a_ticker_absent_from_the_archive_has_no_events_to_report(tmp_path):
         provider.get_corporate_events("PETR4", date(2024, 1, 1), date(2024, 12, 31))
 
 
+# -- the `ATZ` marker, and the security a code stands for --------------
+
+#: PETR4 on 2025-08-08 and 2025-08-11, verbatim from `COTAHIST_A2025`.
+#: The counter goes 219 -> 220 while `ESPECI` gains `ATZ` and the close
+#: moves 30.53 -> 30.72, which is +0.6% and not an entitlement leaving
+#: anybody. B3's own corporate-events service reports no action here.
+PETR4_20250808 = (
+    "012025080802PETR4       010PETROBRAS   PN      N2   R$  "
+    "000000000315000000000032050000000003053000000000310800000000030"
+    "530000000003053000000000305548710000000000107210500000000333253"
+    "568800000000000000009999123100000010000000000000BRPETRACNPR6219"
+)
+
+PETR4_20250811 = (
+    "012025081102PETR4       010PETROBRAS   PN  ATZ N2   R$  "
+    "000000000307100000000031030000000003058000000000307600000000030"
+    "720000000003072000000000307342973000000000028045800000000086281"
+    "182700000000000000009999123100000010000000000000BRPETRACNPR6220"
+)
+
+
+def test_a_counted_increment_marked_only_atz_is_a_nominal_update(tmp_path):
+    """The distinction that decides how far back a series can be adjusted.
+
+    Read as `UNCLASSIFIED`, each of these looks like a distribution whose
+    magnitude is missing, and PETR4 has five — which under the
+    completeness rule would cut its adjustable history from 1,495
+    sessions to 28 (ADR-026).
+    """
+    provider = B3CotahistProvider(
+        build_archive(tmp_path, [PETR4_20250808, PETR4_20250811], year=2025)
+    )
+
+    events = provider.get_corporate_events(
+        "PETR4", date(2025, 1, 1), date(2025, 12, 31)
+    )
+
+    assert len(events) == 1
+    assert events[0].date == date(2025, 8, 11)
+    assert events[0].kind is CorporateEventKind.NOMINAL_UPDATE
+    # The raw specification is kept, so the call can be revisited.
+    assert events[0].specification == "PN  ATZ N2"
+    assert events[0].distribution_number == 220
+
+
+def test_a_real_ex_marker_beside_atz_wins():
+    """`ATZ` says nothing about a marker standing next to it, so the
+    marker is what the session is reported as."""
+    from app.integrations.market_data.cotahist import _kinds_in
+
+    assert _kinds_in("PN  ATZ N2") == [CorporateEventKind.NOMINAL_UPDATE]
+    assert _kinds_in("ON  EDJ ATZ NM") == [
+        CorporateEventKind.DIVIDEND,
+        CorporateEventKind.INTEREST_ON_CAPITAL,
+    ]
+
+
+def test_the_isin_and_share_class_come_off_the_paper_s_own_records(tmp_path):
+    """What a corporate action is filed against, read rather than inferred.
+
+    Guessing the class from the trailing digit would work for PETR4 and
+    fail for TAEE11 (`UNT`), and no digit at all encodes the ISIN.
+    """
+    provider = B3CotahistProvider(
+        build_archive(tmp_path, [PETR4_20250808, PETR4_20250811], year=2025)
+    )
+
+    identity = provider.get_security_identity(
+        "PETR4", date(2025, 1, 1), date(2025, 12, 31)
+    )
+
+    assert identity.ticker == "PETR4"
+    assert identity.isin == "BRPETRACNPR6"
+    assert identity.share_class == "PN"
+
+
+def test_the_identity_is_taken_from_the_latest_session_in_the_window(tmp_path):
+    """A reclassified paper keeps its code, and an action filed today is
+    filed against today's ISIN — not the one it retired."""
+    old = PETR4_20250808.replace("BRPETRACNPR6", "BROLDPETRAAA1")
+    provider = B3CotahistProvider(
+        build_archive(tmp_path, [old, PETR4_20250811], year=2025)
+    )
+
+    identity = provider.get_security_identity(
+        "PETR4", date(2025, 1, 1), date(2025, 12, 31)
+    )
+
+    assert identity.isin == "BRPETRACNPR6"
+
+
+def test_records_without_a_legible_identity_are_an_invalid_response(tmp_path):
+    """An empty ISIN would match nothing at the events service and read
+    as "this paper never had a corporate action" (rule 19)."""
+    blank = PETR4_20250811.replace("BRPETRACNPR6", " " * 12)
+    provider = B3CotahistProvider(build_archive(tmp_path, [blank], year=2025))
+
+    with pytest.raises(InvalidMarketDataResponseError):
+        provider.get_security_identity("PETR4", date(2025, 1, 1), date(2025, 12, 31))
+
+
 # -- factory -----------------------------------------------------------
 
 

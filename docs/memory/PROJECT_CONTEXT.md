@@ -32,7 +32,7 @@ O produto final deve responder: *Como está minha carteira? Estou batendo o CDI?
 - Integração de market data abstraída, com **duas fontes que respondem perguntas diferentes**: o fornecedor (`MarketDataProvider` / `BrapiProvider`) cota ao vivo e ajusta, mas serve ~63 pregões no plano gratuito; a **série COTAHIST da B3** (`DailyHistoryProvider` / `B3CotahistProvider`) é aberta, sem cota, e vai décadas atrás. Ingestão diária idempotente com cache local e validação de qualidade.
 - Ingestão de demonstrativos financeiros anuais (`FundamentalsProvider` / `BrapiFundamentalsProvider`), com validação de qualidade e política point-in-time.
 - Indicadores fundamentalistas derivados: as 10 fórmulas estão implementadas e testadas, e **as 10 têm insumo real**. `pe`/`pb` existem no banco desde a ingestão do COTAHIST (PETR4: P/L 12,74 e P/VP 1,27 em 2024) e o `dy` — o último que faltava — desde a EVENTS-001 (0,22 em 2024; 0,70 em 2022). O caminho foi de **5 `None` → 1 → nenhum**; ver Known Issues em [PROJECT_STATUS.md](PROJECT_STATUS.md).
-- **Quant Engine** puro e determinístico: retorno (diário a anual, YTD, CAGR) e risco (volatilidade, max drawdown, beta, Sharpe, Sortino). Sem I/O, inteiramente em `Decimal`.
+- **Quant Engine** puro e determinístico: retorno (diário a anual, YTD, CAGR) e risco (volatilidade, max drawdown, beta, Sharpe, Sortino). Sem I/O, inteiramente em `Decimal`. Desde a EVENTS-003 as métricas de risco **têm insumo real** — PETR4 mede volatilidade de 41,8% e drawdown de -63,4% (a COVID) sobre seis anos de série ajustada.
 - **Benchmarks**: CDI, IPCA e Selic pelo Banco Central (SGS, aberto e sem cota) e IBOV pelo provedor de market data, atrás de interface abstrata. Ingestão idempotente, com rejeição de período ainda não encerrado.
 - **Comparativo carteira × benchmark**: a carteira vira um índice **time-weighted** (valor de cota) derivado do ledger, o que neutraliza aportes e a torna comparável a um índice. Responde "estou batendo o CDI?" com retorno, excesso, volatilidade, drawdown, beta, Sharpe e Sortino.
 
@@ -49,19 +49,24 @@ O produto final deve responder: *Como está minha carteira? Estou batendo o CDI?
   uma janela de exibição de ~8 pregões e não um evento.
 
 - **Preço não ajustado é armazenado como não ajustado.** `close` é o que o mercado imprimiu;
-  `adjusted_close` é o preço de retorno total, e **`NULL` significa "esta fonte não calcula
-  ajuste"** — nunca um valor copiado do `close`. Um único ponto de passagem garante que linha sem
-  ajuste não entre em série de retorno. É o que permite ter décadas de preço aberto sem
-  contaminar volatilidade, drawdown e beta com desdobramentos
+  `adjusted_close` é o preço de retorno total, e **`NULL` significa "ninguém calculou ajuste para
+  esta linha"** — nunca um valor copiado do `close`. Um único ponto de passagem garante que linha
+  sem ajuste não entre em série de retorno
   ([ADR-023](../decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md)).
 
+- **A série de retorno total, e a regra que decide se ela pode existir.** A **magnitude** de cada
+  evento — reais por ação num provento, fator num desdobramento — vem do serviço aberto de
+  eventos da própria B3, e `adjusted_close` é derivado do preço bruto já armazenado. Só que ele é
+  derivado **apenas onde o ajuste é completo**: toda sessão que o contador da bolsa marcou ex
+  precisa de uma ação dimensionada, senão a série para ali. Um ajuste feito com parte dos eventos
+  não é uma série mais curta, é uma **errada e plausível**. Medido: PETR4 com 1.495 de 1.495
+  pregões ajustados e a pior sessão ajustada idêntica à crua; ITUB4 corretamente truncada por um
+  evento que a B3 não reporta
+  ([ADR-026](../decisions/ADR-026-corporate-action-magnitude-and-the-completeness-rule.md)).
+
 ### Em desenvolvimento
-- **Wave EVENTS — eventos societários e proventos**, iniciada em 2026-08-19. Duas tasks
-  entregues: os **proventos por exercício** vêm da DMPL da CVM (EVENTS-001, que fechou o `dy` —
-  os 10 indicadores passaram a ter valor real), e a **data e a natureza dos eventos
-  societários** vêm do arquivo de fim de dia da B3 (EVENTS-002). Falta a **EVENTS-003**: a série
-  de retorno total, que é o que destrava o pilar de Risco. Ver
-  [CURRENT_TASK.md](CURRENT_TASK.md).
+- **Nenhuma wave em andamento.** A próxima é a **Wave 10 — Rebalanceamento**, de volta à ordem
+  do roadmap. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ### Planejado (não existe código)
 Rebalanceamento → Dashboard → AI Engine → Backtesting/Walk-forward → Day Trade (intraday, setups, risco, paper trading) → Observabilidade/Segurança/CI-CD/Deploy.
