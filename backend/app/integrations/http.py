@@ -47,6 +47,7 @@ class RetryingJsonClient:
         invalid_response_error: type[Exception],
         logger: logging.Logger,
         default_params: dict[str, Any] | None = None,
+        default_headers: dict[str, str] | None = None,
         client: httpx.Client | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
@@ -58,6 +59,12 @@ class RetryingJsonClient:
         self._invalid_response_error = invalid_response_error
         self._logger = logger
         self._default_params = dict(default_params or {})
+        # Sent on every request. Separate from `default_params` because
+        # some providers authenticate by header rather than by query
+        # string, and a credential in a URL leaks into logs and proxies.
+        # Header values are never logged; the error paths below quote the
+        # response body, never the request.
+        self._default_headers = dict(default_headers or {})
         self._last_request_at: float | None = None
         # A caller-supplied client makes every provider trivially testable
         # (httpx.Client(transport=httpx.MockTransport(...))) without any
@@ -85,6 +92,34 @@ class RetryingJsonClient:
         which is where that check belongs, since only the provider knows
         what its source promises.
         """
+        return self._request("GET", path, params=params)
+
+    def post_json(
+        self,
+        path: str,
+        payload: Any,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
+        """The parsed JSON document returned by POSTing `payload` to `path`.
+
+        Retries follow the same policy as `get_json`, which is safe here
+        because the only POST this project makes is a text generation
+        call: it creates no resource and mutates no state, so a retried
+        request costs another few tokens and nothing else. A POST that
+        did mutate state would need its own idempotency handling and
+        must not reuse this method blindly.
+        """
+        return self._request("POST", path, params=params, json=payload)
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        json: Any = None,
+    ) -> Any:
+        """The shared retry/throttle/error-mapping loop for one request."""
         query = {**self._default_params, **(params or {})}
 
         last_error: Exception | None = None
@@ -92,7 +127,13 @@ class RetryingJsonClient:
             self._throttle()
             self._last_request_at = time.monotonic()
             try:
-                response = self._client.get(f"{self._base_url}{path}", params=query)
+                response = self._client.request(
+                    method,
+                    f"{self._base_url}{path}",
+                    params=query,
+                    json=json,
+                    headers=self._default_headers,
+                )
             except httpx.TimeoutException as exc:
                 last_error = exc
                 self._logger.warning(

@@ -28,8 +28,14 @@ dependencies = [
     "pandas>=2.2.1",
     "scipy>=1.12.0",
     "scikit-learn>=1.4.1",
-    "google-generativeai>=0.4.1",
 ]
+
+# Deliberately absent: an AI vendor SDK. The AI Engine (Wave 12) speaks
+# REST through `app/integrations/http.py`, like every other integration
+# in this project. `google-generativeai` was declared here from Wave 00,
+# never imported, and is the SDK Google deprecated in favour of
+# `google-genai`; it was removed rather than adopted. See
+# docs/decisions/ADR-029-ai-provider-speaks-rest.md.
 
 [project.optional-dependencies]
 dev = [

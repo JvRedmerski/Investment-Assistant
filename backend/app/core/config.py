@@ -126,8 +126,41 @@ class Settings(BaseSettings):
     BENCHMARK_MAX_RETRIES: int = 3
     BENCHMARK_MIN_REQUEST_INTERVAL_SECONDS: float = 0.0
 
+    # AI Engine (Wave 12). The model explains numbers the backend already
+    # computed and never produces one of its own (ADR-009), so none of
+    # these settings can change a figure anywhere in the system - the
+    # worst a bad value here does is leave the explanation unavailable.
+    #
+    # "gemini" is the hosted default; "ollama" points at a local server
+    # and needs no key, which is what keeps the architecture from
+    # depending on one proprietary API (AGENTS.md rule 42). "none"
+    # disables explanations outright, and is the honest setting for a
+    # deployment that has no credential - better than a provider that
+    # fails on every call.
     AI_PROVIDER: str = "gemini"
     GEMINI_API_KEY: str = ""
+    GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta"
+    #: Alias rather than a pinned build, so the vendor's current fast
+    #: model is used without an edit here. The model that actually
+    #: answered is echoed back on every `Completion` and recorded on the
+    #: `Explanation`, which is what keeps the audit trail exact even
+    #: though the request is not.
+    GEMINI_MODEL: str = "gemini-flash-latest"
+
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "llama3.2"
+
+    AI_TIMEOUT_SECONDS: float = 60.0
+    AI_MAX_RETRIES: int = 3
+    AI_MIN_REQUEST_INTERVAL_SECONDS: float = 0.0
+    #: Low, not zero. Text is exempt from the determinism rule (113)
+    #: because it feeds no calculation, but an explanation that rewords
+    #: itself on every refresh reads as unreliable.
+    AI_TEMPERATURE: float = 0.2
+    #: Three short paragraphs, which is what the prompts ask for, with
+    #: room to spare. A truncated explanation comes back with a
+    #: finish_reason saying so rather than silently ending mid-sentence.
+    AI_MAX_OUTPUT_TOKENS: int = 1024
 
     model_config = SettingsConfigDict(
         case_sensitive=True, env_file=ENV_FILES, extra="ignore"

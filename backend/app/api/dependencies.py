@@ -10,6 +10,8 @@ from app.data.database import get_db
 from app.data.models.users import User
 from app.domain.benchmarks.catalog import UnknownBenchmarkError, get_benchmark
 from app.domain.fundamentals.identity import StoredCnpjResolver
+from app.integrations.ai.base import AIProvider
+from app.integrations.ai.factory import build_ai_provider
 from app.integrations.benchmarks.base import BenchmarkProvider
 from app.integrations.benchmarks.factory import build_benchmark_provider
 from app.integrations.fundamentals.base import FundamentalsProvider
@@ -189,6 +191,26 @@ def get_benchmark_provider(code: str) -> Generator[BenchmarkProvider, None, None
         ) from exc
 
     provider = build_benchmark_provider(definition.source)
+    try:
+        yield provider
+    finally:
+        provider.close()
+
+
+def get_ai_provider() -> Generator[AIProvider, None, None]:
+    """Provide the `AIProvider` for a single request.
+
+    Same contract as the other provider dependencies: routes depend only
+    on the abstract type (AGENTS.md rules 21/40), and tests override
+    this with a fake instead of reaching a model.
+
+    Unlike the others, the provider behind this one produces no data —
+    only prose about data the backend already computed (ADR-009). That
+    is why `AI_PROVIDER=none` yields a provider that refuses politely
+    rather than raising here: switching explanations off is a supported
+    deployment, not a misconfiguration.
+    """
+    provider = build_ai_provider()
     try:
         yield provider
     finally:
