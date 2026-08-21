@@ -62,6 +62,10 @@ from app.domain.recommendations.scoring import (
     score_risk,
     score_valuation,
 )
+from app.domain.recommendations.targets import (
+    PortfolioTargets,
+    compute_targets,
+)
 from app.quant.returns import PricePoint
 
 ZERO = Decimal(0)
@@ -283,20 +287,8 @@ def plan_contribution(
     exposure = build_exposure(db, portfolio)
     scored = score_universe(db, portfolio, start=start, as_of=as_of, exposure=exposure)
 
-    candidates = [
-        Candidate(
-            ticker=asset.ticker,
-            asset_id=asset.id,
-            name=asset.name,
-            sector=asset.sector,
-            score=score,
-            held_amount=exposure.amount_of(asset.id),
-        )
-        for asset, score in scored
-    ]
-
     return allocate_contribution(
-        candidates,
+        _candidates(exposure, scored),
         invested=exposure.total_invested,
         sector_amounts=exposure.amounts_by_sector(),
         contribution=(
@@ -304,6 +296,40 @@ def plan_contribution(
             if contribution is not None
             else monthly_contribution_for(db, portfolio)
         ),
+        policy=policy,
+    )
+
+
+def portfolio_targets(
+    db: Session,
+    portfolio: Portfolio,
+    start: date | None = None,
+    as_of: date | None = None,
+    policy: AllocationPolicy = DEFAULT_POLICY,
+) -> PortfolioTargets:
+    """Where each asset sits against where it should be (rule 34).
+
+    Scores the universe against this portfolio and hands the result to
+    `targets.compute_targets`, which is pure. Nothing is decided here;
+    this only loads.
+
+    The exposure is built once and shared with the scoring pass for the
+    same reason `plan_contribution` does it: the current weights and the
+    Diversification pillar must be reading one portfolio, not two
+    queries of it.
+
+    Note what the two consumers of that exposure do with it. Scoring
+    feeds the concentration into the Diversification pillar; the target
+    model deliberately throws that pillar away and uses the exposure
+    only as the denominator of `current_weight` (ADR-027). The same
+    load, read for opposite purposes.
+    """
+    exposure = build_exposure(db, portfolio)
+    scored = score_universe(db, portfolio, start=start, as_of=as_of, exposure=exposure)
+
+    return compute_targets(
+        _candidates(exposure, scored),
+        invested=exposure.total_invested,
         policy=policy,
     )
 
@@ -327,6 +353,30 @@ def monthly_contribution_for(db: Session, portfolio: Portfolio) -> Decimal:
 
 
 # -- helpers ---------------------------------------------------------
+
+
+def _candidates(
+    exposure: PortfolioExposure, scored: list[tuple[Asset, AssetScore]]
+) -> list[Candidate]:
+    """A scored universe, with what the portfolio already holds of each.
+
+    Shared by the contribution plan and the target model so the two
+    always see the same universe with the same held amounts. They read
+    it differently — one splits money across it, the other lays a
+    destination over it — but disagreeing about what is held would make
+    the plan and the gaps it is meant to close describe two portfolios.
+    """
+    return [
+        Candidate(
+            ticker=asset.ticker,
+            asset_id=asset.id,
+            name=asset.name,
+            sector=asset.sector,
+            score=score,
+            held_amount=exposure.amount_of(asset.id),
+        )
+        for asset, score in scored
+    ]
 
 
 def _price_series(

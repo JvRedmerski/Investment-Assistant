@@ -329,10 +329,10 @@ Definition of Done da wave EVENTS: **atendida**. `dy` tem fonte, a data e a natu
 ---
 
 ### Wave 10 — Portfolio Rebalancing Engine
-Status: 🟡 IN_PROGRESS (1 de 3 tasks)
+Status: 🟡 IN_PROGRESS (2 de 3 tasks)
 
 - [x] **W10-001**: Peso-alvo e *drift* — `targets.py`, `scoring.merit` ([ADR-027](decisions/ADR-027-target-weight-comes-from-merit.md)) 🟢 COMPLETED
-- [ ] **W10-002**: Carregamento e endpoint da tabela de desvio (`GET /portfolios/{id}/rebalance`) ⚪ NOT_STARTED
+- [x] **W10-002**: Carregamento e endpoint da tabela de desvio (`GET /portfolios/{id}/rebalance`) 🟢 COMPLETED
 - [ ] **W10-003**: O aporte que fecha os gaps — plano de rebalanceamento por fluxo de caixa ⚪ NOT_STARTED
 
 > **Renumeração deliberada.** O plano original tinha duas tasks: "target weights e weight gaps"
@@ -366,6 +366,20 @@ Detalhes W10-001 (2026-08-21):
   com cobertura 0,40** — o maior número do universo, feito só dos dois pilares que nunca faltam
   —, **não recebe alvo nenhum**: sob a regra do mérito ela tem um pilar só.
 - 25 testes novos, todos com valores calculados à mão. `pytest` 750 → **775**.
+
+Detalhes W10-002 (2026-08-21):
+
+- `portfolio_targets` em `service.py` (carrega e delega, nada é calculado ali) e
+  `GET /portfolios/{id}/rebalance`, com os mesmos overrides de política por query da W09 mais
+  `rebalance_band`.
+- **A construção de candidatos foi extraída** (`_candidates`) e passou a ser compartilhada com
+  `plan_contribution`: os dois precisam ver o mesmo universo com os mesmos valores detidos, e
+  discordarem disso faria o plano e os gaps que ele deveria fechar descreverem duas carteiras.
+- **Um fato que só o teste ponta a ponta mostra**: sem demonstrativos, *nenhum* ativo recebe alvo,
+  e **baixar `min_coverage` não resolve** — o que falta não é o piso, é um segundo pilar de
+  mérito. O plano de aporte podia ser aberto por esse parâmetro; a tabela de desvio não pode, e
+  o teste `test_lowering_the_coverage_floor_does_not_conjure_a_target` fixa isso.
+- 12 testes novos de rota. `pytest` 775 → **787**.
 
 ---
 

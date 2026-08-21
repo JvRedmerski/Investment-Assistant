@@ -33,13 +33,19 @@ from app.domain.recommendations.schemas import (
     AllocationPolicyResponse,
     AllocationResponse,
     AssetScoreResponse,
+    AssetTargetResponse,
     ContributionPlanResponse,
     PortfolioScoresResponse,
+    PortfolioTargetsResponse,
     SkippedCandidateResponse,
     SubScoreResponse,
 )
 from app.domain.recommendations.scoring import SCORING_FORMULA_VERSION
-from app.domain.recommendations.service import plan_contribution, score_universe
+from app.domain.recommendations.service import (
+    plan_contribution,
+    portfolio_targets,
+    score_universe,
+)
 
 router = APIRouter(prefix="/portfolios", tags=["Portfolio"])
 
@@ -398,21 +404,16 @@ def get_contribution_plan(
     """
     portfolio = _get_owned_portfolio(db, portfolio_id, current_user)
 
-    overrides = {
-        name: value
-        for name, value in (
-            ("max_asset_weight", max_asset_weight),
-            ("max_sector_weight", max_sector_weight),
-            ("max_share_per_position", max_share_per_position),
-            ("max_positions", max_positions),
-            ("min_ticket", min_ticket),
-            ("min_coverage", min_coverage),
-            ("min_score", min_score),
-            ("require_sector", require_sector),
-        )
-        if value is not None
-    }
-    policy = replace(DEFAULT_POLICY, **overrides) if overrides else DEFAULT_POLICY
+    policy = _policy_with(
+        max_asset_weight=max_asset_weight,
+        max_sector_weight=max_sector_weight,
+        max_share_per_position=max_share_per_position,
+        max_positions=max_positions,
+        min_ticket=min_ticket,
+        min_coverage=min_coverage,
+        min_score=min_score,
+        require_sector=require_sector,
+    )
 
     plan = plan_contribution(
         db,
@@ -469,6 +470,119 @@ def get_contribution_plan(
     )
 
 
+@router.get("/{portfolio_id}/rebalance", response_model=PortfolioTargetsResponse)
+def get_portfolio_rebalance(
+    portfolio_id: int,
+    max_asset_weight: Decimal | None = Query(None, gt=0, le=1),
+    max_sector_weight: Decimal | None = Query(None, gt=0, le=1),
+    min_coverage: Decimal | None = Query(None, ge=0, le=1),
+    min_score: Decimal | None = Query(None, ge=0, le=100),
+    rebalance_band: Decimal | None = Query(
+        None,
+        ge=0,
+        le=1,
+        description=(
+            "How far from its target a weight may sit before it counts as "
+            "off-target. Defaults to 0.02, or 2 percentage points."
+        ),
+    ),
+    require_sector: bool | None = Query(None),
+    start: date | None = None,
+    as_of: date | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PortfolioTargetsResponse:
+    """Current weight, target weight and gap for every asset (rule 34).
+
+    Answers *"how far is my portfolio from where it should be, and in
+    which names?"*. Rows come back most underweight first, which is the
+    priority order rule 34 asks for.
+
+    ⚠️ **The target is built from merit, not from the score the
+    contribution plan ranks by.** Merit drops the Diversification pillar,
+    because that pillar reads the very portfolio being targeted: a target
+    proportional to `final_score` recedes as the portfolio approaches it,
+    and the gap would not be a distance to anything (ADR-027).
+    Concentration is still enforced, as the ceilings that trim the
+    targets — the same ones the plan respects.
+
+    Read `unassigned` alongside the rows. With few rateable assets the
+    ceilings cannot hand out the whole portfolio, and the remainder is
+    reported rather than pushed onto whichever names happened to be
+    scorable.
+
+    A target of zero on something the investor holds is not a sell
+    instruction. Nothing here sells; a portfolio taking monthly
+    contributions closes that gap by dilution.
+
+    Nothing is stored: the table is derived from the ledger, the scores
+    and the policy, exactly as positions are (rule 16).
+
+    Reads only stored data (rule 23); prices, benchmarks and indicators
+    must have been synced first.
+    """
+    portfolio = _get_owned_portfolio(db, portfolio_id, current_user)
+
+    policy = _policy_with(
+        max_asset_weight=max_asset_weight,
+        max_sector_weight=max_sector_weight,
+        min_coverage=min_coverage,
+        min_score=min_score,
+        rebalance_band=rebalance_band,
+        require_sector=require_sector,
+    )
+
+    targets = portfolio_targets(db, portfolio, start=start, as_of=as_of, policy=policy)
+
+    return PortfolioTargetsResponse(
+        portfolio_id=portfolio.id,
+        model_version=targets.model_version,
+        formula_version=targets.formula_version,
+        policy=_policy_response(targets.policy),
+        invested=targets.invested,
+        assigned=targets.assigned,
+        unassigned=targets.unassigned,
+        underweight_gap=targets.underweight_gap,
+        overweight_gap=targets.overweight_gap,
+        untracked_weight=targets.untracked_weight,
+        targets=[
+            AssetTargetResponse(
+                ticker=row.ticker,
+                asset_id=row.asset_id,
+                name=row.name,
+                sector=row.sector,
+                merit_score=row.merit_score,
+                merit_coverage=row.merit_coverage,
+                current_weight=row.current_weight,
+                target_weight=row.target_weight,
+                weight_gap=row.weight_gap,
+                status=row.status.value,
+                limited_by=row.limited_by.value if row.limited_by else None,
+                excluded=row.excluded.value if row.excluded else None,
+                detail=row.detail,
+                final_score=row.score.final_score,
+                coverage=row.score.coverage,
+                sub_scores=[
+                    SubScoreResponse.model_validate(sub) for sub in row.score.sub_scores
+                ],
+            )
+            for row in targets.targets
+        ],
+    )
+
+
+def _policy_with(**overrides: object) -> AllocationPolicy:
+    """The default policy with whatever the request actually set.
+
+    Rule 32 requires every limit to be configurable, and `None` here
+    means "not sent" rather than "no limit" — dropping the unset ones is
+    what keeps an omitted parameter at its conservative default instead
+    of clearing it.
+    """
+    given = {name: value for name, value in overrides.items() if value is not None}
+    return replace(DEFAULT_POLICY, **given) if given else DEFAULT_POLICY
+
+
 def _policy_response(policy: AllocationPolicy) -> AllocationPolicyResponse:
     return AllocationPolicyResponse(
         max_asset_weight=policy.max_asset_weight,
@@ -479,5 +593,6 @@ def _policy_response(policy: AllocationPolicy) -> AllocationPolicyResponse:
         min_coverage=policy.min_coverage,
         min_score=policy.min_score,
         coverage_tier_width=policy.coverage_tier_width,
+        rebalance_band=policy.rebalance_band,
         require_sector=policy.require_sector,
     )

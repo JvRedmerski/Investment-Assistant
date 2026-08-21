@@ -85,6 +85,9 @@ class AllocationPolicyResponse(BaseModel):
     min_coverage: Decimal
     min_score: Decimal
     coverage_tier_width: Decimal
+    #: Read by the drift table, not by the contribution plan: how far
+    #: from its target a weight may sit before it counts as off-target.
+    rebalance_band: Decimal
     require_sector: bool
 
 
@@ -161,3 +164,76 @@ class ContributionPlanResponse(BaseModel):
     base_value: Decimal
     allocations: list[AllocationResponse]
     skipped: list[SkippedCandidateResponse]
+
+
+class AssetTargetResponse(BaseModel):
+    """One row of the drift table (AGENTS.md rule 34).
+
+    `weight_gap` is `target_weight - current_weight` as a fraction, so
+    0.04 is the +4 p.p. of the rule's own example. Positive means the
+    portfolio is **under** its target and a contribution here closes the
+    gap.
+
+    ⚠️ **`merit_score` is not `final_score`, and the difference is the
+    point.** Merit is Quality, Valuation, Growth and Risk recomposed
+    without the Diversification pillar, because that pillar reads the
+    portfolio being targeted: a target proportional to `final_score`
+    recedes as the portfolio approaches it (ADR-027). `final_score` is
+    still reported, because it is what the contribution plan ranks by.
+
+    `excluded` is set when the asset has no target at all, and `detail`
+    says why in words. A target of 0 on a position the investor holds is
+    **not** an instruction to sell — nothing in this project sells; it is
+    a gap that monthly contributions close by dilution.
+    """
+
+    ticker: str
+    asset_id: int
+    name: str
+    sector: str | None
+    merit_score: Decimal | None
+    merit_coverage: Decimal
+    current_weight: Decimal
+    target_weight: Decimal
+    weight_gap: Decimal
+    status: str
+    limited_by: str | None
+    excluded: str | None
+    detail: str
+    final_score: Decimal | None
+    coverage: Decimal
+    sub_scores: list[SubScoreResponse]
+
+
+class PortfolioTargetsResponse(BaseModel):
+    """Where the portfolio is against where it should be (rule 34).
+
+    `assigned + unassigned == 1` always. `unassigned` is the share of the
+    portfolio the ceilings could not hand to anybody — with few rateable
+    assets it is most of it, and it is reported rather than spread over
+    whoever happened to be rateable.
+
+    `underweight_gap` and `overweight_gap` are the two directions summed
+    separately, never netted: one is closed by contributing and the other
+    only by selling or by dilution, and a single figure would hide which.
+
+    `untracked_weight` is the share held in assets that were not offered
+    as candidates — a deactivated holding still counts in `invested`, and
+    without this the rows would not add up to the portfolio.
+
+    Three versions are recorded (rule 30): `formula_version` for the
+    scores consumed, `model_version` for the target model, and the policy
+    echoed in full.
+    """
+
+    portfolio_id: int
+    model_version: str
+    formula_version: str
+    policy: AllocationPolicyResponse
+    invested: Decimal
+    assigned: Decimal
+    unassigned: Decimal
+    underweight_gap: Decimal
+    overweight_gap: Decimal
+    untracked_weight: Decimal
+    targets: list[AssetTargetResponse]

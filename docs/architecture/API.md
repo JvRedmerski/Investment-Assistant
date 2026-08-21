@@ -94,6 +94,7 @@ Unidades dos indicadores: margens, crescimento, ROE, ROIC e DY são **frações*
 | GET | `/{id}/benchmarks/{code}` | compara a carteira com um benchmark; a carteira entra como índice **time-weighted**, então aporte não conta como rentabilidade; lê **só** do banco |
 | GET | `/{id}/scores` | pontua todo ativo acompanhado **contra esta carteira**; lê **só** do banco. Ler `coverage` antes de comparar dois scores |
 | GET | `/{id}/contribution-plan` | onde vai o próximo aporte, e por quê. `amount` default = `monthly_contribution` do perfil (senão R$ 1.000). Todo limite é sobrescrevível por query param (`max_asset_weight`, `max_sector_weight`, `max_share_per_position`, `max_positions`, `min_ticket`, `min_coverage`, `min_score`, `require_sector`) e a política volta na resposta. Nada é gravado |
+| GET | `/{id}/rebalance` | `current_weight`, `target_weight` e `weight_gap` por ativo, mais underweight primeiro. ⚠️ O alvo sai do **mérito** (score sem o pilar de Diversificação) e não do `final_score` — um alvo feito do score recua conforme a carteira se aproxima ([ADR-027](../decisions/ADR-027-target-weight-comes-from-merit.md)). Ler `unassigned` junto com as linhas: é a fatia que os tetos não deram a ninguém. Alvo 0 em posição detida **não é ordem de venda**. Limites sobrescrevíveis: `max_asset_weight`, `max_sector_weight`, `min_coverage`, `min_score`, `rebalance_band`, `require_sector`. Nada é gravado |
 
 ### Benchmarks — `/api/v1/benchmarks` (todos autenticados)
 | Método | Rota | Nota |
