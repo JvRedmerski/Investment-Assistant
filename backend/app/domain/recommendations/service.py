@@ -369,7 +369,16 @@ def plan_rebalance(
 
 
 def monthly_contribution_for(db: Session, portfolio: Portfolio) -> Decimal:
-    """The owner's configured monthly contribution.
+    """The owner's configured monthly contribution."""
+    return monthly_contribution_of(db, portfolio.user_id)
+
+
+def monthly_contribution_of(db: Session, user_id: int) -> Decimal:
+    """One investor's configured monthly contribution.
+
+    Taken by user rather than by portfolio because a backtest has no
+    portfolio to read it from — it builds one — while the figure it needs
+    is the same one the live plan uses.
 
     Stored as `NUMERIC(18, 6)` since migration 008, so the driver hands
     back a `Decimal` and no conversion is needed. It used to be a `float`
@@ -377,9 +386,7 @@ def monthly_contribution_for(db: Session, portfolio: Portfolio) -> Decimal:
     instead of the binary expansion around it.
     """
     profile = (
-        db.query(InvestorProfile)
-        .filter(InvestorProfile.user_id == portfolio.user_id)
-        .first()
+        db.query(InvestorProfile).filter(InvestorProfile.user_id == user_id).first()
     )
     if profile is None or profile.monthly_contribution is None:
         return DEFAULT_MONTHLY_CONTRIBUTION

@@ -17,13 +17,13 @@ from app.data.database import Base
 from app.data.models.assets import Asset, AssetPrice
 from app.data.models.assets import CorporateAction as StoredAction
 from app.data.models.fundamentals import FinancialIndicator
-from app.domain.backtesting.schemas import CostModel
 from app.domain.backtesting.service import (
     NO_PRICES,
     NO_TOTAL_RETURN_SERIES,
     BacktestSettings,
     run_backtest,
 )
+from app.domain.backtesting.simulation import CostModel
 from app.domain.benchmarks.catalog import IBOVESPA
 
 ZERO = Decimal(0)

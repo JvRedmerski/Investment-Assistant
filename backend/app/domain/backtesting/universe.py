@@ -36,7 +36,7 @@ from sqlalchemy.orm import Session
 
 from app.data.models.assets import Asset
 from app.domain.backtesting.availability import PUBLICATION_LAG_MONTHS
-from app.domain.backtesting.schemas import Order, Side, SimulationState, Strategy
+from app.domain.backtesting.simulation import Order, Side, SimulationState, Strategy
 from app.domain.benchmarks.catalog import IBOVESPA
 from app.domain.benchmarks.service import benchmark_price_points, risk_free_rate_for
 from app.domain.portfolio.service import AssetPosition

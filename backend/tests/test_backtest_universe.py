@@ -26,8 +26,11 @@ from app.domain.backtesting.availability import (
     available_from,
     latest_readable_period,
 )
-from app.domain.backtesting.schemas import SimulationState
-from app.domain.backtesting.simulation import ContributionSchedule, simulate
+from app.domain.backtesting.simulation import (
+    ContributionSchedule,
+    SimulationState,
+    simulate,
+)
 from app.domain.backtesting.universe import (
     contribution_strategy,
     exposure_from_positions,

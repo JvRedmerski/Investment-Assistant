@@ -3,7 +3,7 @@ from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import assets, auth, benchmarks, health, portfolios
+from app.api.routes import assets, auth, backtests, benchmarks, health, portfolios
 from app.core.config import settings
 from app.core.logging import setup_logging
 
@@ -48,6 +48,7 @@ app.include_router(auth.router, prefix=settings.API_V1_STR)
 app.include_router(assets.router, prefix=settings.API_V1_STR)
 app.include_router(portfolios.router, prefix=settings.API_V1_STR)
 app.include_router(benchmarks.router, prefix=settings.API_V1_STR)
+app.include_router(backtests.router, prefix=settings.API_V1_STR)
 
 
 @app.get("/")

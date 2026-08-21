@@ -1,192 +1,195 @@
-"""What a simulation is told, and what it reports back.
+"""API shapes for a backtest.
 
-Provider-agnostic and I/O-free, like `app.quant`: nothing here reads a
-database or knows which strategy is being tested.
+Nothing is computed here — the figures come from `service.run_backtest`,
+which reads a `Simulation` the pure engine produced. What this file does
+is decide what a caller is *told*, and the answer is: everything needed
+to read the result and everything needed to repeat it.
 
-## The simulation speaks in ledger
-
-Its output is a list of `Transaction` rows — the same shape a real
-portfolio is recorded in — plus the share actions that moved a holding
-without one. That is deliberate and it is most of the design: it means
-`compute_positions`, `value_series` and `performance_index` measure a
-backtest with **exactly** the code that measures the investor's own
-portfolio. A second valuation path would be a second set of bugs, and
-the first divergence between them would show up as a backtest that
-disagrees with the dashboard for reasons nobody could name.
+A backtest that reports only a return is not a result, it is a claim.
+Rule 107 asks for costs, rule 63 for more than a win rate, rule 113 for
+reproducibility — so the settings, the window, the exclusions and the
+unfilled orders travel with the numbers rather than beside them.
 """
 
-import enum
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
 from datetime import date
-from decimal import ROUND_DOWN, ROUND_UP, Decimal
+from decimal import Decimal
 
-from app.data.models.portfolio import Transaction
-from app.domain.portfolio.service import AssetPosition, ShareAdjustment
+from pydantic import BaseModel
 
-ZERO = Decimal(0)
-CENTAVO = Decimal("0.01")
-
-#: B3's cash-equity fees for a retail investor, as a fraction of volume:
-#: the negotiation fee plus the settlement fee.
-#:
-#: A default, not a fact about the reader's broker — every run may
-#: override it, and `CostModel` is echoed back with the result so a
-#: figure can always be read next to the costs that produced it. Rule 62
-#: asks that costs be modelled rather than assumed away; assuming a
-#: *precise* number would be the opposite error, so this one is stated as
-#: the approximation it is.
-B3_TRADING_FEE_RATE = Decimal("0.0003")
+from app.domain.benchmarks.schemas import BenchmarkComparisonResponse
+from app.domain.recommendations.schemas import AllocationPolicyResponse
 
 
-class Side(str, enum.Enum):
-    BUY = "BUY"
-    SELL = "SELL"
+class CostModelResponse(BaseModel):
+    """What a trade was charged, beyond the price of the shares.
 
-
-@dataclass(frozen=True)
-class CostModel:
-    """What a trade costs, beyond the price of the shares.
-
-    `brokerage` is per order and `brokerage_rate` proportional, because
-    both shapes exist in the market and a backtest run under one says
-    nothing about the other. Zero brokerage is the honest default for
-    the Brazilian retail broker this project is written for, and it is
-    still a *choice* the result carries with it.
+    Echoed back because it is an assumption and not a fact about the
+    reader's broker: a return is only interpretable next to the costs
+    that produced it (rule 107).
     """
 
-    brokerage: Decimal = ZERO
-    brokerage_rate: Decimal = ZERO
-    exchange_rate: Decimal = B3_TRADING_FEE_RATE
-
-    def charge(self, notional: Decimal) -> Decimal:
-        """The fee on a trade of `notional` reais, rounded to the centavo.
-
-        Rounded **up**, because a fee that lands between centavos is not
-        one the investor gets to keep the fraction of, and a backtest
-        that rounds costs down flatters itself a little on every trade.
-        """
-        raw = self.brokerage + notional * (self.brokerage_rate + self.exchange_rate)
-        return raw.quantize(CENTAVO, rounding=ROUND_UP)
+    brokerage: Decimal
+    brokerage_rate: Decimal
+    exchange_rate: Decimal
 
 
-@dataclass(frozen=True)
-class Order:
-    """An instruction the strategy produced, in reais rather than shares.
+class BacktestSettingsResponse(BaseModel):
+    """Everything the run was parameterised by (rule 113).
 
-    Reais because that is what the allocator decides in: the contribution
-    is money, and how many shares it buys is a fact about the price on
-    the execution session, which the strategy is not allowed to know yet.
+    `publication_lag_months` is the one that is easy to miss and hardest
+    to notice the absence of: a fiscal year ending 31 December is not
+    public on 1 January, so a run that reads it then is trading on a
+    document that did not exist. Three months is the CVM's own filing
+    deadline for the DFP — the latest legal date rather than a guess at a
+    typical one.
     """
 
-    asset_id: int
+    start: date
+    end: date
+    strategy: str
+    contribution: Decimal
+    day_of_month: int
+    publication_lag_months: int
+    costs: CostModelResponse
+    policy: AllocationPolicyResponse
+
+
+class BacktestWindowResponse(BaseModel):
+    """The period asked for, the period run, and what shortened it.
+
+    They differ whenever an asset's total-return series starts later than
+    the requested start. `bounded_by` names that asset, because "why does
+    my ten-year backtest cover four years?" has to be answerable from the
+    result.
+    """
+
+    requested_start: date
+    requested_end: date
+    start: date
+    end: date
+    bounded_by: str | None
+
+
+class ExcludedAssetResponse(BaseModel):
+    """One asset the run could not replay, and why.
+
+    `NO_PRICES` — nothing stored, so it could only ever have produced
+    unfilled orders. `NO_TOTAL_RETURN_SERIES` — prices but no complete
+    adjustment, so its return cannot be measured at all (ADR-026).
+
+    Reported rather than silently dropped: the universe a backtest ran on
+    is part of what it measured, and rule 59 is about not reconstructing
+    the past from a set nobody can see.
+    """
+
     ticker: str
-    side: Side
-    amount: Decimal
+    reason: str
 
 
-@dataclass(frozen=True)
-class Fill:
-    """What actually happened to an order, and why, when it did not.
+class WealthPointResponse(BaseModel):
+    """One date on the money curve.
 
-    A backtest that silently drops an unfillable order reports a
-    strategy nobody ran. Every order ends as a fill with a `quantity` of
-    zero and a named `reason`, the same standard `AllocationPlan` holds
-    its skipped candidates to.
+    ⚠️ **`total` is not performance.** A curve that doubled because
+    R$ 1.000 arrived every month looks identical to one that doubled on
+    returns until `contributed` is read under it (ADR-019). The
+    time-weighted answer is `comparison`, which neutralises exactly this.
+
+    `holdings` is priced at the raw close — what the market printed — and
+    `cash` is what the strategy did not spend. They are separate because
+    a strategy holding a third of its money in cash is a fact about the
+    strategy, not a rounding detail.
     """
 
-    day: date
-    asset_id: int
-    ticker: str
-    side: Side
-    quantity: Decimal
-    price: Decimal
-    fees: Decimal
-    reason: str = ""
-
-
-@dataclass(frozen=True)
-class Decision:
-    """One contribution date: what the strategy saw and what it ordered.
-
-    Kept for the audit trail (rule 112). A backtest result that cannot
-    say *when* it decided what is not reproducible in any useful sense —
-    it is a number with a story attached.
-
-    `closes` is the price map the strategy was handed, and it is what
-    makes slippage a **measurement** rather than an assumed rate: the
-    order was decided against these prices and filled against the next
-    session's, so the difference is the cost of the gap between the two,
-    for this run, on these days. A fixed basis-point assumption would be
-    a number the backtest invented about itself.
-    """
-
-    day: date
-    cash_before: Decimal
-    orders: tuple[Order, ...]
-    fills: tuple[Fill, ...]
-    closes: Mapping[int, Decimal] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class SimulationState:
-    """Everything the strategy is allowed to know, on one date.
-
-    The whole no-look-ahead guarantee of the engine is the shape of this
-    object: it carries the day, the money, the positions as they stand
-    and the closes **of that session and no later**. A strategy cannot
-    read a future price because it is never handed one (rules 58/108).
-    """
-
-    day: date
+    date: date
+    holdings: Decimal
     cash: Decimal
-    positions: Mapping[int, AssetPosition]
-    closes: Mapping[int, Decimal]
+    total: Decimal
+    contributed: Decimal
 
 
-#: Decides what to buy, given only what was knowable on the day.
-Strategy = Callable[[SimulationState], list[Order]]
+class IndexPointResponse(BaseModel):
+    """One date on the time-weighted index, based at 100."""
+
+    date: date
+    value: Decimal
 
 
-@dataclass(frozen=True)
-class Simulation:
-    """The replay, as a ledger plus the cash the ledger cannot hold.
+class TradeStatisticsResponse(BaseModel):
+    """The execution side of the run (rules 63, 64 and 107).
 
-    `cash_by_date` exists because the transaction ledger models holdings
-    and contributions but has nowhere to put an idle balance — the
-    unallocated remainder of a contribution, or a dividend waiting for
-    the next one. Leaving it out would understate the portfolio by
-    exactly the money the strategy chose not to spend, which is a real
-    result and not an absence.
+    ⚠️ **`win_rate`, `average_win`, `average_loss`, `profit_factor` and
+    `expectancy` are `null` on every strategy this project ships**, and
+    that is the honest answer rather than a gap. All five are defined on
+    *closed* trades, and nothing here sells: an overweight position is
+    closed by dilution over later contributions (ADR-028). `closed_trades`
+    at zero is what says so — reporting `0%` would read as *every trade
+    lost*.
+
+    **`slippage` is measured, not assumed.** The engine decides against
+    one session's close and fills against the next one's, so the gap
+    between those two prices is what the delay cost, in this run, on
+    these days. Positive means it cost money. The two directions are
+    reported separately because a run that paid R$ 40 on some fills and
+    gained R$ 38 on others is not a run that barely moved.
+
+    `unfilled` counts the orders that ended as nothing, by the reason
+    that stopped them — `NO_PRICE`, `BELOW_ONE_SHARE`,
+    `INSUFFICIENT_CASH`, `NOTHING_HELD`. A backtest that silently drops
+    an order reports a strategy nobody ran.
     """
 
-    transactions: tuple[Transaction, ...]
-    adjustments: tuple[ShareAdjustment, ...]
-    cash_by_date: dict[date, Decimal] = field(default_factory=dict)
-    decisions: tuple[Decision, ...] = ()
-    contributed: Decimal = ZERO
-    fees_paid: Decimal = ZERO
-    dividends_received: Decimal = ZERO
+    trades: int
+    buys: int
+    sells: int
+    closed_trades: int
+    wins: int
+    losses: int
+    win_rate: Decimal | None
+    average_win: Decimal | None
+    average_loss: Decimal | None
+    profit_factor: Decimal | None
+    expectancy: Decimal | None
+    realized_result: Decimal
+    fees: Decimal
+    slippage: Decimal
+    slippage_paid: Decimal
+    slippage_earned: Decimal
+    dividends_received: Decimal
+    contributed: Decimal
+    unfilled: dict[str, int]
 
-    def cash_on(self, day: date) -> Decimal:
-        """The balance at the end of `day`, carried forward across quiet days."""
-        best = ZERO
-        for when, amount in sorted(self.cash_by_date.items()):
-            if when > day:
-                break
-            best = amount
-        return best
 
+class BacktestResponse(BaseModel):
+    """One replay, with everything needed to read it and to repeat it.
 
-def whole_shares(amount: Decimal, price: Decimal) -> Decimal:
-    """How many whole shares `amount` buys at `price`.
+    Two answers to two different questions, and neither substitutes for
+    the other:
 
-    Whole, because nobody buys 3.7 shares: B3's fractional market trades
-    in single shares and not in slices of one. The remainder is not lost
-    — it stays as cash and reaches the next contribution — but pretending
-    it bought a fraction would make every minimum-ticket rule in the
-    allocator meaningless and flatter small portfolios in particular.
+    - `comparison` is the **time-weighted** index against a benchmark.
+      Contributions are neutralised, so this is the figure that answers
+      "did the strategy beat the CDI".
+    - `wealth` is the **money**: what went in, what it became, and the
+      cash between them.
+
+    `alpha` is the return left after the market exposure is paid for —
+    not the same as `comparison.excess_return`, which is a plain
+    difference. A positive excess with a negative alpha means the
+    strategy rose because the market did, and by less than its own beta
+    entitled it to.
+
+    ⚠️ The index assumes each payout was reinvested on the day it went
+    ex, because that is what an adjusted close means; the simulation
+    reinvests at the next contribution and holds cash until then. The
+    drag is visible in `wealth` and not in `comparison`.
     """
-    if price <= ZERO:
-        return ZERO
-    return (amount / price).quantize(Decimal(1), rounding=ROUND_DOWN)
+
+    settings: BacktestSettingsResponse
+    window: BacktestWindowResponse
+    universe: list[str]
+    excluded: list[ExcludedAssetResponse]
+    comparison: BenchmarkComparisonResponse | None
+    alpha: Decimal | None
+    index: list[IndexPointResponse]
+    wealth: list[WealthPointResponse]
+    trades: TradeStatisticsResponse
+    sources: list[str]

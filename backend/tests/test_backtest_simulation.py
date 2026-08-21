@@ -10,20 +10,18 @@ from datetime import date
 from decimal import Decimal
 
 from app.data.models.portfolio import TransactionTypeEnum
-from app.domain.backtesting.schemas import (
-    CostModel,
-    Order,
-    Side,
-    SimulationState,
-    whole_shares,
-)
 from app.domain.backtesting.simulation import (
     BELOW_ONE_SHARE,
     NO_PRICE,
     CashAction,
     ContributionSchedule,
+    CostModel,
+    Order,
+    Side,
+    SimulationState,
     contribution_sessions,
     simulate,
+    whole_shares,
 )
 from app.domain.portfolio.service import ShareAdjustment, compute_positions
 

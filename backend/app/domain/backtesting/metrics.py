@@ -63,7 +63,7 @@ from datetime import date
 from decimal import Decimal
 
 from app.data.models.portfolio import Transaction, TransactionTypeEnum
-from app.domain.backtesting.schemas import ZERO, Decision, Fill, Side, Simulation
+from app.domain.backtesting.simulation import ZERO, Decision, Fill, Side, Simulation
 from app.domain.portfolio.service import ShareAdjustment, compute_positions
 
 

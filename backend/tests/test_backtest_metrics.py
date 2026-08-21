@@ -10,18 +10,16 @@ from decimal import Decimal
 
 from app.data.models.portfolio import Transaction, TransactionTypeEnum
 from app.domain.backtesting.metrics import closed_trades, trade_statistics
-from app.domain.backtesting.schemas import (
+from app.domain.backtesting.simulation import (
+    INSUFFICIENT_CASH,
+    NO_PRICE,
+    ContributionSchedule,
     CostModel,
     Decision,
     Fill,
     Order,
     Side,
     Simulation,
-)
-from app.domain.backtesting.simulation import (
-    INSUFFICIENT_CASH,
-    NO_PRICE,
-    ContributionSchedule,
     simulate,
 )
 from app.domain.portfolio.service import ShareAdjustment
