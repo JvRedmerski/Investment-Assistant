@@ -28,7 +28,7 @@ The benchmark and the risk-free rate are loaded once per decision with
 the same `as_of`, exactly as `score_universe` does for the live path.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from decimal import Decimal
 
@@ -47,7 +47,12 @@ from app.domain.recommendations.allocation import (
     Candidate,
     allocate_contribution,
 )
+from app.domain.recommendations.rebalancing import (
+    RebalancePlan,
+    rebalance_contribution,
+)
 from app.domain.recommendations.service import PortfolioExposure, score_asset
+from app.domain.recommendations.targets import compute_targets
 
 ZERO = Decimal(0)
 
@@ -85,26 +90,27 @@ def exposure_from_positions(
     )
 
 
-def plan_on(
+def candidates_on(
     db: Session,
     assets: Sequence[Asset],
     state: SimulationState,
     *,
-    contribution: Decimal,
     start: date | None = None,
-    policy: AllocationPolicy = DEFAULT_POLICY,
     publication_lag_months: int = PUBLICATION_LAG_MONTHS,
-) -> AllocationPlan:
-    """What the allocator would have decided on `state.day`.
+) -> tuple[list[Candidate], PortfolioExposure]:
+    """Every asset scored as of `state.day`, and the exposure they were
+    scored against.
 
-    Everything it reads is cut at that date. Nothing is stored: a plan
-    is derived here exactly as it is in production (rule 16).
+    Everything read is cut at that date. Both are returned because both
+    plans below need the exposure as well as the scores: the allocator's
+    ceilings and the drift table's denominator are the same cost basis,
+    and computing it twice would be a chance for them to disagree.
 
-    `assets` is both the universe offered and the source of the sector
-    of everything held, which is sound because the simulation can only
-    ever hold what this same list offered it. A held asset absent from
-    it would have no sector here, and a sector ceiling that cannot see
-    part of its own sector is not a ceiling.
+    `assets` is both the universe offered and the source of the sector of
+    everything held, which is sound because the simulation can only ever
+    hold what this same list offered it. A held asset absent from it
+    would have no sector here, and a sector ceiling that cannot see part
+    of its own sector is not a ceiling.
     """
     sectors = {asset.id: asset.sector for asset in assets}
     exposure = exposure_from_positions(state.positions, sectors)
@@ -132,10 +138,68 @@ def plan_on(
         )
         for asset in assets
     ]
+    return candidates, exposure
 
+
+def plan_on(
+    db: Session,
+    assets: Sequence[Asset],
+    state: SimulationState,
+    *,
+    contribution: Decimal,
+    start: date | None = None,
+    policy: AllocationPolicy = DEFAULT_POLICY,
+    publication_lag_months: int = PUBLICATION_LAG_MONTHS,
+) -> AllocationPlan:
+    """What the contribution plan would have decided on `state.day`.
+
+    Nothing is stored: a plan is derived here exactly as it is in
+    production (rule 16).
+    """
+    candidates, exposure = candidates_on(
+        db,
+        assets,
+        state,
+        start=start,
+        publication_lag_months=publication_lag_months,
+    )
     return allocate_contribution(
         candidates,
         invested=exposure.total_invested,
+        sector_amounts=exposure.amounts_by_sector(),
+        contribution=contribution,
+        policy=policy,
+    )
+
+
+def rebalance_plan_on(
+    db: Session,
+    assets: Sequence[Asset],
+    state: SimulationState,
+    *,
+    contribution: Decimal,
+    start: date | None = None,
+    policy: AllocationPolicy = DEFAULT_POLICY,
+    publication_lag_months: int = PUBLICATION_LAG_MONTHS,
+) -> RebalancePlan:
+    """What the rebalancing plan would have decided on `state.day`.
+
+    The other half of the roadmap's rebalancing bullet, and a genuinely
+    different answer from `plan_on`: one ranks by score to ask where new
+    money does the most good, the other ranks by gap to ask what is
+    furthest from where it should be. ADR-028 is what makes both
+    buy-side, so a backtest of either never sells.
+    """
+    candidates, exposure = candidates_on(
+        db,
+        assets,
+        state,
+        start=start,
+        publication_lag_months=publication_lag_months,
+    )
+    targets = compute_targets(candidates, exposure.total_invested, policy)
+    return rebalance_contribution(
+        targets,
         sector_amounts=exposure.amounts_by_sector(),
         contribution=contribution,
         policy=policy,
@@ -150,18 +214,67 @@ def contribution_strategy(
     policy: AllocationPolicy = DEFAULT_POLICY,
     publication_lag_months: int = PUBLICATION_LAG_MONTHS,
 ) -> Strategy:
-    """The project's contribution plan, as a strategy the engine can run.
+    """The project's contribution plan, as a strategy the engine can run."""
+    return _strategy_from(
+        plan_on,
+        db,
+        assets,
+        start=start,
+        policy=policy,
+        publication_lag_months=publication_lag_months,
+    )
 
-    The money offered to the allocator is **all the cash on hand**, not
-    the month's contribution: an unspent remainder and a dividend
-    received since are the same money, and holding them back would make
-    the backtest accumulate idle cash the real plan would have deployed.
+
+def rebalancing_strategy(
+    db: Session,
+    assets: Sequence[Asset],
+    *,
+    start: date | None = None,
+    policy: AllocationPolicy = DEFAULT_POLICY,
+    publication_lag_months: int = PUBLICATION_LAG_MONTHS,
+) -> Strategy:
+    """The project's rebalancing plan, as a strategy the engine can run.
+
+    Offered beside `contribution_strategy` so the two orders can be
+    measured against each other rather than argued about: same policy,
+    same universe, same dates, and the only difference is what the money
+    is ranked by.
+    """
+    return _strategy_from(
+        rebalance_plan_on,
+        db,
+        assets,
+        start=start,
+        policy=policy,
+        publication_lag_months=publication_lag_months,
+    )
+
+
+def _strategy_from(
+    planner: Callable[..., AllocationPlan | RebalancePlan],
+    db: Session,
+    assets: Sequence[Asset],
+    *,
+    start: date | None,
+    policy: AllocationPolicy,
+    publication_lag_months: int,
+) -> Strategy:
+    """Wrap a planner as a `Strategy`.
+
+    The money offered is **all the cash on hand**, not the month's
+    contribution: an unspent remainder and a dividend received since are
+    the same money, and holding them back would make the backtest
+    accumulate idle cash the real plan would have deployed.
+
+    Both plans hold `allocations` rows carrying a ticker, an asset and an
+    amount, so one adapter covers them — and every order is a BUY,
+    because neither plan sells (ADR-028).
     """
 
     def strategy(state: SimulationState) -> list[Order]:
         if state.cash <= ZERO:
             return []
-        plan = plan_on(
+        plan = planner(
             db,
             assets,
             state,
