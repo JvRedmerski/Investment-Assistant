@@ -6,7 +6,7 @@
 
 ## Last Completed Work
 
-### Wave 11 — Dashboard, 5/5 (`a96ba18`, `f44b930`, `3da3db1`, `5d9eae0`, e o commit da W11-005)
+### Wave 11 — Dashboard, 5/5 (`a96ba18`, `f44b930`, `3da3db1`, `5d9eae0`, `ccec948`)
 
 A wave que tirou o frontend do estado de scaffold. Duas tasks de backend vieram antes das telas,
 porque o roadmap §23 pede números que o backend **não produzia** e a regra 73 proíbe calcular no
