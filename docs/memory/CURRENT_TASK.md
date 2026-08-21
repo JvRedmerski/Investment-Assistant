@@ -2,83 +2,78 @@
 
 ## Task
 
-**W11-005 — Tela Ativo.** Última das cinco tasks da **Wave 11 — Dashboard** (roadmap §23):
-cotação, fundamentos, histórico e score de um ativo.
+**Wave 12 — AI Engine.** A camada que **explica** — e que por contrato **não calcula nada**
+(AGENTS.md §3 e §24, [ADR-009](../decisions/ADR-009-quant-deterministic-ai-explains.md)).
+Ver roadmap §24.
 
 ## Status
 
-🟡 **Em andamento.** Quatro das cinco tasks entregues. O Dashboard e a Carteira funcionam
-ponta a ponta contra o banco real.
+⚪ **Não começou.** A Wave 11 fechou em 2026-08-21 com as cinco tasks entregues, e não há código
+pela metade em lugar nenhum.
 
 ---
 
-## A wave em seis tasks
+## O que a Wave 11 entregou
 
-O roadmap §23 pede três telas — Dashboard, Carteira e Ativo. Duas tasks de backend vêm antes
-delas, porque pedem números que **o backend ainda não produz** e que a regra 73 proíbe calcular
-no frontend.
+| task | entrega |
+|---|---|
+| **W11-001** | Valor de mercado e P&L não realizado nas posições, com ausência **por linha** |
+| **W11-002** | `GET /portfolios/{id}/series` — patrimônio e índice time-weighted, alinhados a um benchmark |
+| **W11-003** | A **primeira aplicação real de frontend** do projeto, mais a tela de Carteira |
+| **W11-004** | A tela **Dashboard** |
+| **W11-005** | A tela de **Ativo** |
 
-| task | entrega | por quê |
-|---|---|---|
-| ✅ **W11-001** | Valor de mercado e P&L não realizado nas posições | "Patrimônio" é a manchete do dashboard e não existia: `/positions` era custo basis |
-| ✅ **W11-002** | A **série** de evolução da carteira sobre a API | o comparativo devolvia só métricas resumidas. **Expôs e corrigiu um erro de unidade** que deixava o índice negativo |
-| **W11-003** | Fundação do frontend: rotas, react-query, cliente tipado com envelope de erro e token, `zod`, layout, login e rota protegida | sem autenticação no cliente, nenhuma tela busca nada |
-| **W11-004** | Tela **Dashboard** | patrimônio, rentabilidade, CDI, IBOV, composição, risco, evolução, próximo aporte |
-| **W11-005** | Tela **Carteira** | posições, transações, performance |
-| **W11-006** | Tela **Ativo** | cotação, fundamentos, histórico, score |
+### As duas correções que a wave encontrou, e como
+
+Nenhuma das duas foi achada por teste. As duas apareceram **rodando o pipeline contra o banco
+real e olhando os números** — o passo que o `IMPLEMENTATION_GUIDE` exige de provedor externo, e
+que vale igual para lógica pura.
+
+**1. O índice time-weighted misturava moedas** (W11-002). As posições eram valorizadas em
+`adjusted_close` e os fluxos entravam em preço **negociado**. Para papel que pagou anos de
+provento o ajustado é uma fração do negociado, então cada compra subtraía ~3× o valor que havia
+adicionado. Deu **-3,88** contra seis anos reais de PETR4 — valor de cota não pode ser negativo.
+
+**2. O comparativo media duas janelas diferentes** (W11-004). Carteira de 4,7 anos contra CDI
+armazenado desde agosto de 2025, e a subtração entre os dois reportada como "excesso":
+**+251,5 p.p.** contra os **+7,1 p.p.** reais.
+
+**As duas eram invisíveis para a suíte, e não podiam não ser**: todo fixture de performance
+precificava o ativo exatamente ao preço negociado (o único caso em que as moedas coincidem), e o
+comparativo sempre recebia séries do mesmo tamanho. **Os testes compartilhavam a premissa
+errada** — a mesma lição da W10-003.
 
 ---
 
-## W11-001 — as decisões que a task tem que tomar
+## O que a W12 tem que respeitar, e é o ponto inteiro dela
 
-### Qual preço vale uma posição
-
-**`close`, nunca `adjusted_close`.** O próprio `market_data/series.py` já diz por quê: `close` é
-o que o mercado imprimiu e é o insumo certo para qualquer pergunta *pontual*; `adjusted_close` é
-preço de retorno total e só vale para série de retorno. Valorizar posição com preço ajustado
-reportaria um valor inventado para qualquer data que não a última.
-
-### O que fazer quando falta preço — e aqui há dois precedentes que se contradizem
-
-- `performance_index._value_on` devolve `None` para o **dia inteiro** se *um* ativo não tem preço:
-  série time-weighted com constituintes diferentes em duas datas não é uma série mais curta, é
-  outra carteira.
-- `recommendations/service.py` escolheu **custo basis** justamente para não deixar o pilar inteiro
-  ausente quando um ativo não tem preço.
-
-Os dois estão certos nos seus contextos, e nenhum dos dois serve aqui. Uma tabela de posições
-pede **ausência por linha**: a linha sem preço aparece com `market_value: null`, e o total diz o
-que cobre. Nome do campo faz o trabalho — `valued_market_value`, e não `total_market_value` —,
-mais `unvalued_positions` e `unvalued_invested` para dimensionar o buraco.
-
-### Defasagem é rótulo, não nota de rodapé (regras 103/104)
-
-Cada linha carrega `price_date`; o total carrega a data mais **antiga** e a mais **nova** entre os
-preços usados. Um patrimônio que mistura preço de hoje com preço de três meses atrás precisa
-dizer isso.
+- **A IA não calcula nunca.** Ela recebe números já computados e os traduz. Regra 3, regra 24,
+  [ADR-009](../decisions/ADR-009-quant-deterministic-ai-explains.md).
+- **A IA não decide.** Nada do que ela devolve entra em score, alvo, plano ou ordenação.
+- **Determinismo (regra 113) não se aplica ao texto, mas a explicação tem que ser auditável**:
+  o número explicado precisa ser rastreável ao endpoint que o produziu.
+- Interface abstrata em `app/integrations/ai/`, com `GeminiProvider` e `OllamaProvider` —
+  o mesmo desenho de `MarketDataProvider` e `FundamentalsProvider`.
+- `google-generativeai` está no `pyproject.toml` e **nunca foi importado**. Antes de escrever
+  parser ou mock, fazer **uma chamada real** e olhar a resposta — a lição cara da W06-003, que a
+  W11-005 acabou de repetir em miniatura (o mapa de rótulos de evento estava inventado).
 
 ## O que já está pronto — não reimplemente
 
-- `compute_positions` (`app/domain/portfolio/service.py`) — posições consolidadas, puro.
-- `performance_index` (`app/domain/portfolio/performance.py`) — índice time-weighted; `_value_on`
-  já é a aritmética de valorizar um dia, mas com política de ausência diferente e de propósito.
-- `app/domain/market_data/series.py` — o ponto único que separa `close` de `adjusted_close`.
-- `GET /portfolios/{id}/positions` em `app/api/routes/portfolios.py`, com o helper de posse.
-
-## Divergências entre documentação e código encontradas na abertura da wave
-
-O código é a fonte de verdade (CLAUDE.md §3); as duas serão corrigidas na wave:
-
-1. `docs/architecture/FRONTEND.md` diz que `npm run lint` está quebrado. **Não está** — a FIX-001
-   (2026-08-19) instalou ESLint 10 e o `eslint.config.js` existe. `npm run lint` e `npm run build`
-   passam limpos.
-2. O docstring de `get_portfolio_positions` diz que valor de mercado depende da "Wave 05, not yet
-   implemented". A W05 está concluída desde então.
+Todo o backend das waves 00–11 e as quatro telas. Os endpoints que a W12 vai explicar:
+`/positions`, `/series`, `/benchmarks/{code}`, `/scores`, `/contribution-plan`, `/rebalance` e
+`/rebalance-plan`. Contrato completo em [../architecture/API.md](../architecture/API.md);
+frontend em [../architecture/FRONTEND.md](../architecture/FRONTEND.md).
 
 ## Estado do ambiente (verificado 2026-08-21)
 
-- ✅ `pytest -q` → **815 passed**. `ruff check .` e `black --check .` limpos.
-- ✅ Frontend: `npm run build` e `npm run lint` passam. Baseline: 1.484 módulos, 154 kB.
-- ✅ Docker no ar, schema **`012_corporate_actions`** (head).
-- Banco real: carteira `Local` (id 1) **sem transação**; PETR4 com setor e fundamentos, os outros
-  três sem. Preço: 1.495 pregões para os quatro papéis.
+- ✅ `pytest -q` → **859 passed**. `ruff check .` e `black --check .` limpos.
+- ✅ Frontend: `npm run build` e `npm run lint` limpos. Bundle 710 kB (203 kB gzip) — o aviso de
+  chunk do Vite fica de pé de propósito (regra 75); dividir é trabalho da W22.
+- ✅ Docker no ar, schema **`012_corporate_actions`**. **As waves 10 e 11 não criaram migration**:
+  nada nelas é gravado.
+- Banco real: carteira `Local` (id 1) sem transação; PETR4 com setor e fundamentos, os outros três
+  sem. 1.495 pregões para os quatro papéis.
+- Rodar a app: `docker compose up -d postgres`, depois
+  `cd backend && .venv/Scripts/python.exe -m uvicorn app.main:app --port 8000` e
+  `cd frontend && npm run dev`.

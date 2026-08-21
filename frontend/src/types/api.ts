@@ -301,6 +301,66 @@ export const rebalancePlanSchema = z.object({
   ),
 });
 
+/**
+ * Indicators arrive as JSON **numbers**, not strings.
+ *
+ * They are stored as `float` on the backend (ADR-003 keeps `Decimal` for
+ * money, and a ratio is not money), so the schema says `number`. Nothing
+ * here does arithmetic on them either — they are formatted and shown.
+ */
+const ratio = z.number();
+
+export const assetPriceSchema = z.object({
+  id: z.number(),
+  asset_id: z.number(),
+  date: z.string(),
+  open: money,
+  high: money,
+  low: money,
+  close: money,
+  adjusted_close: money.nullable(),
+  volume: money,
+  source: z.string(),
+});
+
+export const assetPriceListSchema = z.array(assetPriceSchema);
+
+export const indicatorSchema = z.object({
+  id: z.number(),
+  asset_id: z.number(),
+  reference_date: z.string(),
+  pe: ratio.nullable(),
+  pb: ratio.nullable(),
+  roe: ratio.nullable(),
+  roic: ratio.nullable(),
+  dy: ratio.nullable(),
+  debt_ebitda: ratio.nullable(),
+  net_margin: ratio.nullable(),
+  ebitda_margin: ratio.nullable(),
+  revenue_growth: ratio.nullable(),
+  profit_growth: ratio.nullable(),
+});
+
+export const indicatorListSchema = z.array(indicatorSchema);
+
+export const corporateActionSchema = z.object({
+  id: z.number(),
+  asset_id: z.number(),
+  ex_date: z.string(),
+  last_date_prior: z.string(),
+  kind: z.string(),
+  cash_amount: money.nullable(),
+  share_ratio: money.nullable(),
+  label: z.string(),
+  source: z.string(),
+});
+
+export const corporateActionListSchema = z.array(corporateActionSchema);
+
+export type AssetPrice = z.infer<typeof assetPriceSchema>;
+export type Indicator = z.infer<typeof indicatorSchema>;
+export type CorporateAction = z.infer<typeof corporateActionSchema>;
+
 export type Token = z.infer<typeof tokenSchema>;
 export type User = z.infer<typeof userSchema>;
 export type Portfolio = z.infer<typeof portfolioSchema>;

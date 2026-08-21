@@ -220,3 +220,47 @@ export function CompositionBars({
     </ul>
   );
 }
+
+
+/**
+ * One asset's close over time.
+ *
+ * The **unadjusted** close, and the caption says so. The adjusted series
+ * is a total-return price and would show a 2020 position at a fraction
+ * of what the shares changed hands for — right for measuring return,
+ * wrong for a chart labelled "preço".
+ */
+export function PriceChart({
+  points,
+}: {
+  points: { date: string; close: string }[];
+}) {
+  const data = points.map((point) => ({
+    date: point.date,
+    fechamento: Number(point.close),
+  }));
+
+  return (
+    <ResponsiveContainer width="100%" height={220}>
+      <LineChart data={data} margin={{ top: 5, right: 5, bottom: 0, left: 0 }}>
+        <CartesianGrid stroke="#1e293b" vertical={false} />
+        <XAxis dataKey="date" tickFormatter={tickDate} {...AXIS} minTickGap={50} />
+        <YAxis {...AXIS} width={55} domain={['auto', 'auto']} />
+        <Tooltip
+          contentStyle={TOOLTIP_STYLE}
+          labelFormatter={(label: string) => shortDate(label)}
+          formatter={(value: number) => [money(String(value)), 'Fechamento']}
+        />
+        <Line
+          type="linear"
+          dataKey="fechamento"
+          stroke="#38bdf8"
+          strokeWidth={1.5}
+          dot={false}
+          connectNulls={false}
+          name="Fechamento"
+        />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}

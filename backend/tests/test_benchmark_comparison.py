@@ -225,8 +225,8 @@ def test_both_sides_are_measured_over_the_window_they_share():
     """
     subject = _series("100", "120", "150", "200")
     benchmark = [
-        PricePoint(date=subject[2].date, adjusted_close=Decimal("100")),
-        PricePoint(date=subject[3].date, adjusted_close=Decimal("110")),
+        PricePoint(date=subject[2].date, adjusted_close=Decimal(100)),
+        PricePoint(date=subject[3].date, adjusted_close=Decimal(110)),
     ]
 
     result = compare(subject, benchmark, IBOVESPA)

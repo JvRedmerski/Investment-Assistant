@@ -19,6 +19,9 @@ import { useQuery, type UseQueryOptions } from '@tanstack/react-query';
 import { ApiError, request } from '@/lib/api';
 import {
   assetListSchema,
+  assetPriceListSchema,
+  corporateActionListSchema,
+  indicatorListSchema,
   benchmarkComparisonSchema,
   contributionPlanSchema,
   portfolioListSchema,
@@ -29,7 +32,10 @@ import {
   scoresSchema,
   transactionListSchema,
   type Asset,
+  type AssetPrice,
   type BenchmarkComparison,
+  type CorporateAction,
+  type Indicator,
   type ContributionPlan,
   type Portfolio,
   type PortfolioSeries,
@@ -168,6 +174,48 @@ export function useRebalancePlan(
     queryFn: () =>
       request(`/portfolios/${portfolioId}/rebalance-plan`, rebalancePlanSchema),
     enabled: portfolioId !== undefined,
+    ...options,
+  });
+}
+
+
+export function useAssetPrices(
+  ticker: string | undefined,
+  start?: string,
+  options?: Options<AssetPrice[]>,
+) {
+  return useQuery({
+    queryKey: ['asset', ticker, 'prices', start ?? null],
+    queryFn: () =>
+      request(`/assets/${ticker}/prices`, assetPriceListSchema, {
+        params: { start },
+      }),
+    enabled: ticker !== undefined,
+    ...options,
+  });
+}
+
+export function useIndicators(
+  ticker: string | undefined,
+  options?: Options<Indicator[]>,
+) {
+  return useQuery({
+    queryKey: ['asset', ticker, 'indicators'],
+    queryFn: () => request(`/assets/${ticker}/indicators`, indicatorListSchema),
+    enabled: ticker !== undefined,
+    ...options,
+  });
+}
+
+export function useCorporateActions(
+  ticker: string | undefined,
+  options?: Options<CorporateAction[]>,
+) {
+  return useQuery({
+    queryKey: ['asset', ticker, 'corporate-actions'],
+    queryFn: () =>
+      request(`/assets/${ticker}/corporate-actions`, corporateActionListSchema),
+    enabled: ticker !== undefined,
     ...options,
   });
 }

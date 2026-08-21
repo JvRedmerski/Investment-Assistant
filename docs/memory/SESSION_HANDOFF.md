@@ -6,121 +6,127 @@
 
 ## Last Completed Work
 
-### Wave 10 — Rebalanceamento, 3/3 (`461eca7`, `fd2b56e`, `260b88d`)
+### Wave 11 — Dashboard, 5/5 (`a96ba18`, `f44b930`, `3da3db1`, `5d9eae0`, e o commit da W11-005)
 
-De volta à ordem do roadmap depois de duas waves inseridas fora dela. A wave inteira era uma
-pergunta que nem o roadmap §22 nem a regra 34 respondem: **de onde vem o `target_weight`**. Peso
-atual é ledger, gap é subtração; o alvo era tudo.
+A wave que tirou o frontend do estado de scaffold. Duas tasks de backend vieram antes das telas,
+porque o roadmap §23 pede números que o backend **não produzia** e a regra 73 proíbe calcular no
+cliente.
 
-### W10-001 — o alvo sai do mérito ([ADR-027](../decisions/ADR-027-target-weight-comes-from-merit.md))
+| task | entrega |
+|---|---|
+| **W11-001** | Valor de mercado e P&L não realizado nas posições |
+| **W11-002** | `GET /portfolios/{id}/series` — patrimônio e índice time-weighted, alinhados a um benchmark |
+| **W11-003** | A **primeira aplicação real de frontend** do projeto, mais a tela de Carteira |
+| **W11-004** | A tela **Dashboard** |
+| **W11-005** | A tela de **Ativo** |
 
-**A resposta óbvia foi medida e reprovada antes de qualquer código.** Alvo proporcional ao
-`final_score` não converge, porque o score lê a carteira que o alvo deveria mirar:
+### As duas correções que a wave encontrou — e nenhuma foi por teste
 
-| peso detido de PETR4 | `final_score` | quality | valuation | growth | risk | diversification |
-|---|---|---|---|---|---|---|
-| 0% | **76,72** | 97,8 | 93,5 | 76,7 | 28,3 | 100,0 |
-| 20% | **65,47** | 97,8 | 93,5 | 76,7 | 28,3 | 25,0 |
+As duas apareceram **rodando o pipeline contra o banco real e olhando os números**. É o passo que
+o `IMPLEMENTATION_GUIDE` cobra de provedor externo, e vale igual para lógica pura.
 
-Nada mudou na empresa — os quatro pilares de mérito são constantes. Um alvo feito desse número
-**recua conforme a carteira se aproxima**, e o gap reportado não é distância até coisa alguma.
+**1. O índice time-weighted misturava moedas** (W11-002, corrigido em `performance.py`).
+Posições valorizadas em `adjusted_close`, fluxos entrando em preço **negociado**. Para papel que
+pagou anos de provento o ajustado é uma fração do negociado, então cada compra subtraía ~3× o
+valor que havia adicionado. Contra seis anos reais de PETR4 o índice deu **-3,88** — valor de
+cota não pode ser negativo.
 
-O alvo passou a sair do **mérito** (`scoring.merit`: Quality, Valuation, Growth, Risk
-renormalizados) e a concentração virou **teto** em vez de termo — os mesmos `max_asset_weight` e
-`max_sector_weight` da W09, lidos da mesma `AllocationPolicy`.
+Caso mínimo, mesmas operações e mesmo +10% de retorno: fator de ajuste 1 → `100 → 100 → 110`;
+fator 3 → `100 → -100 → -110`.
 
-**Um erro de ordem apareceu traçando o algoritmo à mão, não nos testes**: com o teto por ativo
-checado antes do setorial, três papéis de um setor congelam a 20% cada e põem o setor em **60%**,
-contra um limite de 40% nunca consultado.
+O conserto (`_external_share_flows`) expressa o fluxo em **ações**, valorizadas no mesmo
+`adjusted_close` das posições no dia em que é neutralizado. **Efeito colateral bom**: a
+aproximação que o módulo documentava como seu ponto fraco sumiu para o caso comum — comprar mais
+de algo já detido durante um vão de preço passou a ser exato, porque o preço desconhecido aparece
+nos dois sub-períodos e cancela.
 
-Medido no banco real: PETR4 com mérito **72,61** (contra `final_score` 76,72, inflado pela
-Diversificação de carteira vazia), alvo **0,20** aparado pelo teto, **0,80 `unassigned`**. ITUB4,
-que marca **92,47 com cobertura 0,40** — o maior número do universo, feito só dos dois pilares
-que nunca faltam —, **não recebe alvo**: sob a regra do mérito ela tem um pilar só.
+**2. O comparativo media duas janelas diferentes** (W11-004, corrigido em `comparison.py`).
+Carteira de 4,7 anos contra CDI armazenado desde agosto de 2025, e a subtração entre os dois
+reportada como "excesso":
 
-### W10-002 — a tabela de desvio sobre a API
-
-`portfolio_targets` + `GET /portfolios/{id}/rebalance`. A construção de candidatos virou
-`_candidates`, compartilhada com `plan_contribution`.
-
-**Um fato que só o teste ponta a ponta mostra**: sem demonstrativos *nenhum* ativo recebe alvo, e
-**baixar `min_coverage` não resolve** — o que falta não é o piso, é um segundo pilar de mérito.
-
-### W10-003 — o aporte que fecha os gaps ([ADR-028](../decisions/ADR-028-rebalancing-is-cash-flow-only.md))
-
-`rebalancing.py` + `plan_rebalance` + `GET /portfolios/{id}/rebalance-plan`. Ordena por **gap**
-(o plano de aporte ordena por score) e cada alocação para em `target * base - held`.
-
-**Nada vende.** Todos os itens que a regra 34 manda priorizar são de compra; venda realiza IR
-numa carteira cuja tese é capitalizar e paga corretagem nas duas pontas para mover dinheiro que o
-aporte seguinte move de graça. Ativo acima do alvo volta em `skipped` com `ABOVE_TARGET`.
-
-🔴 **O teste contra o banco real pegou uma falha de desenho que teste unitário nenhum pegaria** —
-porque os unitários tinham sido escritos sob a mesma premissa errada. O portão de elegibilidade
-lia o peso **antes** do aporte, enquanto o dimensionamento inteiro já rodava sobre
-`invested + contribution`:
-
-| | primeira versão | corrigida |
+| | antes | depois |
 |---|---|---|
-| PETR4 alocada | R$ 0 (`ABOVE_TARGET`) | **R$ 140** (`TARGET_WEIGHT`) |
-| distância a percorrer | 0 → **0,0636** | 0 → **0** |
+| excesso sobre o CDI | **+251,5 p.p.** | **+7,1 p.p.** |
+| retorno da carteira | 266,1% (4,7 anos) | 12,4% (a janela do CDI) |
+| volatilidade | 58,7% | 22,5% |
+| drawdown | -34,3% | -13,4% |
 
-PETR4 a 25% contra alvo de 20% era recusada por estar *acima*; com os R$ 1.000 parados em caixa a
-base virava R$ 2.200 e ela caía para **13,6%** — mais abaixo do alvo do que estava acima, **por
-ter sido recusada por estar acima dele**.
+`compare` passou a recortar as duas séries para a janela compartilhada usando o mesmo `align` que
+a W11-002 criou para o gráfico. Bônus: **o número do painel passou a bater com o gráfico ao
+lado** — índice 100 → 112,38 e retorno 12,4% são a mesma medida.
+
+**As duas eram invisíveis para a suíte, e não podiam não ser**: todo fixture de performance
+precificava o ativo exatamente ao preço negociado (o único caso em que as duas moedas coincidem),
+e o comparativo sempre recebia séries do mesmo tamanho. **Os testes compartilhavam a premissa
+errada** — a mesma lição da W10-003.
+
+### Um terceiro achado, menor mas do mesmo tipo
+
+O `.gitignore` tinha `lib/`, entrada do template Python que casa em qualquer profundidade, e
+estava **engolindo `frontend/src/lib/` inteiro** — o cliente de API não teria sido commitado.
+Pego antes do commit que o teria perdido. Ancorado em `backend/lib/`; negação não resolve, porque
+o git não desce em diretório excluído.
 
 ## Current State
 
-- `pytest` → **815 passed** (750 → 815), verificado em 2026-08-21. `ruff check` e `black --check`
-  limpos no repositório inteiro.
+- `pytest` → **859 passed** (832 → 859), verificado em 2026-08-21. `ruff check .` e
+  `black --check .` limpos.
+- Frontend: `npm run build` e `npm run lint` limpos. Bundle 710 kB (203 kB gzip) — o aviso de
+  chunk do Vite fica de pé de propósito (regra 75); dividir é trabalho da W22.
 - ✅ Commitado; árvore limpa.
-- 🔴 **Docker ligado** nesta sessão. Schema **`012_corporate_actions`**, e a Wave 10 **não criou
-  migration** — nada dela é gravado (regra 16, ADR-002).
-- **Wave 10 🟢 concluída**, 3/3. Nada iniciado da W11.
+- 🔴 **Docker ligado** nesta sessão. Schema **`012_corporate_actions`**, e **nem a W10 nem a W11
+  criaram migration** — nada nelas é gravado (regra 16, ADR-002).
+- **Wave 11 🟢 concluída**, 5/5. Nada iniciado da W12.
 
 ## Important Details
 
-### O engano fácil de cometer aqui
+### Os enganos fáceis de cometer aqui
 
-**A tabela de desvio e o plano podem discordar sobre o mesmo ativo, e os dois estão certos.**
-`/rebalance` mede a carteira de hoje; `/rebalance-plan` mede a carteira que o aporte cria. Um
-papel exatamente no alvo hoje **é comprado mesmo assim**, porque o aporte vai diluí-lo. As duas
-leituras vêm em cada linha do plano (`weight_gap` e `needed`), e o teste
-`test_a_position_on_target_today_is_still_bought_when_the_money_dilutes_it` fixa isso.
+**A tabela de desvio e o plano de rebalanceamento podem discordar sobre o mesmo ativo, e os dois
+estão certos** (W10). `/rebalance` mede a carteira de hoje; `/rebalance-plan` mede a carteira que
+o aporte cria.
 
-O outro: **`merit_score` não é `final_score`**, e a diferença é o ponto da wave inteira.
+**`/series` e `/benchmarks/{code}` reportam janelas que podem ser mais estreitas que a pedida**,
+porque as duas pontas são recortadas para a janela compartilhada. É de propósito, e as datas
+voltam na resposta.
+
+**O frontend nunca calcula.** `lib/format.ts` só move vírgula. Se aparecer `?? 0` num call site,
+é bug: `null` do backend significa *não computável*, nunca zero.
+
+### O que o frontend ainda não tem
+
+**Nenhum teste automatizado.** Os 14 schemas `zod` foram conferidos à mão contra um backend real
+e isso não se repete sozinho. Está em Future Work; pertence à W21, mas vale antes se crescer mais
+duas telas.
 
 ### Lições de método desta wave
 
-- **Medir a hipótese óbvia antes de codificá-la.** A tabela do `final_score` custou dez minutos e
-  matou o desenho inteiro que teria sido escrito por padrão.
-- **Traçar o algoritmo à mão pega o que o teste não pega**, porque o teste é escrito pela mesma
-  cabeça que escreveu o código. O erro de ordem dos tetos veio daí.
-- **Rodar contra o banco real e olhar os números** — o passo que o `IMPLEMENTATION_GUIDE` cobra
-  para provedor externo — vale igual para lógica pura. A falha de base do portão passou por 18
-  testes unitários verdes porque eles compartilhavam a premissa errada.
-- **Quando os testes falham depois de uma correção, conferir de que lado está o erro.** Três
-  falharam aqui e os três eram cenários escritos sob a premissa antiga, não regressões.
+- **Rodar contra o banco real e olhar os números** encontrou dois defeitos de waves anteriores que
+  27 testes verdes não encontraram. Não é cerimônia: é o único passo que não compartilha a
+  premissa do código.
+- **Quando a suíte quebra depois de uma correção, conferir de que lado está o erro.** Três testes
+  quebraram nesta wave e os três eram cenários escritos sob a premissa antiga.
+- **Mapa escrito por suposição erra.** O `ACTION_LABEL` da tela de Ativo inventava dois rótulos e
+  omitia dois que o banco tem aos montes — pego conferindo contra as respostas reais.
 
 ## Pending Work
 
-**Wave 11 — Dashboard**, a primeira wave com trabalho de frontend real. Ver
-[CURRENT_TASK.md](CURRENT_TASK.md), que lista o que a W11 vai esbarrar — a começar por **não
-existir valor de mercado em lugar nenhum**: tudo hoje é custo basis.
+**Wave 12 — AI Engine**. Ver [CURRENT_TASK.md](CURRENT_TASK.md), que lista o contrato que a wave
+tem que respeitar: a IA **não calcula** e **não decide** (regra 3, regra 24,
+[ADR-009](../decisions/ADR-009-quant-deterministic-ai-explains.md)).
 
 ## Next Step
 
-Ler [CURRENT_TASK.md](CURRENT_TASK.md) e [../planning/ROADMAP.md](../planning/ROADMAP.md) para a
-W11, e [../architecture/FRONTEND.md](../architecture/FRONTEND.md) antes de tocar em React.
+Ler [CURRENT_TASK.md](CURRENT_TASK.md) e o roadmap §24. Antes de escrever parser ou mock do
+provedor de IA, fazer **uma chamada real** e olhar a resposta — a lição cara da W06-003.
 
 ## Relevant Files
 
-- `backend/app/domain/recommendations/targets.py` — o modelo de alvo e a regra de *water-filling*
-- `backend/app/domain/recommendations/rebalancing.py` — o plano, e a base pós-aporte
-- `backend/app/domain/recommendations/scoring.py` — `merit` / `Merit` / `MERIT_PILLARS`
-- `backend/app/domain/recommendations/allocation.py` — a política compartilhada e os helpers
-  públicos (`floor_to_centavo`, `percent`, `round_score`)
-- `backend/app/domain/recommendations/service.py` — `portfolio_targets`, `plan_rebalance`
-- `backend/tests/test_target_weights.py`, `test_rebalance_plan.py`, `test_rebalance_routes.py`
-- `docs/decisions/ADR-027-target-weight-comes-from-merit.md`,
-  `docs/decisions/ADR-028-rebalancing-is-cash-flow-only.md`
+- `backend/app/domain/portfolio/valuation.py` — valor de mercado, ausência por linha
+- `backend/app/domain/portfolio/performance.py` — as duas séries, e a regra de unidade do fluxo
+- `backend/app/domain/benchmarks/comparison.py` — `align`, e a janela compartilhada
+- `backend/app/domain/benchmarks/service.py` — `portfolio_series`
+- `frontend/src/lib/api.ts` — a única porta para o backend, com validação `zod`
+- `frontend/src/types/api.ts` — o contrato inteiro como schemas
+- `frontend/src/pages/` — Login · Dashboard · Carteira · Ativos · Ativo
+- `docs/architecture/FRONTEND.md` — a arquitetura do cliente e as regras que ele cumpre

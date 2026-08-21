@@ -427,6 +427,108 @@ sido recusada por estar acima dele.
 
 ---
 
+## Wave 11 — Dashboard (2026-08-21) 🟢
+
+A wave que tirou o frontend do estado de scaffold. **Duas tasks de backend vieram antes das
+telas**, porque o roadmap §23 pede números que o backend não produzia — "patrimônio"
+(`quantity × preço`) e a **série** de evolução — e a regra 73 proíbe calcular isso no cliente.
+
+### W11-001 — valor de mercado, com ausência por linha
+
+`quantity × close`, **nunca** `adjusted_close`: ajuste é retroativo, e uma posição de 2020
+valorizada ao preço ajustado vale uma fração do que as ações renderiam.
+
+A política de ausência é a **terceira** do projeto, e de propósito. `performance_index` apaga o
+**dia inteiro** se um ativo não tem preço (série time-weighted com constituintes diferentes é
+outra carteira); `recommendations/service.py` usa **custo basis** para não deixar o pilar ausente.
+Uma tabela de posições lê linha a linha, então só a **linha** fica ausente — e o nome do campo é o
+que impede a leitura errada: `valued_market_value`, com `unvalued_positions` e `unvalued_invested`
+dimensionando o buraco.
+
+Dois achados na verificação real: o `as_of` filtrava os preços mas **não o ledger** (corrigido), e
+o ledger **não conhece evento societário**, então posição carregada através de desdobramento tem
+quantidade errada — lacuna pré-existente que só o valor de mercado tornou visível, registrada em
+Future Work.
+
+### W11-002 — a série de evolução, e o índice que ela consertou
+
+`GET /portfolios/{id}/series` devolve **duas** curvas: `wealth` (patrimônio em BRL, com a linha
+`invested` ao lado) e `index` (time-weighted). `align` recorta as duas séries para a janela
+**compartilhada** com o benchmark e rebaseia ambas ali; nada é interpolado.
+
+🔴 **Rodando contra seis anos reais de PETR4, o índice deu -3,88.** Valor de cota não pode ser
+negativo. Causa: **erro de unidade** — posições valorizadas em `adjusted_close`, fluxos entrando
+em preço **negociado**. Caso mínimo, mesmas operações e mesmo +10% de retorno:
+
+| fator de ajuste | níveis |
+|---|---|
+| 1 (o único caso que a suíte exercitava) | 100 → 100 → 110 ✅ |
+| 3 | 100 → **-100** → **-110** 🔴 |
+
+`_external_share_flows` expressa o fluxo em **ações**, valorizadas no mesmo `adjusted_close` das
+posições. **Efeito colateral bom**: a aproximação que o módulo documentava como seu ponto fraco
+sumiu para o caso comum — comprar mais de algo já detido durante um vão de preço passou a ser
+**exato**, porque o preço desconhecido aparece nos dois sub-períodos e cancela.
+
+Depois da correção: aportes ao longo de 2020 em PETR4 dão **100 → 358,23** em seis anos,
+consistente com o fator de retorno total de 3,43× medido na EVENTS-003.
+
+### W11-003 — a primeira aplicação real de frontend
+
+`src/lib/api.ts` é a **única** porta para o backend: base URL, bearer token, desembrulho do
+envelope de erro num `ApiError` **com o código**, e **validação `zod` de toda resposta**. Cast é
+promessa que o compilador acredita e ninguém confere. `ContractError` é distinto de `ApiError` de
+propósito.
+
+Dinheiro continua `string` até a formatação — o backend serializa `Decimal` como string para não
+passar por float binário, e converter no cliente desfaria isso no único salto em que estava
+protegido.
+
+Tela de **Carteira** entregue como prova da corrente inteira. 🔴 O `.gitignore` estava
+**engolindo o cliente de API**: `lib/`, do template Python, casa em qualquer profundidade.
+Ancorado em `backend/lib/`.
+
+### W11-004 — o Dashboard, e o comparativo que ele consertou
+
+Responde: quanto eu tenho, estou batendo o CDI, quanto risco carrego, do que é feita a carteira,
+onde vai o próximo R$ 1.000. Gráficos sob a regra 74: nada interpolado, duas linhas só dividem
+eixo se dividem unidade, e todo gráfico carrega legenda com as seis coisas que a regra nomeia.
+
+🔴 **O painel de excesso sobre o CDI mostrou +251,5 p.p.** `compare` media o sujeito na janela
+dele e o benchmark na dele, e subtraía: 4,7 anos de ação contra quatro meses de juros.
+
+| | antes | depois |
+|---|---|---|
+| excesso sobre o CDI | **+251,5 p.p.** | **+7,1 p.p.** |
+| retorno da carteira | 266,1% | 12,4% |
+| volatilidade | 58,7% | 22,5% |
+| drawdown | -34,3% | -13,4% |
+
+E o número do painel passou a **bater com o gráfico ao lado**.
+
+### W11-005 — a tela de Ativo
+
+Cotação, histórico, indicadores, eventos societários e o **score decomposto**, mais o peso atual e
+o peso-alvo na carteira selecionada. **A cobertura vem antes do score, não numa nota de rodapé**:
+o banco real tem ITUB4 em 92,5 com cobertura 0,40, e mostrar 92,5 grande reproduziria a armadilha
+que o backend gastou uma wave desarmando. Pilar ausente é desenhado como ausente.
+
+O mapa de rótulos de evento estava **escrito por suposição** e errado — pego conferindo contra as
+respostas reais dos quatro papéis.
+
+### Balanço
+
+- `pytest` **832 → 859**. Nenhuma migration: nada da wave é gravado (regra 16).
+- **Duas correções de waves anteriores**, ambas encontradas rodando contra o banco real, ambas
+  invisíveis para a suíte porque **os testes compartilhavam a premissa errada** — a mesma lição
+  da W10-003.
+- Nenhum ADR novo: as duas correções são consertos de unidade e de janela, não decisões entre
+  alternativas.
+- ⚠️ O frontend segue **sem teste automatizado**; os 14 schemas foram conferidos à mão contra um
+  backend real. Em Future Work.
+
+---
+
 ## Marcos de infraestrutura de conhecimento
 
 - **2026-08-17** — Sistema de memória persistente criado: `CLAUDE.md` na raiz + `docs/{memory,architecture,decisions,planning,history}/`, com 11 ADRs extraídos do código e do histórico de decisões.

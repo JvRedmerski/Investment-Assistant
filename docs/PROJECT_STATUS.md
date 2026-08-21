@@ -11,7 +11,7 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 
 ## Current Phase
 - **Phase**: wave **EVENTS** (eventos societários e proventos) em andamento — segunda wave **inserida fora da ordem do roadmap**, entre a W09 e a W10
-- **Status**: 🟡 **WAVE 11 IN_PROGRESS** (2026-08-21) — 3 de 5 tasks: W11-001 (valor de mercado), W11-002 (série de evolução, **corrigindo um erro de unidade que deixava o índice time-weighted negativo**) W11-003 (**a primeira aplicação real de frontend do projeto**) e W11-004 (**o Dashboard**, que expôs e corrigiu um comparativo que media duas janelas diferentes). Antes dela: 🟢 **WAVE 10 COMPLETED** (2026-08-21) — **3 de 3 tasks**: W10-001 (peso-alvo derivado do **mérito** e não do `final_score`, [ADR-027](decisions/ADR-027-target-weight-comes-from-merit.md)), W10-002 (tabela de desvio sobre a API) e W10-003 (o aporte que fecha os gaps, sem vender, [ADR-028](decisions/ADR-028-rebalancing-is-cash-flow-only.md)). Antes dela: 🟢 EVENTS COMPLETED (2026-08-20) — **3 de 3 tasks**: EVENTS-001 (distribuições por exercício, da DMPL da CVM — fechou o `dy`), EVENTS-002 (data e natureza do evento societário, pelo arquivo de fim de dia da B3) e EVENTS-003 (a **magnitude**, pelo serviço aberto de eventos da B3, e o `adjusted_close` derivado dela — **destravou o pilar de Risco**). A wave **PRICE** (3 tasks) fechou antes, em 2026-08-19. A **Wave 11 — Dashboard** está em curso, e é a primeira com trabalho de frontend real
+- **Status**: 🟢 **WAVE 11 COMPLETED** (2026-08-21) — **5 de 5 tasks**: W11-001 (valor de mercado), W11-002 (série de evolução, **corrigindo um erro de unidade que deixava o índice time-weighted negativo**), W11-003 (**a primeira aplicação real de frontend do projeto**), W11-004 (**o Dashboard**, que expôs e corrigiu um comparativo que media duas janelas diferentes) e W11-005 (tela de Ativo). Antes dela: 🟢 **WAVE 10 COMPLETED** (2026-08-21). - **Status**: 🟡 **WAVE 11 IN_PROGRESS** (2026-08-21) — 3 de 5 tasks: W11-001 (valor de mercado), W11-002 (série de evolução, **corrigindo um erro de unidade que deixava o índice time-weighted negativo**) W11-003 (**a primeira aplicação real de frontend do projeto**) e W11-004 (**o Dashboard**, que expôs e corrigiu um comparativo que media duas janelas diferentes). Antes dela: 🟢 **WAVE 10 COMPLETED** (2026-08-21) — **3 de 3 tasks**: W10-001 (peso-alvo derivado do **mérito** e não do `final_score`, [ADR-027](decisions/ADR-027-target-weight-comes-from-merit.md)), W10-002 (tabela de desvio sobre a API) e W10-003 (o aporte que fecha os gaps, sem vender, [ADR-028](decisions/ADR-028-rebalancing-is-cash-flow-only.md)). Antes dela: 🟢 EVENTS COMPLETED (2026-08-20) — **3 de 3 tasks**: EVENTS-001 (distribuições por exercício, da DMPL da CVM — fechou o `dy`), EVENTS-002 (data e natureza do evento societário, pelo arquivo de fim de dia da B3) e EVENTS-003 (a **magnitude**, pelo serviço aberto de eventos da B3, e o `adjusted_close` derivado dela — **destravou o pilar de Risco**). A wave **PRICE** (3 tasks) fechou antes, em 2026-08-19. Próxima: **Wave 12 — AI Engine**, a primeira que explica em linguagem natural o que os motores calculam
 
 ---
 
@@ -417,13 +417,13 @@ Detalhes W10-003 (2026-08-21):
 ---
 
 ### Wave 11 — Dashboard & Main Interface
-Status: 🟡 IN_PROGRESS (4 de 5 tasks)
+Status: 🟢 COMPLETED (2026-08-21) — 5 de 5 tasks
 
 - [x] **W11-001**: Valor de mercado e P&L não realizado nas posições 🟢 COMPLETED
 - [x] **W11-002**: A série de evolução da carteira sobre a API — e a correção de unidade que ela expôs no índice time-weighted 🟢 COMPLETED
 - [x] **W11-003**: Fundação do frontend + tela **Carteira** 🟢 COMPLETED
 - [x] **W11-004**: Tela **Dashboard** — e a correção de janela que ela expôs no comparativo 🟢 COMPLETED
-- [ ] **W11-005**: Tela Ativo ⚪ NOT_STARTED
+- [x] **W11-005**: Tela **Ativo** — cotação, fundamentos, histórico, eventos e score decomposto 🟢 COMPLETED
 
 > **Renumerada de 6 para 5 tasks.** A fundação sozinha não é demonstrável — não há tela para
 > provar que a corrente inteira (auth → query → schema → render) funciona. A W11-003 passou a
@@ -583,6 +583,33 @@ lado** — índice 100 → 112,38 e retorno 12,4% são agora a mesma medida.
 
 Dois testes mudaram, os dois porque a semântica antiga era a errada; um terceiro foi acrescentado
 fixando o defeito com números à mão. `pytest` 858 → **859**.
+
+Detalhes W11-005 (2026-08-21):
+
+- Cotação, histórico de preço, indicadores, eventos societários e o **score decomposto** de um
+  ativo, mais o peso atual e o peso-alvo dele na carteira selecionada.
+- **A cobertura vem antes do score, não numa nota de rodapé.** Um número entre 0 e 100 convida
+  exatamente a leitura que o projeto recusa. O banco real tem ITUB4 em **92,5 com cobertura
+  0,40** — o maior número do universo, montado sobre os dois pilares que nunca faltam. Tela que
+  mostra 92,5 grande e a cobertura pequena reproduz a armadilha que o backend gastou uma wave
+  desarmando.
+- Pilar ausente é desenhado como ausente: sem barra, com os insumos que faltaram nomeados.
+  "Risco: —, faltou beta" é uma resposta; "Risco: 0" é uma afirmação falsa sobre um ativo.
+- Gráfico de preço usa o fechamento **não ajustado**, e a legenda diz isso.
+- 🔴 **O mapa de rótulos de evento societário foi escrito por suposição e estava errado**:
+  inventava `STOCK_DIVIDEND` e `NOMINAL_UPDATE`, que o backend não emite, e não tinha `INCOME`
+  nem `BONUS`, dos quais o banco está cheio. Pego conferindo contra as respostas reais dos quatro
+  papéis. O *fallback* para o valor cru é o que impediu de ser silencioso.
+
+### Balanço da Wave 11
+
+- `pytest` **832 → 859**; frontend `build` e `lint` limpos. Nenhuma migration: nada da wave é
+  gravado.
+- **Duas correções que só a verificação real encontraria**, ambas em código de waves anteriores e
+  ambas invisíveis para a suíte porque os testes compartilhavam a premissa errada:
+  o índice time-weighted misturava moedas (W11-002) e o comparativo media duas janelas (W11-004).
+- **A primeira aplicação real de frontend do projeto**, com quatro telas e o contrato inteiro
+  validado contra respostas reais.
 
 - [ ] **W11-001**: Dashboard Principal (Patrimônio, Rentabilidade, Benchmarks) ⚪ NOT_STARTED
 - [ ] **W11-002**: Interface de Gestão de Carteira e Histórico ⚪ NOT_STARTED
@@ -1006,7 +1033,7 @@ Nenhuma tarefa bloqueada no momento.
 - **Magnitude do evento societário** — o que a EVENTS-002 deliberadamente não entregou. A data e a natureza vêm de graça do arquivo da B3; o **fator** de desdobramento/grupamento e o **valor por pagamento** do provento exigem outra fonte, e são o que a série de retorno total consome. É a EVENTS-003, a task corrente.
 - **Persistir os eventos societários.** Hoje `get_corporate_events` varre o arquivo em cache a cada chamada — não há tabela, migration nem endpoint. Dimensionar isso é parte da EVENTS-003, e vale medir antes: são ~15 MB destilados por ano e uma varredura por ano civil.
 - ✅ ~~**Histórico de preços é o que ainda trava `pe`/`pb` no banco real**~~ — **FEITO em 2026-08-19** (wave PRICE): o COTAHIST da B3 entrou como fonte aberta e o backfill da PETR4 gravou 1.495 pregões, com `pe`/`pb` reais nos seis exercícios. ⚠️ **A W13 continua travada pelo mesmo motivo de antes**: backtesting precisa de retorno **total**, e o que existe é preço bruto.
-- **Valor de mercado como base da concentração**: hoje o pilar de Diversification e o alocador leem custo de aquisição, deliberadamente ([ADR-021](decisions/ADR-021-allocation-ranks-by-coverage-tier.md)). Quando a W11 trouxer valor de mercado, os dois devem migrar **juntos** — são a mesma exposição por desenho.
+- **Valor de mercado como base da concentração**: o pilar de Diversification e o alocador continuam lendo custo de aquisição, deliberadamente ([ADR-021](decisions/ADR-021-allocation-ranks-by-coverage-tier.md)). A W11-001 trouxe valor de mercado e **não** migrou os dois — é decisão de produto, não consequência automática, e eles devem migrar **juntos** por serem a mesma exposição por desenho. Agora há como fazê-lo.
 - **Modelar caixa da carteira.** A base da alocação é `custo das posições + aporte`, e o que sobra fica implicitamente como caixa sem estar registrado em lugar nenhum. `portfolio_snapshots.cash_value` existe e não é usado.
 - **Teto de 3 meses de histórico da Brapi no plano gratuito** (ver Known Issues): resolvido para **ações** pela wave PRICE, que troca a fonte pela B3. Continua aberto para o **IBOV**, cuja série ainda vem do fornecedor — o que mantém `beta` com janela estatisticamente pobre. Decidir: assinar plano pago, achar fonte aberta para o índice, ou aceitar o teto.
 - **`app/data/models/__init__.py` entra na lista de lint pré-existente**: `ruff` (I001, RUF022) e `black` já falhavam nele **antes** da W08-001 — confirmado rodando as ferramentas na versão do `HEAD`. A task tocou o arquivo apenas para registrar o novo model, mantendo o estilo existente; reformatá-lo é a task dedicada de lint cleanup (regra 134).

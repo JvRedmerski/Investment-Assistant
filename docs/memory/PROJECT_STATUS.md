@@ -6,10 +6,32 @@
 
 ## Current Phase
 
-**Wave 10 — Rebalanceamento concluída** (2026-08-21), **3 de 3 tasks**. De volta à ordem do
-roadmap depois de duas waves inseridas fora dela (PRICE e EVENTS). **11 de 33 waves do roadmap
-concluídas** (W00–W10), mais as duas inseridas. **A próxima é a Wave 11 — Dashboard**, e ela é a
-primeira com trabalho de frontend real.
+**Wave 11 — Dashboard concluída** (2026-08-21), **5 de 5 tasks**. **12 de 33 waves do roadmap
+concluídas** (W00–W11), mais as duas inseridas fora da ordem (PRICE e EVENTS). **A próxima é a
+Wave 12 — AI Engine.**
+
+✅ **O frontend deixou de ser scaffold.** Quatro telas — Dashboard, Carteira, Ativos e Ativo —
+sobre rotas, react-query e um cliente tipado que **valida toda resposta com `zod`**. Nenhuma
+aritmética no cliente (regra 73); ausência é desenhada como ausência e cobertura parcial vem
+rotulada. Ver [../architecture/FRONTEND.md](../architecture/FRONTEND.md).
+
+✅ **Existe valor de mercado** (W11-001) e existe a **série de evolução** (W11-002): patrimônio em
+BRL com a linha de aporte por baixo, e o índice time-weighted recortado à janela que compartilha
+com o benchmark.
+
+🔴 **Duas correções que só a verificação contra o banco real encontraria**, ambas em código de
+waves anteriores e ambas invisíveis para a suíte **porque os testes compartilhavam a premissa
+errada**:
+
+1. **O índice time-weighted misturava moedas.** Posições em `adjusted_close`, fluxos em preço
+   negociado. Contra seis anos reais de PETR4 o índice deu **-3,88** — valor de cota não pode ser
+   negativo. Todo fixture precificava o ativo ao preço negociado, que é o único caso em que as
+   duas moedas coincidem.
+2. **O comparativo media duas janelas.** Carteira de 4,7 anos contra CDI de quatro meses, com a
+   subtração reportada como excesso: **+251,5 p.p.** contra os **+7,1 p.p.** reais.
+
+⚠️ **O frontend não tem teste automatizado nenhum.** Os 14 schemas foram conferidos à mão contra
+um backend real, e isso não se repete sozinho. Está em Future Work.
 
 ✅ **A carteira sabe para onde deveria ir, e o que fazer com o aporte para chegar lá.** A wave
 inteira era uma pergunta que nem o roadmap §22 nem a regra 34 respondem: **de onde vem o
@@ -73,11 +95,11 @@ CDI e IPCA **não** são afetados: vêm do Banco Central (SGS), aberto e sem cot
 
 | | |
 |---|---|
-| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine · W08 Benchmark Engine · W09 Recommendation Engine · **W10 Rebalancing** · **PRICE Open Price History** (inserida) · **EVENTS Corporate Actions & Distributions** (inserida) |
-| **In Progress** | — nenhuma. Próxima: **Wave 11 — Dashboard**, a primeira com frontend real; ver [CURRENT_TASK.md](CURRENT_TASK.md) |
+| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine · W08 Benchmark Engine · W09 Recommendation Engine · W10 Rebalancing · **W11 Dashboard** · **PRICE Open Price History** (inserida) · **EVENTS Corporate Actions & Distributions** (inserida) |
+| **In Progress** | — nenhuma. Próxima: **Wave 12 — AI Engine**; ver [CURRENT_TASK.md](CURRENT_TASK.md) |
 | **Blocked** | — nenhuma |
 
-Baseline atual: `pytest` → **815 passed** (backend/.venv), verificado em 2026-08-21. `ruff check .` e `black --check .` limpos no repositório inteiro; `alembic check` sem drift na última execução (2026-08-19, com o banco no ar); `npm run lint` e `npm run build` funcionando.
+Baseline atual: `pytest` → **859 passed** (backend/.venv), verificado em 2026-08-21. Frontend: `npm run build` e `npm run lint` limpos. `ruff check .` e `black --check .` limpos no repositório inteiro; `alembic check` sem drift na última execução (2026-08-19, com o banco no ar); `npm run lint` e `npm run build` funcionando.
 
 ## Completed Work (nível wave)
 

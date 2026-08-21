@@ -8,9 +8,8 @@ Legenda: 🟢 concluída · 🟡 em progresso · ⚪ não iniciada
 ## Estado geral
 
 **10 / 33 concluídas** (W00–W09), **mais duas waves inseridas fora da ordem** — ver abaixo.
-Fronteira atual: a **Wave 11 — Dashboard**, e ela é a primeira com trabalho de frontend real.
-A W10 fechou em 2026-08-21, de volta à ordem do roadmap depois de duas waves inseridas fora dela
-(ver [CURRENT_TASK.md](../memory/CURRENT_TASK.md)).
+Fronteira atual: a **Wave 12 — AI Engine**. As W10 e W11 fecharam em 2026-08-21, e com a W11 o
+frontend deixou de ser scaffold (ver [CURRENT_TASK.md](../memory/CURRENT_TASK.md)).
 
 ## Waves inseridas fora da ordem
 
@@ -54,15 +53,15 @@ o último dos 10 indicadores sem insumo.
 | W08 | Benchmark Engine — séries de CDI/IBOV/IPCA e comparativo | 🟢 | W07 | §20 |
 | W09 | Recommendation Engine — sub-scores e alocação do aporte mensal | 🟢 — 4 tasks: sub-scores, fonte CVM, ações em circulação, alocação | W06 (**incl. W06-003**), W07 | §21 |
 | W10 | Rebalanceamento — peso-alvo pelo mérito, tabela de desvio, plano que fecha os gaps sem vender | 🟢 — 3 tasks ([ADR-027](../decisions/ADR-027-target-weight-comes-from-merit.md), [ADR-028](../decisions/ADR-028-rebalancing-is-cash-flow-only.md)) | W09 | §22 |
-| **W11** | **Dashboard** — patrimônio, rentabilidade, benchmarks, tela de ativo | ⚪ **próxima** | W07, W08 | §23 |
+| W11 | Dashboard — patrimônio, rentabilidade, benchmarks, tela de ativo | 🟢 — 5 tasks; duas de backend antes das telas | W07, W08 | §23 |
 
-⚠️ **W11 é a primeira wave com trabalho de frontend real.** O frontend hoje é só scaffold.
+✅ **A W11 fez do frontend uma aplicação real** (2026-08-21): rotas, react-query, cliente tipado com validação `zod`, autenticação, e quatro telas — Dashboard, Carteira, Ativos e Ativo. Ver [FRONTEND.md](../architecture/FRONTEND.md).
 
 ## Explicabilidade e validação
 
 | Wave | Objetivo | Status | Depende de | Spec |
 |---|---|---|---|---|
-| W12 | AI Engine — `AIProvider` (Gemini/Ollama), explicações em linguagem natural | ⚪ | W09 | §24 |
+| **W12** | **AI Engine** — `AIProvider` (Gemini/Ollama), explicações em linguagem natural | ⚪ **próxima** | W09 | §24 |
 | W13 | Backtesting de carteira — simulação histórica de aportes + métricas | ⚪ | W07, W09 | §25 |
 | W14 | Walk-forward — janelas móveis, validação out-of-sample | ⚪ | W13 | §26 |
 

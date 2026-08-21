@@ -13,6 +13,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { Spinner } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import { AppLayout } from '@/layouts/AppLayout';
+import { AssetPage } from '@/pages/AssetPage';
 import { AssetsPage } from '@/pages/AssetsPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { LoginPage } from '@/pages/LoginPage';
@@ -60,6 +61,7 @@ export function App() {
         <Route index element={<DashboardPage />} />
         <Route path="carteira" element={<PortfolioPage />} />
         <Route path="ativos" element={<AssetsPage />} />
+        <Route path="ativos/:ticker" element={<AssetPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

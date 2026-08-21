@@ -76,15 +76,27 @@ O produto final deve responder: *Como está minha carteira? Estou batendo o CDI?
   discordar sobre o mesmo ativo, de propósito
   ([ADR-028](../decisions/ADR-028-rebalancing-is-cash-flow-only.md)).
 
+- **Valor de mercado, e a evolução da carteira no tempo.** `quantity × close` — nunca o preço
+  ajustado, que é preço de retorno total e valorizaria uma posição de 2020 por uma fração do que
+  as ações renderiam. Ativo sem preço deixa a **linha** ausente, não o total, e o total diz o que
+  cobre (`valued_market_value`, `unvalued_positions`). A evolução vem em **duas curvas**:
+  patrimônio em BRL com a linha de aporte por baixo, e o índice **time-weighted** recortado à
+  janela que compartilha com o benchmark.
+
+- **Uma interface web de verdade** (desde a W11): Dashboard, Carteira, Ativos e Ativo, sobre
+  rotas, react-query e um cliente tipado que **valida toda resposta com `zod`**. Zero aritmética
+  no cliente (regra 73). Ausência é desenhada como ausência, cobertura parcial vem rotulada, e
+  todo gráfico declara período, unidade, moeda, benchmark, fonte e atualização (regra 74).
+
 ### Em desenvolvimento
-- **Nenhuma wave em andamento.** A próxima é a **Wave 11 — Dashboard**, a primeira com trabalho
-  de frontend real. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
+- **Nenhuma wave em andamento.** A próxima é a **Wave 12 — AI Engine**, a camada que explica e
+  que por contrato **não calcula**. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ### Planejado (não existe código)
-Dashboard → AI Engine → Backtesting/Walk-forward → Day Trade (intraday, setups, risco, paper trading) → Observabilidade/Segurança/CI-CD/Deploy.
+AI Engine → Backtesting/Walk-forward → Day Trade (intraday, setups, risco, paper trading) → Observabilidade/Segurança/CI-CD/Deploy.
 Ver [../planning/ROADMAP.md](../planning/ROADMAP.md).
 
-**O frontend continua sendo apenas scaffold** — nenhuma dessas capacidades está exposta em tela. A primeira wave de frontend real é a W11, que é a próxima.
+As capacidades acima estão **expostas em tela** desde a W11. O que continua sem interface: backtesting, IA e day trade, que ainda não existem em lugar nenhum.
 
 ## Stack real (o que está de fato em uso)
 
@@ -93,10 +105,10 @@ Ver [../planning/ROADMAP.md](../planning/ROADMAP.md).
 | Backend | Python 3.11+, FastAPI, Pydantic v2 + pydantic-settings, SQLAlchemy 2.0 (`Mapped[]`), Alembic, httpx, PyJWT, bcrypt |
 | Banco | PostgreSQL 16 (produção/dev via Docker); SQLite in-memory **apenas** em testes |
 | Testes/Qualidade | pytest, ruff, black |
-| Frontend | React 18, TypeScript, Vite 5, Tailwind CSS, lucide-react |
+| Frontend | React 18, TypeScript, Vite 5, Tailwind CSS, lucide-react, react-router-dom, @tanstack/react-query, recharts, zod, clsx, tailwind-merge |
 | Infra | Docker + Docker Compose (postgres, backend, frontend) |
 
-Declarados no `pyproject.toml`/`package.json` mas **ainda não importados por nenhum código**: numpy, pandas, scipy, scikit-learn, google-generativeai, react-router-dom, @tanstack/react-query, recharts, zod, clsx, tailwind-merge.
+Declarados no `pyproject.toml` mas **ainda não importados por nenhum código**: numpy, pandas, scipy, scikit-learn, google-generativeai. As seis do frontend que estavam nessa lista entraram em uso na W11.
 
 ⚠️ A expectativa de que numpy/pandas/scipy entrariam na Wave 07 **foi revogada, não adiada**: levantando operação por operação, `Decimal` cobre todas as métricas de risco, e o determinismo (regra 113) é argumento para preferi-lo quando é grátis. Ver o adendo ao [ADR-017](../decisions/ADR-017-annualisation-and-numeric-type.md). A pergunta só volta se uma wave precisar de álgebra matricial de verdade (matriz de covariância, Markowitz).
 
