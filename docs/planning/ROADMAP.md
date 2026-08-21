@@ -7,9 +7,10 @@ Legenda: 🟢 concluída · 🟡 em progresso · ⚪ não iniciada
 
 ## Estado geral
 
-**10 / 33 concluídas** (W00–W09), **mais duas waves inseridas fora da ordem** — ver abaixo.
-Fronteira atual: a **Wave 12 — AI Engine**. As W10 e W11 fecharam em 2026-08-21, e com a W11 o
-frontend deixou de ser scaffold (ver [CURRENT_TASK.md](../memory/CURRENT_TASK.md)).
+**13 / 33 concluídas** (W00–W12), **mais duas waves inseridas fora da ordem** — ver abaixo.
+Fronteira atual: a **Wave 13 — Backtesting**. As W10, W11 e W12 fecharam em 2026-08-21: a W11
+tirou o frontend do estado de scaffold e a W12 trouxe a camada que explica — e que por contrato
+não calcula (ver [CURRENT_TASK.md](../memory/CURRENT_TASK.md)).
 
 ## Waves inseridas fora da ordem
 
@@ -61,9 +62,17 @@ o último dos 10 indicadores sem insumo.
 
 | Wave | Objetivo | Status | Depende de | Spec |
 |---|---|---|---|---|
-| **W12** | **AI Engine** — `AIProvider` (Gemini/Ollama), explicações em linguagem natural | ⚪ **próxima** | W09 | §24 |
-| W13 | Backtesting de carteira — simulação histórica de aportes + métricas | ⚪ | W07, W09 | §25 |
+| W12 | **AI Engine** — `AIProvider` (Gemini/Ollama/none), fact pack e explicações auditáveis | 🟢 — 3 tasks ([ADR-029](../decisions/ADR-029-ai-provider-speaks-rest.md), [ADR-030](../decisions/ADR-030-fact-pack-and-the-hallucination-guard.md)) | W09 | §24 |
+| **W13** | **Backtesting de carteira** — simulação histórica de aportes + métricas | ⚪ **próxima** | W07, W09 | §25 |
 | W14 | Walk-forward — janelas móveis, validação out-of-sample | ⚪ | W13 | §26 |
+
+✅ **A W12 fez da regra "a IA não calcula" um mecanismo** (2026-08-21): o modelo recebe um
+**fact pack** — valores já calculados, já arredondados na string que a tela mostra — e um guard
+confronta cada número do texto contra esse conjunto fechado, reportando o que não casar. Duas das
+cinco capacidades do §24 ficaram fora **por falta de fonte**: resumir notícia e resumir documento
+exigem ingestão que o projeto não tem.
+⚠️ Os providers **ainda não foram verificados** contra uma resposta real — ver
+[CURRENT_TASK.md](../memory/CURRENT_TASK.md).
 
 ## Day Trade — módulo separado
 

@@ -6,9 +6,42 @@
 
 ## Current Phase
 
-**Wave 11 — Dashboard concluída** (2026-08-21), **5 de 5 tasks**. **12 de 33 waves do roadmap
-concluídas** (W00–W11), mais as duas inseridas fora da ordem (PRICE e EVENTS). **A próxima é a
-Wave 12 — AI Engine.**
+**Wave 12 — AI Engine concluída** (2026-08-21), **3 de 3 tasks**. **13 de 33 waves do roadmap
+concluídas** (W00–W12), mais as duas inseridas fora da ordem (PRICE e EVENTS). **A próxima é a
+Wave 13 — Backtesting.**
+
+✅ **"A IA não calcula" deixou de ser confiança e virou mecanismo.** O
+[ADR-009](../decisions/ADR-009-quant-deterministic-ai-explains.md) decidiu isso em 2026-08-09 e
+não disse *como* — não havia código de IA para dizer. Agora há, e são três mecanismos:
+
+1. **Não há o que calcular.** O modelo recebe um **fact pack** — lista fechada e plana de valores
+   já calculados, com rótulo, unidade, string renderizada e endpoint de origem. Sem série, sem
+   componente, sem linha de banco. `facts.py` é a cintura estreita: tudo que o modelo verá passa
+   por ali.
+2. **Não há o que arredondar.** Arredondar é calcular, então quem arredonda é o backend, com o
+   espelho exato de `frontend/src/lib/format.ts`. O texto e o painel citam a **mesma string**.
+3. **O que sobrar é apontado.** Todo número do texto é confrontado com esse conjunto fechado, e o
+   que não casar volta em `unverified_figures` — **reportado, nunca rejeitado**
+   ([ADR-030](../decisions/ADR-030-fact-pack-and-the-hallucination-guard.md)).
+
+Três perguntas têm explicação: *estou batendo o CDI?*, *por que o aporte vai para esses ativos?* e
+*o que esse score está medindo?*.
+
+🔴 **Nenhuma chamada real a modelo nenhum aconteceu, e por isso nenhum teste de regressão de parser
+foi escrito.** A `GEMINI_API_KEY` é válida, mas a Gemini API está **desabilitada no projeto Google
+Cloud dela** (HTTP 403 `SERVICE_DISABLED`, projeto `980912867288`); não há Ollama local. A omissão
+é deliberada: um mock construído sobre suposição não verifica a suposição, reproduz ela — foi assim
+que dois campos da Brapi passaram por 45 testes verdes na W06-003. **É a primeira coisa a fazer na
+próxima sessão**; o procedimento está em [CURRENT_TASK.md](CURRENT_TASK.md).
+
+⚠️ **`unverified_figures` ainda não tem quem o exiba.** A W12 é backend-only por decisão. Uma tela
+que mostre a prosa e ignore a lista desfaz metade da garantia. Está em Future Work.
+
+✅ **A W12 não adicionou nenhuma dependência — removeu uma.** `google-generativeai` estava
+declarado desde a W00, nunca foi importado, nem estava instalado, e é o SDK que o Google
+descontinuou. A IA fala REST pelo mesmo `RetryingJsonClient` de todas as outras integrações, que
+ganhou `post_json` e `default_headers`
+([ADR-029](../decisions/ADR-029-ai-provider-speaks-rest.md)).
 
 ✅ **O frontend deixou de ser scaffold.** Quatro telas — Dashboard, Carteira, Ativos e Ativo —
 sobre rotas, react-query e um cliente tipado que **valida toda resposta com `zod`**. Nenhuma
@@ -95,11 +128,11 @@ CDI e IPCA **não** são afetados: vêm do Banco Central (SGS), aberto e sem cot
 
 | | |
 |---|---|
-| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine · W08 Benchmark Engine · W09 Recommendation Engine · W10 Rebalancing · **W11 Dashboard** · **PRICE Open Price History** (inserida) · **EVENTS Corporate Actions & Distributions** (inserida) |
-| **In Progress** | — nenhuma. Próxima: **Wave 12 — AI Engine**; ver [CURRENT_TASK.md](CURRENT_TASK.md) |
-| **Blocked** | — nenhuma |
+| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine · W08 Benchmark Engine · W09 Recommendation Engine · W10 Rebalancing · W11 Dashboard · **W12 AI Engine** · **PRICE Open Price History** (inserida) · **EVENTS Corporate Actions & Distributions** (inserida) |
+| **In Progress** | — nenhuma. Próxima: **Wave 13 — Backtesting**; ver [CURRENT_TASK.md](CURRENT_TASK.md) |
+| **Blocked** | — nenhuma. ⚠️ Mas os dois providers de IA da W12 são código **não verificado** até que uma chamada real aconteça |
 
-Baseline atual: `pytest` → **859 passed** (backend/.venv), verificado em 2026-08-21. Frontend: `npm run build` e `npm run lint` limpos. `ruff check .` e `black --check .` limpos no repositório inteiro; `alembic check` sem drift na última execução (2026-08-19, com o banco no ar); `npm run lint` e `npm run build` funcionando.
+Baseline atual: `pytest` → **944 passed** (backend/.venv), verificado em 2026-08-21. Frontend: `npm run build` e `npm run lint` limpos. `ruff check .` e `black --check .` limpos no repositório inteiro; `alembic check` sem drift na última execução (2026-08-19, com o banco no ar); `npm run lint` e `npm run build` funcionando.
 
 ## Completed Work (nível wave)
 
@@ -188,17 +221,30 @@ Baseline atual: `pytest` → **859 passed** (backend/.venv), verificado em 2026-
 
 Detalhe por task: [../history/COMPLETED_TASKS.md](../history/COMPLETED_TASKS.md).
 
+- **W12** — **AI Engine**. `AIProvider` + `GeminiProvider` + `OllamaProvider` + `DisabledAIProvider`
+  sobre o transporte compartilhado, que ganhou `post_json` e `default_headers`
+  ([ADR-029](../decisions/ADR-029-ai-provider-speaks-rest.md)); `app/domain/ai/` com fact pack,
+  formatador espelhado no frontend, prompts versionados em `prompts/*_v1.txt` (regra 43) e o guard
+  que confronta cada número do texto contra o conjunto fechado de fatos
+  ([ADR-030](../decisions/ADR-030-fact-pack-and-the-hallucination-guard.md)); três rotas
+  `POST /portfolios/{id}/explain/*`. `google-generativeai` **removido**. Nada é gravado, logo
+  nenhuma migration. ⚠️ Providers **não verificados** contra resposta real.
+
 ## Current Work
 
-**Nenhuma.** A wave EVENTS fechou em 2026-08-20 com as três tasks entregues e nada de código
-pela metade. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
+**Nenhuma.** A Wave 12 fechou em 2026-08-21 com as três tasks entregues e nada de código pela
+metade. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ## Next Recommended Step
 
-1. **Wave 10 — Rebalanceamento**, de volta à ordem do roadmap. É a hora certa: o score que o
-   rebalanceamento consome ficou **completo** com a EVENTS-003 — o pilar de Risco tem insumo e a
-   cobertura saiu de 0,75.
-2. **Antes de confiar no Risco de um ativo novo, rode o sync de ações societárias.** Um papel só
+1. **Fechar a verificação da W12-001, e é curto.** Habilitar a Gemini API no projeto Google
+   Cloud da chave, fazer **uma** chamada real, conferir o formato campo a campo e escrever o
+   teste de regressão. Enquanto isso não acontece, `gemini.py` e `ollama.py` são código não
+   verificado — e a W06-003 já mostrou o que isso custa quando passa despercebido.
+2. **Wave 13 — Backtesting**, de volta à ordem do roadmap. Ela precisa de **retorno total**, e
+   a série ajustada existe desde a EVENTS-003 — onde o ajuste é completo, e truncada onde não é
+   ([ADR-026](../decisions/ADR-026-corporate-action-magnitude-and-the-completeness-rule.md)).
+3. **Antes de confiar no Risco de um ativo novo, rode o sync de ações societárias.** Um papel só
    com preço bruto continua sem `adjusted_close`, e portanto sem risco — o que é o estado normal
    que o motor de score já trata, não um defeito. O comando é
    `POST /assets/{ticker}/corporate-actions/sync` **depois** do `prices/backfill`.

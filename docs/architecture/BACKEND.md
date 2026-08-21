@@ -16,15 +16,17 @@ backend/
 │   │   ├── config.py           Settings (pydantic-settings, lê .env) → singleton `settings`
 │   │   ├── security.py         hash/verify de senha (bcrypt) · create/decode de JWT (PyJWT)
 │   │   └── logging.py          setup_logging()
-│   ├── domain/                 users · portfolio · assets · market_data · fundamentals · benchmarks · recommendations
+│   ├── domain/                 users · portfolio · assets · market_data · fundamentals · benchmarks · recommendations · ai
 │   │   ├── <área>/             schemas.py (Pydantic) + service.py (regra de negócio)
-│   │   └── recommendations/    + scoring.py e allocation.py — puros, no molde do app/quant/
+│   │   ├── recommendations/    + scoring.py e allocation.py — puros, no molde do app/quant/
+│   │   └── ai/                 facts · formatting · prompting · guard · service + prompts/*.txt (versionados)
 │   ├── quant/                  returns.py · risk.py — puro, sem I/O, tudo em Decimal
 │   ├── integrations/
 │   │   ├── http.py             RetryingJsonClient — transporte compartilhado (retry/throttle)
 │   │   ├── market_data/        base · schemas · exceptions · brapi · cotahist · factory · data_quality
 │   │   ├── fundamentals/       base · schemas · exceptions · factory · brapi · cvm · identity · composite
-│   │   └── benchmarks/         base · schemas · exceptions · bcb · brapi_index · factory
+│   │   ├── benchmarks/         base · schemas · exceptions · bcb · brapi_index · factory
+│   │   └── ai/                 base · schemas · exceptions · gemini · ollama · factory
 │   └── data/
 │       ├── database.py         engine · SessionLocal · Base · get_db · utc_now
 │       └── models/             users · assets · portfolio · fundamentals · benchmarks · recommendations · daytrade
@@ -34,7 +36,7 @@ backend/
 └── alembic.ini
 ```
 
-**Ainda não existem** (previstos no AGENTS.md §6, waves futuras): `app/workers/` (W17), `app/domain/daytrade/` (W15+), `app/integrations/{intraday,ai}/` (W15 e W12).
+**Ainda não existem** (previstos no AGENTS.md §6, waves futuras): `app/workers/` (W17), `app/domain/daytrade/` (W15+), `app/integrations/intraday/` (W15).
 
 **`app/data/repositories/` não existe e não está previsto** — não é pendência: as rotas recebem a `Session` do SQLAlchemy por injeção e os services a consomem direto ([ADR-011](../decisions/ADR-011-no-repository-layer.md)). O AGENTS.md §6 foi corrigido para dizer isso.
 
@@ -175,6 +177,39 @@ desdobramento aparece como uma sessão de centenas de por cento. Se você precis
 retorno, chame `adjusted_price_points` / `adjusted_closes_by_asset`; não monte a sua.
 
 A resiliência HTTP não é reescrita por provedor: `integrations/http.py` (`RetryingJsonClient`) concentra timeout, retry limitado, backoff e throttle, recebendo as classes de exceção de cada integração. Um provedor concreto escreve apenas URL e parsing. ([ADR-012](../decisions/ADR-012-shared-http-transport.md))
+
+### A camada que explica, e o que ela é proibida de fazer
+
+`app/domain/ai/` é a Wave 12, e o desenho inteiro dela existe para tornar
+*estrutural* uma regra que antes era só uma promessa: a IA não calcula
+(§3, §24, [ADR-009](../decisions/ADR-009-quant-deterministic-ai-explains.md)).
+
+O modelo nunca vê o banco, nem uma série, nem os componentes de um score.
+Ele vê um **fact pack**: lista fechada e plana de valores já calculados, cada
+um com rótulo, unidade, a string **já renderizada** e o endpoint de origem
+([ADR-030](../decisions/ADR-030-fact-pack-and-the-hallucination-guard.md)).
+
+| módulo | papel |
+|---|---|
+| `facts.py` | a cintura estreita — **tudo** que o modelo verá passa por aqui. Um builder por tópico, cada um lendo um objeto de resposta já pronto |
+| `formatting.py` | o espelho de `frontend/src/lib/format.ts`. Arredondar é calcular, então quem arredonda é o backend, e arredonda **igual à tela** |
+| `prompting.py` | carrega os prompts versionados de `prompts/*.txt` e renderiza o pack em dois blocos rotulados: disponível e indisponível |
+| `guard.py` | depois da geração, confronta todo número do texto com o conjunto fechado de figuras que o backend escreveu. O que não casar volta em `unverified_figures` |
+| `service.py` | os quatro passos, nesta ordem: pack → prompt → provedor → guard |
+
+Três consequências que valem lembrar antes de mexer:
+
+- **Fato ausente fica no pack**, com traço, sob o cabeçalho que diz o que
+  aquele bloco é. Removê-lo deixa o modelo livre para supor que o número não
+  importava — e é aí que ele preenche a lacuna (§44).
+- **Pack sem nenhum valor não chega ao provedor.** Vira frase fixa, `model:
+  "none"`, zero requisição gasta.
+- **`key` e `source` não vão no prompt.** Servem ao leitor, viajam na
+  `Explanation`, e mandá-los colocaria os dígitos de `/api/v1/portfolios/1`
+  na frente de um modelo instruído a citar só o que recebeu (§91).
+
+Tópico novo exige builder novo. Não existe tópico livre, de propósito:
+tópico sem builder é prompt sem fatos.
 
 ### Uma coluna de demonstrativo nova e o dado que já está gravado
 

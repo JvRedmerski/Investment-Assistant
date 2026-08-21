@@ -2,78 +2,110 @@
 
 ## Task
 
-**Wave 12 — AI Engine.** A camada que **explica** — e que por contrato **não calcula nada**
-(AGENTS.md §3 e §24, [ADR-009](../decisions/ADR-009-quant-deterministic-ai-explains.md)).
-Ver roadmap §24.
+**Duas coisas, e a primeira é curta.**
+
+1. 🔴 **Fechar a verificação da W12-001** — os dois providers de IA são código **não
+   verificado** até que uma chamada real aconteça. Ver *O que ficou pendente* abaixo.
+2. ⚪ **Wave 13 — Backtesting** (roadmap §25, AGENTS.md §35).
 
 ## Status
 
-⚪ **Não começou.** A Wave 11 fechou em 2026-08-21 com as cinco tasks entregues, e não há código
-pela metade em lugar nenhum.
+🟢 **A Wave 12 fechou em 2026-08-21**, 3 de 3 tasks, e não há código pela metade em lugar
+nenhum. `pytest -q` → **944 passed**.
 
 ---
 
-## O que a Wave 11 entregou
+## O que a Wave 12 entregou
 
 | task | entrega |
 |---|---|
-| **W11-001** | Valor de mercado e P&L não realizado nas posições, com ausência **por linha** |
-| **W11-002** | `GET /portfolios/{id}/series` — patrimônio e índice time-weighted, alinhados a um benchmark |
-| **W11-003** | A **primeira aplicação real de frontend** do projeto, mais a tela de Carteira |
-| **W11-004** | A tela **Dashboard** |
-| **W11-005** | A tela de **Ativo** |
+| **W12-001** | `AIProvider` + `GeminiProvider` + `OllamaProvider` + `DisabledAIProvider`, todos sobre o transporte compartilhado ([ADR-029](../decisions/ADR-029-ai-provider-speaks-rest.md)) |
+| **W12-002** | O domínio que explica: fact pack, prompts versionados e o guard ([ADR-030](../decisions/ADR-030-fact-pack-and-the-hallucination-guard.md)) |
+| **W12-003** | `POST /portfolios/{id}/explain/{performance,contribution-plan,scores/{ticker}}` |
 
-### As duas correções que a wave encontrou, e como
+### O ponto inteiro da wave, em uma frase
 
-Nenhuma das duas foi achada por teste. As duas apareceram **rodando o pipeline contra o banco
-real e olhando os números** — o passo que o `IMPLEMENTATION_GUIDE` exige de provedor externo, e
-que vale igual para lógica pura.
+**"A IA não calcula" deixou de ser confiança e virou mecanismo.** O modelo nunca vê o
+banco, uma série ou os componentes de um score — vê um **fact pack**: lista fechada de
+valores já calculados, cada um com rótulo, unidade, a string **já renderizada** e o
+endpoint de origem. Não há o que calcular. Arredondar também é calcular, então quem
+arredonda é `app/domain/ai/formatting.py`, que é o espelho exato de
+`frontend/src/lib/format.ts` — o texto e o painel citam a **mesma string**.
 
-**1. O índice time-weighted misturava moedas** (W11-002). As posições eram valorizadas em
-`adjusted_close` e os fluxos entravam em preço **negociado**. Para papel que pagou anos de
-provento o ajustado é uma fração do negociado, então cada compra subtraía ~3× o valor que havia
-adicionado. Deu **-3,88** contra seis anos reais de PETR4 — valor de cota não pode ser negativo.
+E depois da geração, `guard.py` confronta todo número do texto com o conjunto fechado de
+figuras que o backend escreveu. O que não casar volta em `unverified_figures`.
 
-**2. O comparativo media duas janelas diferentes** (W11-004). Carteira de 4,7 anos contra CDI
-armazenado desde agosto de 2025, e a subtração entre os dois reportada como "excesso":
-**+251,5 p.p.** contra os **+7,1 p.p.** reais.
+### Os dois defeitos que a wave achou em si mesma
 
-**As duas eram invisíveis para a suíte, e não podiam não ser**: todo fixture de performance
-precificava o ativo exatamente ao preço negociado (o único caso em que as moedas coincidem), e o
-comparativo sempre recebia séries do mesmo tamanho. **Os testes compartilhavam a premissa
-errada** — a mesma lição da W10-003.
+Nenhum foi de digitação; os dois eram de desenho, e os dois apareceram **rodando o teste
+que eu tinha escrito para outra coisa**:
+
+1. **As URLs de origem estavam sendo renderizadas dentro do prompt.** `key` e `source`
+   servem ao leitor, não ao modelo — e mandá-los punha os dígitos de
+   `/api/v1/portfolios/1` na frente de um modelo instruído a citar só o que recebeu. Hoje
+   viajam só na `Explanation`, que é onde a rastreabilidade é consultada (§91, §112).
+2. **O prompt de sistema trazia `"12,4%"` como exemplo** de como citar um valor — um
+   número plausível em toda requisição, pronto para vazar para uma explicação onde não
+   significa nada. Virou `"X,Y%"`, e um teste agora proíbe qualquer coisa com a forma
+   `\d,\d` ali.
 
 ---
 
-## O que a W12 tem que respeitar, e é o ponto inteiro dela
+## O que ficou pendente, e é a primeira coisa a fazer
 
-- **A IA não calcula nunca.** Ela recebe números já computados e os traduz. Regra 3, regra 24,
-  [ADR-009](../decisions/ADR-009-quant-deterministic-ai-explains.md).
-- **A IA não decide.** Nada do que ela devolve entra em score, alvo, plano ou ordenação.
-- **Determinismo (regra 113) não se aplica ao texto, mas a explicação tem que ser auditável**:
-  o número explicado precisa ser rastreável ao endpoint que o produziu.
-- Interface abstrata em `app/integrations/ai/`, com `GeminiProvider` e `OllamaProvider` —
-  o mesmo desenho de `MarketDataProvider` e `FundamentalsProvider`.
-- `google-generativeai` está no `pyproject.toml` e **nunca foi importado**. Antes de escrever
-  parser ou mock, fazer **uma chamada real** e olhar a resposta — a lição cara da W06-003, que a
-  W11-005 acabou de repetir em miniatura (o mapa de rótulos de evento estava inventado).
+🔴 **Nenhuma chamada real a modelo nenhum aconteceu.**
+
+- A `GEMINI_API_KEY` no `.env` é **válida**, mas a Gemini API está **desabilitada no
+  projeto Google Cloud dela**. Toda chamada responde HTTP 403 `SERVICE_DISABLED`, com a
+  URL de ativação do projeto `980912867288` no corpo.
+- Não há Ollama instalado, então o `OllamaProvider` está igualmente sem verificação.
+
+**Consequência deliberada**: nenhum teste de regressão de parser foi escrito. Um mock
+construído sobre suposição não verifica a suposição — reproduz ela. Foi assim que dois
+campos da Brapi passaram por 45 testes verdes na W06-003.
+
+**Procedimento quando houver acesso** (`docs/planning/IMPLEMENTATION_GUIDE.md`):
+
+1. Habilitar a API no console do Google Cloud.
+2. **Uma** chamada real. Salvar a resposta.
+3. Conferir nome por nome: `candidates[0].content.parts[]`, `finishReason`,
+   `usageMetadata.promptTokenCount`, `candidatesTokenCount`, `modelVersion`.
+4. Corrigir `gemini.py` no que divergir, e **só então** escrever o teste de regressão, no
+   molde de `tests/test_brapi_fundamentals_provider.py::test_regression_against_the_real_petr4_response`.
+5. Rodar ponta a ponta contra o banco real e **ler a explicação gerada** — não só conferir
+   que veio 200. É o passo que achou os dois erros de janela da W11.
+
+O que **já** foi observado ao vivo é o envelope de erro do Google, e ele está documentado
+no docstring de `gemini.py`.
+
+---
+
+## O que a W13 tem que respeitar
+
+- **Retorno total, não preço bruto.** A série ajustada existe onde o ajuste é completo
+  ([ADR-026](../decisions/ADR-026-corporate-action-magnitude-and-the-completeness-rule.md));
+  onde não é, ela para, e o backtest tem que parar junto em vez de medir preço cru.
+- **Sem look-ahead** (§58, §108). Vale para a ordem de replay do ledger, não só para o
+  preço.
+- **Determinismo** (§113): mesma entrada, mesmo resultado de backtest, sempre.
+- ⚠️ **O ledger ainda não conhece evento societário** — desdobramento muda quantidade em
+  custódia sem gerar transação. Está em Future Work e é pré-requisito honesto de um
+  backtest que carregue posição através de um evento.
 
 ## O que já está pronto — não reimplemente
 
-Todo o backend das waves 00–11 e as quatro telas. Os endpoints que a W12 vai explicar:
-`/positions`, `/series`, `/benchmarks/{code}`, `/scores`, `/contribution-plan`, `/rebalance` e
-`/rebalance-plan`. Contrato completo em [../architecture/API.md](../architecture/API.md);
-frontend em [../architecture/FRONTEND.md](../architecture/FRONTEND.md).
+Todo o backend das waves 00–12 e as quatro telas. Contrato completo em
+[../architecture/API.md](../architecture/API.md); a camada de IA em
+[../architecture/BACKEND.md](../architecture/BACKEND.md).
 
 ## Estado do ambiente (verificado 2026-08-21)
 
-- ✅ `pytest -q` → **859 passed**. `ruff check .` e `black --check .` limpos.
-- ✅ Frontend: `npm run build` e `npm run lint` limpos. Bundle 710 kB (203 kB gzip) — o aviso de
-  chunk do Vite fica de pé de propósito (regra 75); dividir é trabalho da W22.
-- ✅ Docker no ar, schema **`012_corporate_actions`**. **As waves 10 e 11 não criaram migration**:
-  nada nelas é gravado.
-- Banco real: carteira `Local` (id 1) sem transação; PETR4 com setor e fundamentos, os outros três
-  sem. 1.495 pregões para os quatro papéis.
+- ✅ `pytest -q` → **944 passed** (era 859). `ruff` e `black` limpos nos arquivos alterados.
+- ✅ **Nenhuma migration nova**: nada da W12 é gravado (regra 16).
+- ✅ `AI_PROVIDER=none` é um deployment suportado — as rotas respondem 503
+  `AI_NOT_CONFIGURED` com a mensagem dizendo o que configurar.
+- Banco real: carteira `Local` (id 1) sem transação; PETR4 com setor e fundamentos, os
+  outros três sem. 1.495 pregões para os quatro papéis.
 - Rodar a app: `docker compose up -d postgres`, depois
   `cd backend && .venv/Scripts/python.exe -m uvicorn app.main:app --port 8000` e
   `cd frontend && npm run dev`.

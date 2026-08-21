@@ -529,6 +529,92 @@ respostas reais dos quatro papéis.
 
 ---
 
+## Wave 12 — AI Engine (2026-08-21) 🟢
+
+A wave que transformou a regra mais repetida do contrato em mecanismo. O
+[ADR-009](../decisions/ADR-009-quant-deterministic-ai-explains.md) decidiu em 2026-08-09 que a IA
+não calcula e não decide, e não disse **como** — não havia código de IA para dizer. Chegando aqui,
+"garantir" precisou virar estrutura, porque um prompt *pede* e não *garante*.
+
+### W12-001 — `AIProvider`, e uma dependência a menos
+
+`AIProvider` abstrato + `GeminiProvider` + `OllamaProvider` + `DisabledAIProvider`. Os três
+concretos falam **REST pelo `RetryingJsonClient`**, que ganhou `post_json` e `default_headers` —
+as primeiras capacidades novas desde o [ADR-012](../decisions/ADR-012-shared-http-transport.md),
+que já nomeava "IA (W12)" como um dos quatro provedores que compartilhariam o transporte.
+
+`google-generativeai` foi **removido** do `pyproject.toml`, não usado: declarado desde a W00,
+nunca importado, nem instalado no venv, e é o SDK que o Google descontinuou em favor de
+`google-genai`. Adotá-lo seria adotar uma migração, e traria transporte, retry e exceções
+paralelos aos do resto do projeto para uma requisição que é **um POST com três campos**
+([ADR-029](../decisions/ADR-029-ai-provider-speaks-rest.md)).
+
+`AI_PROVIDER=none` é deployment suportado, não defeito: explicação é a única feature que pode ser
+desligada sem mudar um número em lugar nenhum.
+
+### W12-002 — o fact pack, e o guard
+
+`app/domain/ai/`. O modelo nunca vê o banco, uma série ou os componentes de um score. Vê um
+**fact pack**: lista fechada e plana de valores já calculados, cada um com rótulo, unidade, a
+string **já renderizada** e o endpoint de origem. `facts.py` é a cintura estreita — tudo que o
+modelo verá passa por ali, então a regra vive num lugar legível em vez de depender de disciplina
+espalhada.
+
+Arredondar também é calcular, então `formatting.py` é o **espelho exato** de
+`frontend/src/lib/format.ts`, `ROUND_HALF_UP` incluído porque é o gêmeo Python do half-expand do
+ECMA-402. A frase e o painel citam a **mesma string** — a mesma classe de defeito que a W11-004
+corrigiu, desarmada antes de aparecer.
+
+E `guard.py` confronta todo número do texto com o conjunto fechado de figuras que o backend
+escreveu. O que não casar volta em `unverified_figures`: **reportado, nunca rejeitado**. Rejeitar
+faria a confiabilidade do recurso depender de como o modelo redigiu uma frase, e filtro com falso
+positivo é filtro que alguém desliga
+([ADR-030](../decisions/ADR-030-fact-pack-and-the-hallucination-guard.md)).
+
+Prompts versionados em `prompts/*_v1.txt` (regra 43), contendo **só** papel, guardrails e a ordem
+do argumento — nenhum limiar, peso ou versão, que chegam como fatos com valor e origem.
+
+### W12-003 — as três rotas
+
+`POST /portfolios/{id}/explain/{performance,contribution-plan,scores/{ticker}}`. São POST embora
+não gravem nada: um GET promete ser seguro e repetível, e estas gastam uma chamada externa metrada
+e respondem diferente a cada vez.
+
+`_contribution_plan_response`, `_asset_score_response` e `_resolve_benchmark` foram **extraídos**
+das rotas existentes em vez de duplicados — a explicação descreve o objeto que o endpoint devolve,
+não uma segunda montagem dele.
+
+### Os dois defeitos que a wave achou em si mesma
+
+Os dois eram de **desenho**, e os dois apareceram rodando o teste que proíbe o prompt de
+introduzir número que não seja fato:
+
+1. **`key` e `source` estavam sendo renderizados dentro do prompt.** Servem ao leitor, não ao
+   modelo, e mandá-los punha os dígitos de `/api/v1/portfolios/1` na frente de um modelo instruído
+   a citar só o que recebeu. Hoje viajam só na `Explanation` (§91, §112).
+2. **O prompt de sistema trazia `"12,4%"` como exemplo** de como citar um valor — um número
+   plausível em toda requisição, pronto para vazar para uma explicação onde não significa nada.
+   Virou `"X,Y%"`, e um teste agora proíbe qualquer coisa com a forma `\d,\d` ali.
+
+Um terceiro achado, sobre o contrato: os testes de rota assumiam envelope de erro sob `detail`,
+quando a regra 72 o põe no topo. **O teste é que estava errado.**
+
+### Balanço
+
+- `pytest` **859 → 944**. Nenhuma migration: nada da wave é gravado (regra 16).
+- **Nenhuma dependência adicionada** — uma removida.
+- Dois ADRs novos ([029](../decisions/ADR-029-ai-provider-speaks-rest.md),
+  [030](../decisions/ADR-030-fact-pack-and-the-hallucination-guard.md)).
+- 🔴 **Nenhuma chamada real a modelo nenhum aconteceu** — a chave do Gemini é válida mas a API
+  está desabilitada no projeto Google Cloud dela, e não há Ollama local. Por isso **nenhum teste
+  de regressão de parser foi escrito**: um mock construído sobre suposição não verifica a
+  suposição, reproduz ela (a lição da W06-003). Os dois providers são código não verificado.
+- ⚠️ Duas das cinco capacidades do roadmap §24 ficaram fora **por falta de fonte**: resumir
+  notícia e resumir documento exigem ingestão que o projeto não tem.
+- ⚠️ `unverified_figures` **não tem quem o exiba** — a wave é backend-only por decisão.
+
+---
+
 ## Marcos de infraestrutura de conhecimento
 
 - **2026-08-17** — Sistema de memória persistente criado: `CLAUDE.md` na raiz + `docs/{memory,architecture,decisions,planning,history}/`, com 11 ADRs extraídos do código e do histórico de decisões.

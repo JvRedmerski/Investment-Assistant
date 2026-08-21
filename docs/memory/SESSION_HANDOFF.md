@@ -6,127 +6,127 @@
 
 ## Last Completed Work
 
-### Wave 11 — Dashboard, 5/5 (`a96ba18`, `f44b930`, `3da3db1`, `5d9eae0`, `ccec948`)
+### Wave 12 — AI Engine, 3/3
 
-A wave que tirou o frontend do estado de scaffold. Duas tasks de backend vieram antes das telas,
-porque o roadmap §23 pede números que o backend **não produzia** e a regra 73 proíbe calcular no
-cliente.
+A wave que transformou "a IA não calcula" de promessa em mecanismo. O
+[ADR-009](../decisions/ADR-009-quant-deterministic-ai-explains.md) decidiu isso em
+2026-08-09 e não disse *como* — não havia código de IA para dizer. Agora há.
 
 | task | entrega |
 |---|---|
-| **W11-001** | Valor de mercado e P&L não realizado nas posições |
-| **W11-002** | `GET /portfolios/{id}/series` — patrimônio e índice time-weighted, alinhados a um benchmark |
-| **W11-003** | A **primeira aplicação real de frontend** do projeto, mais a tela de Carteira |
-| **W11-004** | A tela **Dashboard** |
-| **W11-005** | A tela de **Ativo** |
+| **W12-001** | `AIProvider` + `GeminiProvider` + `OllamaProvider` + `DisabledAIProvider`, sobre o transporte compartilhado ([ADR-029](../decisions/ADR-029-ai-provider-speaks-rest.md)) |
+| **W12-002** | `app/domain/ai/` — fact pack, prompts versionados, guard ([ADR-030](../decisions/ADR-030-fact-pack-and-the-hallucination-guard.md)) |
+| **W12-003** | `POST /portfolios/{id}/explain/{performance,contribution-plan,scores/{ticker}}` |
 
-### As duas correções que a wave encontrou — e nenhuma foi por teste
+### Como a garantia funciona, e por que ela não é um prompt
 
-As duas apareceram **rodando o pipeline contra o banco real e olhando os números**. É o passo que
-o `IMPLEMENTATION_GUIDE` cobra de provedor externo, e vale igual para lógica pura.
+Um prompt **pede**; ele não **garante**. Três mecanismos, nesta ordem:
 
-**1. O índice time-weighted misturava moedas** (W11-002, corrigido em `performance.py`).
-Posições valorizadas em `adjusted_close`, fluxos entrando em preço **negociado**. Para papel que
-pagou anos de provento o ajustado é uma fração do negociado, então cada compra subtraía ~3× o
-valor que havia adicionado. Contra seis anos reais de PETR4 o índice deu **-3,88** — valor de
-cota não pode ser negativo.
+1. **Não há o que calcular.** O modelo recebe um fact pack — lista fechada e plana de
+   valores já calculados, com rótulo, unidade, string renderizada e endpoint de origem.
+   Sem série, sem componente, sem linha de banco. `facts.py` é a **cintura estreita**:
+   tudo que o modelo verá passa por ali, então a regra vive em um lugar legível em vez de
+   depender de disciplina espalhada.
+2. **Não há o que arredondar.** Arredondar é calcular. `formatting.py` é o espelho exato
+   de `frontend/src/lib/format.ts`, incluindo `ROUND_HALF_UP` porque é o gêmeo Python do
+   half-expand do ECMA-402. O modelo recebe `12,4%` e copia — a frase e o painel citam a
+   **mesma string**.
+3. **O que sobrar é apontado.** `guard.py` confronta todo número do texto com o conjunto
+   fechado de figuras que o backend escreveu (valor renderizado, valor canônico e
+   **rótulo** — "nota de 0 a 100" torna `0` e `100` citáveis). O que não casar volta em
+   `unverified_figures`.
 
-Caso mínimo, mesmas operações e mesmo +10% de retorno: fator de ajuste 1 → `100 → 100 → 110`;
-fator 3 → `100 → -100 → -110`.
+**Reportar em vez de rejeitar foi decisão, não preguiça.** Rejeitar faria a confiabilidade
+do recurso depender de como o modelo redigiu uma frase: o usuário veria erro no lugar da
+explicação, a chamada seria repetida, e a repetição é outro sorteio. Filtro com falso
+positivo é filtro que alguém desliga. Reportar mantém a falha visível e grudada no
+artefato — a mesma escolha que o motor de score faz com `coverage`.
 
-O conserto (`_external_share_flows`) expressa o fluxo em **ações**, valorizadas no mesmo
-`adjusted_close` das posições no dia em que é neutralizado. **Efeito colateral bom**: a
-aproximação que o módulo documentava como seu ponto fraco sumiu para o caso comum — comprar mais
-de algo já detido durante um vão de preço passou a ser exato, porque o preço desconhecido aparece
-nos dois sub-períodos e cancela.
+### Os dois defeitos que a wave achou em si mesma
 
-**2. O comparativo media duas janelas diferentes** (W11-004, corrigido em `comparison.py`).
-Carteira de 4,7 anos contra CDI armazenado desde agosto de 2025, e a subtração entre os dois
-reportada como "excesso":
+Os dois eram de **desenho**, e os dois apareceram rodando um teste escrito para outra
+coisa — o teste que proíbe o prompt de introduzir número que não seja fato (regra 43).
 
-| | antes | depois |
-|---|---|---|
-| excesso sobre o CDI | **+251,5 p.p.** | **+7,1 p.p.** |
-| retorno da carteira | 266,1% (4,7 anos) | 12,4% (a janela do CDI) |
-| volatilidade | 58,7% | 22,5% |
-| drawdown | -34,3% | -13,4% |
+1. **`key` e `source` estavam sendo renderizados dentro do prompt.** Servem ao leitor, não
+   ao modelo, e mandá-los punha os dígitos de `/api/v1/portfolios/1` na frente de um
+   modelo instruído a citar só o que recebeu. Hoje viajam só na `Explanation`.
+2. **O prompt de sistema trazia `"12,4%"` como exemplo** de como citar um valor — um
+   número plausível presente em toda requisição, pronto para vazar. Virou `"X,Y%"`, e um
+   teste agora proíbe qualquer coisa com a forma `\d,\d` ali.
 
-`compare` passou a recortar as duas séries para a janela compartilhada usando o mesmo `align` que
-a W11-002 criou para o gráfico. Bônus: **o número do painel passou a bater com o gráfico ao
-lado** — índice 100 → 112,38 e retorno 12,4% são a mesma medida.
-
-**As duas eram invisíveis para a suíte, e não podiam não ser**: todo fixture de performance
-precificava o ativo exatamente ao preço negociado (o único caso em que as duas moedas coincidem),
-e o comparativo sempre recebia séries do mesmo tamanho. **Os testes compartilhavam a premissa
-errada** — a mesma lição da W10-003.
-
-### Um terceiro achado, menor mas do mesmo tipo
-
-O `.gitignore` tinha `lib/`, entrada do template Python que casa em qualquer profundidade, e
-estava **engolindo `frontend/src/lib/` inteiro** — o cliente de API não teria sido commitado.
-Pego antes do commit que o teria perdido. Ancorado em `backend/lib/`; negação não resolve, porque
-o git não desce em diretório excluído.
+Um terceiro achado, sobre o contrato e não sobre o código: meus testes de rota assumiam o
+envelope de erro sob `detail`, quando a regra 72 o põe no topo. **O teste é que estava
+errado** — conferir de que lado está o erro continua valendo.
 
 ## Current State
 
-- `pytest` → **859 passed** (832 → 859), verificado em 2026-08-21. `ruff check .` e
-  `black --check .` limpos.
-- Frontend: `npm run build` e `npm run lint` limpos. Bundle 710 kB (203 kB gzip) — o aviso de
-  chunk do Vite fica de pé de propósito (regra 75); dividir é trabalho da W22.
-- ✅ Commitado; árvore limpa.
-- 🔴 **Docker ligado** nesta sessão. Schema **`012_corporate_actions`**, e **nem a W10 nem a W11
-  criaram migration** — nada nelas é gravado (regra 16, ADR-002).
-- **Wave 11 🟢 concluída**, 5/5. Nada iniciado da W12.
+- `pytest` → **944 passed** (859 → 944), verificado em 2026-08-21. `ruff` e `black` limpos
+  nos arquivos alterados.
+- **Nenhuma migration**: nada da W12 é gravado (regra 16). Schema segue `012_corporate_actions`.
+- `google-generativeai` **removido** do `pyproject.toml` — declarado desde a W00, nunca
+  importado, nem instalado no venv, e descontinuado pelo Google
+  ([ADR-029](../decisions/ADR-029-ai-provider-speaks-rest.md)).
+- `RetryingJsonClient` ganhou `post_json` e `default_headers`, as primeiras capacidades
+  novas desde o ADR-012. As 859 asserções anteriores passaram sem alteração.
+- **Wave 12 🟢 concluída**, 3/3. Nada iniciado da W13.
 
 ## Important Details
 
+### 🔴 O que NÃO foi verificado, e é a primeira coisa a fazer
+
+**Nenhuma chamada real a modelo nenhum aconteceu.** A `GEMINI_API_KEY` é válida, mas a
+Gemini API está **desabilitada no projeto Google Cloud dela** — HTTP 403
+`SERVICE_DISABLED`, projeto `980912867288`. Não há Ollama local.
+
+**Por isso nenhum teste de regressão de parser foi escrito**, de propósito: um mock
+construído sobre suposição não verifica a suposição, reproduz ela. Foi assim que dois
+campos da Brapi passaram por 45 testes verdes na W06-003. O procedimento completo está em
+[CURRENT_TASK.md](CURRENT_TASK.md).
+
 ### Os enganos fáceis de cometer aqui
 
-**A tabela de desvio e o plano de rebalanceamento podem discordar sobre o mesmo ativo, e os dois
-estão certos** (W10). `/rebalance` mede a carteira de hoje; `/rebalance-plan` mede a carteira que
-o aporte cria.
+**`unverified_figures` não é diagnóstico, é leitura obrigatória.** Um cliente que exiba a
+prosa e ignore a lista desfaz metade da garantia. Nenhuma tela lê o campo hoje — a W12 é
+backend-only por decisão, e isso está em Future Work.
 
-**`/series` e `/benchmarks/{code}` reportam janelas que podem ser mais estreitas que a pedida**,
-porque as duas pontas são recortadas para a janela compartilhada. É de propósito, e as datas
-voltam na resposta.
+**Tópico novo exige builder novo.** Não existe tópico livre, de propósito: tópico sem
+builder é prompt sem fatos, que é exatamente o que o ADR-030 proíbe.
 
-**O frontend nunca calcula.** `lib/format.ts` só move vírgula. Se aparecer `?? 0` num call site,
-é bug: `null` do backend significa *não computável*, nunca zero.
+**Não edite um `prompts/*_v1.txt` no lugar.** Wording nova é arquivo `_v2`, porque a versão
+viaja em toda `Explanation` — editar em cima deixaria textos já gerados atribuídos a uma
+instrução que não existe mais.
 
-### O que o frontend ainda não tem
+**`AI_PROVIDER=none` não é defeito.** É deployment suportado: as rotas respondem 503
+`AI_NOT_CONFIGURED` dizendo o que configurar. Explicação é a única feature do projeto que
+pode ser desligada sem mudar um número em lugar nenhum.
 
-**Nenhum teste automatizado.** Os 14 schemas `zod` foram conferidos à mão contra um backend real
-e isso não se repete sozinho. Está em Future Work; pertence à W21, mas vale antes se crescer mais
-duas telas.
+**Um POST que grava não pode reusar `post_json` cegamente.** O retry dele é seguro porque
+geração de texto não cria recurso; um POST que mutasse estado precisa de idempotência
+própria.
 
-### Lições de método desta wave
+### As duas capacidades do roadmap §24 que ficaram fora
 
-- **Rodar contra o banco real e olhar os números** encontrou dois defeitos de waves anteriores que
-  27 testes verdes não encontraram. Não é cerimônia: é o único passo que não compartilha a
-  premissa do código.
-- **Quando a suíte quebra depois de uma correção, conferir de que lado está o erro.** Três testes
-  quebraram nesta wave e os três eram cenários escritos sob a premissa antiga.
-- **Mapa escrito por suposição erra.** O `ACTION_LABEL` da tela de Ativo inventava dois rótulos e
-  omitia dois que o banco tem aos montes — pego conferindo contra as respostas reais.
+*Resumir documentos* e *resumir notícias*. Não é falta de tempo: **o projeto não ingere
+notícia nem documento** — não há tabela, provedor nem endpoint. Um tópico para eles seria
+prompt sem fatos. Está em Future Work; ingerir notícia é uma wave própria.
 
 ## Pending Work
 
-**Wave 12 — AI Engine**. Ver [CURRENT_TASK.md](CURRENT_TASK.md), que lista o contrato que a wave
-tem que respeitar: a IA **não calcula** e **não decide** (regra 3, regra 24,
-[ADR-009](../decisions/ADR-009-quant-deterministic-ai-explains.md)).
+1. **Verificar os providers contra uma resposta real** (acima).
+2. **Wave 13 — Backtesting**. Ver [CURRENT_TASK.md](CURRENT_TASK.md) e o roadmap §25.
 
 ## Next Step
 
-Ler [CURRENT_TASK.md](CURRENT_TASK.md) e o roadmap §24. Antes de escrever parser ou mock do
-provedor de IA, fazer **uma chamada real** e olhar a resposta — a lição cara da W06-003.
+Ler [CURRENT_TASK.md](CURRENT_TASK.md). Se a Gemini API já estiver habilitada, comece pelo
+item 1 — são vinte minutos e ele tira dois módulos do estado "não verificado".
 
 ## Relevant Files
 
-- `backend/app/domain/portfolio/valuation.py` — valor de mercado, ausência por linha
-- `backend/app/domain/portfolio/performance.py` — as duas séries, e a regra de unidade do fluxo
-- `backend/app/domain/benchmarks/comparison.py` — `align`, e a janela compartilhada
-- `backend/app/domain/benchmarks/service.py` — `portfolio_series`
-- `frontend/src/lib/api.ts` — a única porta para o backend, com validação `zod`
-- `frontend/src/types/api.ts` — o contrato inteiro como schemas
-- `frontend/src/pages/` — Login · Dashboard · Carteira · Ativos · Ativo
-- `docs/architecture/FRONTEND.md` — a arquitetura do cliente e as regras que ele cumpre
+- `backend/app/integrations/ai/` — `base` · `schemas` · `exceptions` · `gemini` · `ollama` · `factory`
+- `backend/app/domain/ai/facts.py` — a cintura estreita: tudo que o modelo vê passa aqui
+- `backend/app/domain/ai/formatting.py` — o espelho de `frontend/src/lib/format.ts`
+- `backend/app/domain/ai/guard.py` — o controle que torna a regra 44 verificável
+- `backend/app/domain/ai/prompts/*_v1.txt` — os prompts versionados (regra 43)
+- `backend/app/integrations/http.py` — `post_json` e `default_headers`
+- `backend/app/api/routes/portfolios.py` — as três rotas `explain/*`, no fim do arquivo
+- `docs/decisions/ADR-029-*.md` e `ADR-030-*.md`

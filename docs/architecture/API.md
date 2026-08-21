@@ -41,7 +41,7 @@ raise HTTPException(status_code=404, detail={"error": {"code": "...", "message":
 
 Sem `detail` estruturado, o handler emite `code: "HTTP_ERROR"`. Erros de validação do Pydantic (422) seguem o formato padrão do FastAPI — **não** passam pelo handler.
 
-Códigos em uso: `INVALID_CREDENTIALS`, `ASSET_NOT_FOUND`, `ASSET_ALREADY_EXISTS`, `PORTFOLIO_NOT_FOUND`, `INSUFFICIENT_POSITION`, `MARKET_DATA_TICKER_NOT_FOUND`, `MARKET_DATA_UNAVAILABLE`, `MARKET_DATA_INVALID_RESPONSE`, `MARKET_DATA_WINDOW_TOO_LARGE`, `FUNDAMENTALS_NOT_FOUND`, `FUNDAMENTALS_UNAVAILABLE`, `FUNDAMENTALS_INVALID_RESPONSE`.
+Códigos em uso: `INVALID_CREDENTIALS`, `ASSET_NOT_FOUND`, `ASSET_ALREADY_EXISTS`, `PORTFOLIO_NOT_FOUND`, `INSUFFICIENT_POSITION`, `MARKET_DATA_TICKER_NOT_FOUND`, `MARKET_DATA_UNAVAILABLE`, `MARKET_DATA_INVALID_RESPONSE`, `MARKET_DATA_WINDOW_TOO_LARGE`, `FUNDAMENTALS_NOT_FOUND`, `FUNDAMENTALS_UNAVAILABLE`, `FUNDAMENTALS_INVALID_RESPONSE`, `BENCHMARK_NOT_FOUND`, `AI_NOT_CONFIGURED`, `AI_UNAVAILABLE`, `AI_RESPONSE_BLOCKED`, `INVALID_AI_RESPONSE`.
 
 ## Endpoints implementados
 
@@ -97,6 +97,9 @@ Unidades dos indicadores: margens, crescimento, ROE, ROIC e DY são **frações*
 | GET | `/{id}/contribution-plan` | onde vai o próximo aporte, e por quê. `amount` default = `monthly_contribution` do perfil (senão R$ 1.000). Todo limite é sobrescrevível por query param (`max_asset_weight`, `max_sector_weight`, `max_share_per_position`, `max_positions`, `min_ticket`, `min_coverage`, `min_score`, `require_sector`) e a política volta na resposta. Nada é gravado |
 | GET | `/{id}/rebalance` | `current_weight`, `target_weight` e `weight_gap` por ativo, mais underweight primeiro. ⚠️ O alvo sai do **mérito** (score sem o pilar de Diversificação) e não do `final_score` — um alvo feito do score recua conforme a carteira se aproxima ([ADR-027](../decisions/ADR-027-target-weight-comes-from-merit.md)). Ler `unassigned` junto com as linhas: é a fatia que os tetos não deram a ninguém. Alvo 0 em posição detida **não é ordem de venda**. Limites sobrescrevíveis: `max_asset_weight`, `max_sector_weight`, `min_coverage`, `min_score`, `rebalance_band`, `require_sector`. Nada é gravado |
 | GET | `/{id}/rebalance-plan` | o aporte que fecha os gaps: maior gap primeiro, cada alocação para no alvo. ⚠️ **Nada aqui vende** — ativo acima do alvo volta em `skipped` com `ABOVE_TARGET`, e fecha por diluição ([ADR-028](../decisions/ADR-028-rebalancing-is-cash-flow-only.md)). O gap que o plano usa é medido na carteira **depois** do aporte, então ele pode comprar um papel que o `/rebalance` chama de no-alvo. Distinto do `/contribution-plan`: aquele ordena por score, este por gap. Nada é gravado |
+| POST | `/{id}/explain/performance` | explicação em português do desempenho contra um benchmark (`?benchmark=CDI`). Os números são **os mesmos** de `/{id}/benchmarks/{code}` — mesma chamada, mesma janela — e chegam ao modelo já arredondados na string que a tela mostra. Nada é gravado |
+| POST | `/{id}/explain/contribution-plan` | explicação do plano de aporte. Aceita **os mesmos** overrides de política de `/{id}/contribution-plan`: quem subiu um teto e pediu explicação tem que receber o plano que está vendo. O modelo recebe o valor **e** a regra nomeada que dimensionou cada linha, então nunca precisa inferir o motivo |
+| POST | `/{id}/explain/scores/{ticker}` | explicação do score de um ativo nesta carteira. Ticker casado sem diferenciar maiúsculas; não pontuado → 404 `ASSET_NOT_FOUND` |
 
 ### Benchmarks — `/api/v1/benchmarks` (todos autenticados)
 | Método | Rota | Nota |
@@ -122,6 +125,16 @@ DEPOSIT/WITHDRAWAL: registrar `quantity = valor`, `price = 1`, sem `asset_id`.
 - `ContributionPlanResponse`: `policy` (os limites usados), `contribution`, `allocated`, `unallocated`, `base_value`, `allocations[]` e `skipped[]`, mais `formula_version` e `rules_version`.
   `allocated + unallocated == contribution` sempre — dinheiro que os limites não deixam colocar volta como `unallocated`, nunca é forçado. Cada `allocation` traz `amount`, `rank`, `final_score`, `coverage`, `coverage_tier`, `headroom`, `limited_by` (`ASSET_WEIGHT` / `SECTOR_WEIGHT` / `POSITION_SHARE` / `CONTRIBUTION_REMAINING`), `weight_before`/`weight_after` e os `sub_scores` inteiros. Cada `skipped` traz `reason` (`NOT_SCORABLE`, `COVERAGE_BELOW_MINIMUM`, `SCORE_BELOW_MINIMUM`, `SECTOR_UNKNOWN`, `ASSET_LIMIT_REACHED`, `SECTOR_LIMIT_REACHED`, `BELOW_MINIMUM_TICKET`, `MAX_POSITIONS_REACHED`, `CONTRIBUTION_EXHAUSTED`) e um `detail` em texto.
   `coverage_tier` é a faixa de comparabilidade: scores são comparados **dentro** de uma faixa e nunca entre faixas ([ADR-021](../decisions/ADR-021-allocation-ranks-by-coverage-tier.md)).
+
+- `Explanation` (as três rotas `explain/*`): `topic`, `subject`, `text`, `model`, `prompt_version`, `generated_at`, `facts[]` e `unverified_figures[]`.
+  ⚠️ **`unverified_figures` é leitura obrigatória, não diagnóstico.** É a lista de números que aparecem no texto e **não** casam com nenhum fato enviado — ou seja, números que o modelo inventou ou derivou por conta própria. Vem reportada em vez de bloquear a resposta ([ADR-030](../decisions/ADR-030-fact-pack-and-the-hallucination-guard.md)); um cliente que a ignorar desfaz metade da garantia.
+  `facts[]` é a evidência: cada fato traz `key`, `label`, `value` (canônico), `formatted` (a string que a tela mostra), `unit` e `source` — **o endpoint que produziu aquele número** (regra 112). O `key` e o `source` não vão para o modelo, só para o leitor.
+  `model` é o modelo que **de fato respondeu**, não o pedido: aliases são resolvidos no servidor do fornecedor. `prompt_version` é `system_vN+topico_vN` (regra 43).
+  Quando o backend não conseguiu calcular **nenhum** fato, o provedor nem é chamado: volta uma frase fixa dizendo que os dados estão indisponíveis, com `model: "none"` (regra 44).
+
+### Por que as rotas de explicação são POST
+
+Elas não gravam nada — como `/positions` e `/contribution-plan`, tudo é derivado. Mas um GET promete ser seguro e repetível, e estas gastam uma chamada externa metrada e respondem diferente a cada vez. Rotular isso como leitura seria uma mentira que um cache acabaria acreditando.
 
 ## Ao adicionar endpoints
 

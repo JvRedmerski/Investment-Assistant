@@ -88,12 +88,25 @@ O produto final deve responder: *Como está minha carteira? Estou batendo o CDI?
   no cliente (regra 73). Ausência é desenhada como ausência, cobertura parcial vem rotulada, e
   todo gráfico declara período, unidade, moeda, benchmark, fonte e atualização (regra 74).
 
+- **A camada que explica, e que é impedida de calcular.** A IA recebe um **fact pack** —
+  lista fechada de valores já computados, cada um com rótulo, unidade, a string **já
+  renderizada** e o endpoint de origem — e nunca uma série, um componente ou uma linha de
+  banco. Não há o que calcular, e arredondar (que também é calcular) é feito no backend,
+  com o espelho exato do formatador do frontend: o texto e o painel citam a **mesma
+  string**. Depois da geração, todo número do texto é confrontado com esse conjunto
+  fechado, e o que não casar volta em `unverified_figures` — **reportado, nunca
+  rejeitado**, porque um filtro com falso positivo é um filtro que alguém desliga
+  ([ADR-030](../decisions/ADR-030-fact-pack-and-the-hallucination-guard.md)). Três
+  perguntas têm explicação hoje: *estou batendo o CDI?*, *por que o aporte vai para esses
+  ativos?* e *o que esse score está medindo?*. Gemini ou Ollama local, atrás da mesma
+  interface — ou nenhum dos dois, que é um deployment suportado.
+
 ### Em desenvolvimento
-- **Nenhuma wave em andamento.** A próxima é a **Wave 12 — AI Engine**, a camada que explica e
-  que por contrato **não calcula**. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
+- **Nenhuma wave em andamento.** A próxima é a **Wave 13 — Backtesting**. Ver
+  [CURRENT_TASK.md](CURRENT_TASK.md), que também lista a verificação pendente da W12.
 
 ### Planejado (não existe código)
-AI Engine → Backtesting/Walk-forward → Day Trade (intraday, setups, risco, paper trading) → Observabilidade/Segurança/CI-CD/Deploy.
+Backtesting/Walk-forward → Day Trade (intraday, setups, risco, paper trading) → Observabilidade/Segurança/CI-CD/Deploy.
 Ver [../planning/ROADMAP.md](../planning/ROADMAP.md).
 
 As capacidades acima estão **expostas em tela** desde a W11. O que continua sem interface: backtesting, IA e day trade, que ainda não existem em lugar nenhum.
@@ -108,7 +121,9 @@ As capacidades acima estão **expostas em tela** desde a W11. O que continua sem
 | Frontend | React 18, TypeScript, Vite 5, Tailwind CSS, lucide-react, react-router-dom, @tanstack/react-query, recharts, zod, clsx, tailwind-merge |
 | Infra | Docker + Docker Compose (postgres, backend, frontend) |
 
-Declarados no `pyproject.toml` mas **ainda não importados por nenhum código**: numpy, pandas, scipy, scikit-learn, google-generativeai. As seis do frontend que estavam nessa lista entraram em uso na W11.
+Declarados no `pyproject.toml` mas **ainda não importados por nenhum código**: numpy, pandas, scipy, scikit-learn. As seis do frontend que estavam nessa lista entraram em uso na W11.
+
+⚠️ `google-generativeai` **saiu da lista porque saiu do projeto** (W12): estava declarado desde a W00, nunca foi importado, nem estava instalado no venv, e é o SDK que o Google descontinuou em favor de `google-genai`. A IA fala REST pelo mesmo transporte compartilhado de todas as outras integrações ([ADR-029](../decisions/ADR-029-ai-provider-speaks-rest.md)). **A W12 não adicionou nenhuma dependência.**
 
 ⚠️ A expectativa de que numpy/pandas/scipy entrariam na Wave 07 **foi revogada, não adiada**: levantando operação por operação, `Decimal` cobre todas as métricas de risco, e o determinismo (regra 113) é argumento para preferi-lo quando é grátis. Ver o adendo ao [ADR-017](../decisions/ADR-017-annualisation-and-numeric-type.md). A pergunta só volta se uma wave precisar de álgebra matricial de verdade (matriz de covariância, Markowitz).
 
@@ -120,7 +135,7 @@ Frontend (React/Vite)
 Backend FastAPI
    ├── api/routes      → HTTP, auth, tradução de erros
    ├── domain/<área>   → schemas Pydantic + service (regra de negócio)
-   ├── integrations/   → provedores externos atrás de interface abstrata
+   ├── integrations/   → provedores externos atrás de interface abstrata (inclusive IA)
    └── data/models     → SQLAlchemy 2.0
         ↓
 PostgreSQL  ←  Alembic migrations
@@ -128,7 +143,7 @@ PostgreSQL  ←  Alembic migrations
 
 Domínios conceituais (AGENTS.md §4):
 `Market Data → Quant Engine → Portfolio Engine → Recommendation Engine → AI Engine (só explicação)`.
-Os quatro primeiros existem; AI Engine ainda não.
+Os cinco existem desde a W12.
 
 ## Documentos-âncora do projeto
 

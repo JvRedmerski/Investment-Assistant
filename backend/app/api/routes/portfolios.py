@@ -5,11 +5,19 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_current_user
+from app.api.dependencies import get_ai_provider, get_current_user
+from app.core.config import settings
 from app.data.database import get_db
 from app.data.models.assets import Asset
 from app.data.models.portfolio import Portfolio, Transaction, TransactionTypeEnum
 from app.data.models.users import User
+from app.domain.ai.facts import (
+    asset_score_facts,
+    contribution_plan_facts,
+    portfolio_performance_facts,
+)
+from app.domain.ai.schemas import Explanation, FactPack
+from app.domain.ai.service import explain as explain_facts
 from app.domain.benchmarks.catalog import UnknownBenchmarkError, get_benchmark
 from app.domain.benchmarks.schemas import (
     BenchmarkComparisonResponse,
@@ -39,7 +47,11 @@ from app.domain.portfolio.service import (
     compute_positions,
 )
 from app.domain.portfolio.valuation import value_positions
-from app.domain.recommendations.allocation import DEFAULT_POLICY, AllocationPolicy
+from app.domain.recommendations.allocation import (
+    DEFAULT_POLICY,
+    AllocationPlan,
+    AllocationPolicy,
+)
 from app.domain.recommendations.schemas import (
     AllocationPolicyResponse,
     AllocationResponse,
@@ -54,12 +66,19 @@ from app.domain.recommendations.schemas import (
     SkippedCandidateResponse,
     SubScoreResponse,
 )
-from app.domain.recommendations.scoring import SCORING_FORMULA_VERSION
+from app.domain.recommendations.scoring import SCORING_FORMULA_VERSION, AssetScore
 from app.domain.recommendations.service import (
     plan_contribution,
     plan_rebalance,
     portfolio_targets,
     score_universe,
+)
+from app.integrations.ai.base import AIProvider
+from app.integrations.ai.exceptions import (
+    AINotConfiguredError,
+    AIResponseBlockedError,
+    AIUnavailableError,
+    InvalidAIResponseError,
 )
 
 router = APIRouter(prefix="/portfolios", tags=["Portfolio"])
@@ -358,8 +377,15 @@ def compare_portfolio_against_benchmark(
     it could actually measure.
     """
     portfolio = _get_owned_portfolio(db, portfolio_id, current_user)
+    definition = _resolve_benchmark(code)
+    comparison = compare_portfolio_with_benchmark(db, portfolio, definition, start, end)
+    return BenchmarkComparisonResponse.model_validate(comparison)
+
+
+def _resolve_benchmark(code: str):
+    """The catalog entry for `code`, or a 404 naming it."""
     try:
-        definition = get_benchmark(code)
+        return get_benchmark(code)
     except UnknownBenchmarkError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -370,9 +396,6 @@ def compare_portfolio_against_benchmark(
                 }
             },
         ) from exc
-
-    comparison = compare_portfolio_with_benchmark(db, portfolio, definition, start, end)
-    return BenchmarkComparisonResponse.model_validate(comparison)
 
 
 @router.get("/{portfolio_id}/series", response_model=PortfolioSeriesResponse)
@@ -487,21 +510,7 @@ def get_portfolio_scores(
     return PortfolioScoresResponse(
         portfolio_id=portfolio.id,
         formula_version=SCORING_FORMULA_VERSION,
-        scores=[
-            AssetScoreResponse(
-                ticker=asset.ticker,
-                asset_id=asset.id,
-                name=asset.name,
-                sector=asset.sector,
-                formula_version=score.formula_version,
-                final_score=score.final_score,
-                coverage=score.coverage,
-                sub_scores=[
-                    SubScoreResponse.model_validate(sub) for sub in score.sub_scores
-                ],
-            )
-            for asset, score in scored
-        ],
+        scores=[_asset_score_response(asset, score) for asset, score in scored],
     )
 
 
@@ -570,9 +579,21 @@ def get_contribution_plan(
         as_of=as_of,
         policy=policy,
     )
+    return _contribution_plan_response(portfolio.id, plan)
 
+
+def _contribution_plan_response(
+    portfolio_id: int, plan: AllocationPlan
+) -> ContributionPlanResponse:
+    """The plan as the API reports it.
+
+    Extracted so the explanation endpoint can build the *same* object the
+    plain endpoint returns. An explanation that described a
+    separately-assembled response would be explaining something the
+    investor is not looking at, and the difference would be invisible.
+    """
     return ContributionPlanResponse(
-        portfolio_id=portfolio.id,
+        portfolio_id=portfolio_id,
         rules_version=plan.rules_version,
         formula_version=plan.formula_version,
         policy=_policy_response(plan.policy),
@@ -856,3 +877,217 @@ def _policy_response(policy: AllocationPolicy) -> AllocationPolicyResponse:
         rebalance_band=policy.rebalance_band,
         require_sector=policy.require_sector,
     )
+
+
+def _asset_score_response(asset: Asset, score: AssetScore) -> AssetScoreResponse:
+    """One scored asset as the API reports it.
+
+    Extracted for the same reason `_contribution_plan_response` is: the
+    explanation endpoint must describe the very object the plain
+    endpoint returns, not a second assembly of it.
+    """
+    return AssetScoreResponse(
+        ticker=asset.ticker,
+        asset_id=asset.id,
+        name=asset.name,
+        sector=asset.sector,
+        formula_version=score.formula_version,
+        final_score=score.final_score,
+        coverage=score.coverage,
+        sub_scores=[SubScoreResponse.model_validate(sub) for sub in score.sub_scores],
+    )
+
+
+# -- explanations (Wave 12) -------------------------------------------
+#
+# Every endpoint below computes its numbers exactly as the corresponding
+# read endpoint does, hands them to `app.domain.ai` as a fact pack, and
+# returns the prose together with the facts it was built from. The model
+# never sees the database, never sees a series, and never produces a
+# figure of its own (AGENTS.md rules 3/24, ADR-009).
+#
+# They are POSTs even though they store nothing. A GET is expected to be
+# safe and repeatable, and these spend a metered external call and answer
+# differently each time; labelling that as a read would be a lie a cache
+# would eventually act on.
+
+
+def _explain(provider: AIProvider, pack: FactPack) -> Explanation:
+    """Run one explanation, translating provider failures into HTTP.
+
+    Each failure keeps its own code, because the operator action differs:
+    a missing key is a configuration fix, an unreachable model is a wait,
+    and a refusal is neither. 503 for the two that may pass on their own,
+    502 for the two where the provider answered and the answer was not
+    usable.
+    """
+    try:
+        return explain_facts(
+            provider,
+            pack,
+            temperature=settings.AI_TEMPERATURE,
+            max_output_tokens=settings.AI_MAX_OUTPUT_TOKENS,
+        )
+    except AINotConfiguredError as exc:
+        raise _ai_http_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "AI_NOT_CONFIGURED", exc
+        ) from exc
+    except AIUnavailableError as exc:
+        raise _ai_http_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "AI_UNAVAILABLE", exc
+        ) from exc
+    except AIResponseBlockedError as exc:
+        raise _ai_http_error(
+            status.HTTP_502_BAD_GATEWAY, "AI_RESPONSE_BLOCKED", exc
+        ) from exc
+    except InvalidAIResponseError as exc:
+        raise _ai_http_error(
+            status.HTTP_502_BAD_GATEWAY, "INVALID_AI_RESPONSE", exc
+        ) from exc
+
+
+def _ai_http_error(status_code: int, code: str, exc: Exception) -> HTTPException:
+    return HTTPException(
+        status_code=status_code,
+        detail={"error": {"code": code, "message": str(exc)}},
+    )
+
+
+@router.post(
+    "/{portfolio_id}/explain/performance",
+    response_model=Explanation,
+)
+def explain_portfolio_performance(
+    portfolio_id: int,
+    benchmark: str = Query(
+        "CDI", description="Benchmark code to explain the portfolio against."
+    ),
+    start: date | None = None,
+    end: date | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    provider: AIProvider = Depends(get_ai_provider),
+) -> Explanation:
+    """Explain, in Portuguese, how this portfolio did against a benchmark.
+
+    The numbers are the ones `GET /portfolios/{id}/benchmarks/{code}`
+    returns — same call, same window, same figures — and they arrive at
+    the model already rounded to the strings the screen shows, so the
+    prose cannot disagree with the panel beside it.
+
+    The window is the one **both** sides share and may be narrower than
+    the portfolio's life (W11-004); the response says which it was.
+    """
+    portfolio = _get_owned_portfolio(db, portfolio_id, current_user)
+    definition = _resolve_benchmark(benchmark)
+    comparison = compare_portfolio_with_benchmark(db, portfolio, definition, start, end)
+
+    pack = portfolio_performance_facts(
+        portfolio.name,
+        portfolio.id,
+        BenchmarkComparisonResponse.model_validate(comparison),
+    )
+    return _explain(provider, pack)
+
+
+@router.post(
+    "/{portfolio_id}/explain/contribution-plan",
+    response_model=Explanation,
+)
+def explain_contribution_plan(
+    portfolio_id: int,
+    amount: Decimal | None = Query(None, gt=0),
+    max_asset_weight: Decimal | None = Query(None, gt=0, le=1),
+    max_sector_weight: Decimal | None = Query(None, gt=0, le=1),
+    max_share_per_position: Decimal | None = Query(None, gt=0, le=1),
+    max_positions: int | None = Query(None, ge=1),
+    min_ticket: Decimal | None = Query(None, ge=0),
+    min_coverage: Decimal | None = Query(None, ge=0, le=1),
+    min_score: Decimal | None = Query(None, ge=0, le=100),
+    require_sector: bool | None = Query(None),
+    start: date | None = None,
+    as_of: date | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    provider: AIProvider = Depends(get_ai_provider),
+) -> Explanation:
+    """Explain where the next contribution goes, and why.
+
+    Takes the same policy overrides as
+    `GET /portfolios/{id}/contribution-plan`, and for a reason: an
+    investor who raised a ceiling and then asked for an explanation must
+    get the plan they are looking at, not the default one.
+
+    The model is told the amounts *and* the named rule that sized each
+    line, so it never has to infer a reason — inferring one is how it
+    would invent one.
+    """
+    portfolio = _get_owned_portfolio(db, portfolio_id, current_user)
+    policy = _policy_with(
+        max_asset_weight=max_asset_weight,
+        max_sector_weight=max_sector_weight,
+        max_share_per_position=max_share_per_position,
+        max_positions=max_positions,
+        min_ticket=min_ticket,
+        min_coverage=min_coverage,
+        min_score=min_score,
+        require_sector=require_sector,
+    )
+    plan = plan_contribution(
+        db,
+        portfolio,
+        contribution=amount,
+        start=start,
+        as_of=as_of,
+        policy=policy,
+    )
+
+    pack = contribution_plan_facts(
+        portfolio.name, _contribution_plan_response(portfolio.id, plan)
+    )
+    return _explain(provider, pack)
+
+
+@router.post(
+    "/{portfolio_id}/explain/scores/{ticker}",
+    response_model=Explanation,
+)
+def explain_asset_score(
+    portfolio_id: int,
+    ticker: str,
+    start: date | None = None,
+    as_of: date | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    provider: AIProvider = Depends(get_ai_provider),
+) -> Explanation:
+    """Explain one asset's score inside this portfolio.
+
+    The score is relative to the portfolio (rule 31) and rests on
+    whatever fraction of the formula had data, which is why `coverage`
+    travels with it and the prompt requires it to be stated: two scores
+    with different coverage are not comparable, and an explanation that
+    omitted that would make them look as though they were.
+    """
+    portfolio = _get_owned_portfolio(db, portfolio_id, current_user)
+    scored = score_universe(db, portfolio, start=start, as_of=as_of)
+
+    wanted = ticker.upper()
+    match = next(
+        ((asset, score) for asset, score in scored if asset.ticker.upper() == wanted),
+        None,
+    )
+    if match is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": {
+                    "code": "ASSET_NOT_FOUND",
+                    "message": f"{ticker} is not scored for this portfolio.",
+                }
+            },
+        )
+
+    asset, score = match
+    pack = asset_score_facts(_asset_score_response(asset, score), portfolio.id)
+    return _explain(provider, pack)
