@@ -6,9 +6,55 @@
 
 ## Current Phase
 
-**Wave 12 — AI Engine concluída** (2026-08-21), **3 de 3 tasks**. **13 de 33 waves do roadmap
-concluídas** (W00–W12), mais as duas inseridas fora da ordem (PRICE e EVENTS). **A próxima é a
-Wave 13 — Backtesting.**
+**Wave 13 — Backtesting concluída** (2026-08-21), **6 de 6 tasks**. **14 de 33 waves do roadmap
+concluídas** (W00–W13), mais as duas inseridas fora da ordem (PRICE e EVENTS). **A próxima é a
+Wave 14 — Walk-Forward Validation.**
+
+✅ **O backtest fala ledger, e é isso que o impede de ter uma segunda contabilidade.** A saída da
+simulação são linhas de `Transaction` — o mesmo formato de uma carteira real — então
+`compute_positions`, `value_series` e `performance_index` medem um backtest com **exatamente** o
+código que mede a carteira do investidor. Pela mesma razão a estratégia sob teste não é *uma*
+estratégia: é `allocate_contribution`, a mesma função pura que `/contribution-plan` chama hoje.
+Backtest de reimplementação mede a reimplementação.
+
+✅ **Três formas de olhar o futuro, e as três ficaram fora de alcance em vez de desencorajadas.**
+
+1. **Preço.** A decisão recebe os fechamentos **daquela sessão** e nada mais, e a ordem preenche
+   na **seguinte** — um fechamento só pode ser lido depois de impresso. O intervalo entre decidir
+   e preencher é onde mora o *slippage*, que por isso é **medido** e não assumido a uma taxa.
+2. **Balanço.** Exercício que fecha em 31 de dezembro não é público em 1º de janeiro. Três meses,
+   o prazo do DFP na CVM — a data **legal mais tardia**, porque errar para tarde custa informação
+   e errar para cedo dá informação que ninguém tinha
+   ([ADR-031](../decisions/ADR-031-a-statement-is-readable-only-after-the-filing-deadline.md)).
+3. **Provento.** A janela começa onde **todo** ativo tem série de retorno total completa: sessão
+   marcada ex sem ação dimensionada é distribuição que a simulação não paga, e a execução ficaria
+   **errada**, não apenas não-mensurável
+   ([ADR-032](../decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md)).
+
+🔴 **Rodar contra o banco real achou dois defeitos que nenhum fixture alcançaria** — o mesmo passo
+que achou os dois erros de janela da W11:
+
+1. **Um feriado estava sendo reportado como problema de dado.** Ninguém negocia em 1º de janeiro,
+   então uma execução pedida a partir do dia 1º começa no dia 2, e `window.bounded_by` nomeava um
+   ativo por isso. O campo existe para responder *"por que meu backtest de dez anos cobriu
+   quatro?"*; dispará-lo por um dia de calendário torna o caso honesto ilegível.
+2. **Alpha estava sendo calculado contra o CDI.** O `compare` deliberadamente não reporta beta para
+   benchmark de **taxa**, e alpha é a aritmética do beta — estava reportando 0,30 p.p. de
+   habilidade contra um número que não mede nada.
+
+⚠️ **O que a execução real mostrou, e não é defeito:** com PETR4 e BBAS3, seis anos, R$ 72.000
+aportados → **28 compras e R$ 58.471 em caixa**. Cada recusa é nomeada; três dos quatro ativos não
+têm demonstrativo e nunca passam do piso de cobertura, e a PETR4 cai de 62,28 para 35,83 no
+instante em que é detida — 15 pontos são o pilar de concentração, 11,45 são a regra 109 entregando
+o exercício de 2024 no vencimento do prazo da CVM. **A estratégia estacionar dinheiro quando nada
+passa do seu piso é um resultado sobre a estratégia**, que é para isso que serve um backtest.
+
+⚠️ **Nenhuma tela lê um backtest.** A W13 é backend-only por decisão, como a W12. O roadmap põe
+`/backtests` na W22.
+
+---
+
+### O que a Wave 12 deixou (mantido para contexto)
 
 ✅ **"A IA não calcula" deixou de ser confiança e virou mecanismo.** O
 [ADR-009](../decisions/ADR-009-quant-deterministic-ai-explains.md) decidiu isso em 2026-08-09 e
@@ -128,11 +174,11 @@ CDI e IPCA **não** são afetados: vêm do Banco Central (SGS), aberto e sem cot
 
 | | |
 |---|---|
-| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine · W08 Benchmark Engine · W09 Recommendation Engine · W10 Rebalancing · W11 Dashboard · **W12 AI Engine** · **PRICE Open Price History** (inserida) · **EVENTS Corporate Actions & Distributions** (inserida) |
-| **In Progress** | — nenhuma. Próxima: **Wave 13 — Backtesting**; ver [CURRENT_TASK.md](CURRENT_TASK.md) |
+| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine · W08 Benchmark Engine · W09 Recommendation Engine · W10 Rebalancing · W11 Dashboard · W12 AI Engine · **W13 Backtesting** · **PRICE Open Price History** (inserida) · **EVENTS Corporate Actions & Distributions** (inserida) |
+| **In Progress** | — nenhuma. Próxima: **Wave 14 — Walk-Forward Validation**; ver [CURRENT_TASK.md](CURRENT_TASK.md) |
 | **Blocked** | — nenhuma. ⚠️ Mas os dois providers de IA da W12 são código **não verificado** até que uma chamada real aconteça |
 
-Baseline atual: `pytest` → **944 passed** (backend/.venv), verificado em 2026-08-21. Frontend: `npm run build` e `npm run lint` limpos. `ruff check .` e `black --check .` limpos no repositório inteiro; `alembic check` sem drift na última execução (2026-08-19, com o banco no ar); `npm run lint` e `npm run build` funcionando.
+Baseline atual: `pytest` → **1.049 passed** (backend/.venv), verificado em 2026-08-21. Frontend: `npm run build` e `npm run lint` limpos. `ruff check .` e `black --check .` limpos no repositório inteiro; `alembic check` sem drift na última execução (2026-08-19, com o banco no ar); `npm run lint` e `npm run build` funcionando.
 
 ## Completed Work (nível wave)
 
@@ -230,9 +276,20 @@ Detalhe por task: [../history/COMPLETED_TASKS.md](../history/COMPLETED_TASKS.md)
   `POST /portfolios/{id}/explain/*`. `google-generativeai` **removido**. Nada é gravado, logo
   nenhuma migration. ⚠️ Providers **não verificados** contra resposta real.
 
+- **W13** — **Backtesting de carteira**, 6 tasks. `app/domain/backtesting/`: `simulation.py`
+  (o motor **e** os objetos que ele fala — puro, sem I/O), `metrics.py` (trade fechado, taxas e o
+  *slippage* medido), `availability.py` (quando um demonstrativo virou público), `universe.py` (a
+  estratégia do projeto numa data passada) e `service.py` (o que pode ser replayado, e desde
+  quando). `alpha` entrou em `app/quant/risk.py`, ao lado do `beta` em que se apoia.
+  `GET /api/v1/backtests` com as duas estratégias — plano de aporte e plano de rebalanceamento.
+  A W13-001 corrigiu um defeito de wave anterior: o replay do ledger ignorava ação societária, e
+  as **duas curvas precisam de restatements opostos do mesmo evento**. Nada é gravado, logo
+  nenhuma migration ([ADR-031](../decisions/ADR-031-a-statement-is-readable-only-after-the-filing-deadline.md),
+  [ADR-032](../decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md)).
+
 ## Current Work
 
-**Nenhuma.** A Wave 12 fechou em 2026-08-21 com as três tasks entregues e nada de código pela
+**Nenhuma.** A Wave 13 fechou em 2026-08-21 com as seis tasks entregues e nada de código pela
 metade. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ## Next Recommended Step
@@ -241,9 +298,12 @@ metade. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
    Cloud da chave, fazer **uma** chamada real, conferir o formato campo a campo e escrever o
    teste de regressão. Enquanto isso não acontece, `gemini.py` e `ollama.py` são código não
    verificado — e a W06-003 já mostrou o que isso custa quando passa despercebido.
-2. **Wave 13 — Backtesting**, de volta à ordem do roadmap. Ela precisa de **retorno total**, e
-   a série ajustada existe desde a EVENTS-003 — onde o ajuste é completo, e truncada onde não é
-   ([ADR-026](../decisions/ADR-026-corporate-action-magnitude-and-the-completeness-rule.md)).
+2. **Wave 14 — Walk-Forward Validation** (roadmap §26). A W13 inteira já existe — motor,
+   estratégia e métricas; o que falta é o **particionamento** das janelas (treino / validação /
+   teste) e o que se afirma a partir dele: estabilidade, e não um número melhor (regra 60).
+   ⚠️ **A janela herdada é apertada**: o universo dos quatro ativos acompanhados dá **nove
+   meses**, porque a série ajustada da ITUB4 tem 198 de 1.495 pregões. Ampliar isso é ingerir os
+   eventos que faltam, **não** relaxar a regra de completude.
 3. **Antes de confiar no Risco de um ativo novo, rode o sync de ações societárias.** Um papel só
    com preço bruto continua sem `adjusted_close`, e portanto sem risco — o que é o estado normal
    que o motor de score já trata, não um defeito. O comando é

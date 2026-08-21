@@ -1,6 +1,6 @@
 # Roadmap — Waves
 
-> Camada 4. Índice consolidado das 33 waves com status real (2026-08-20).
+> Camada 4. Índice consolidado das 33 waves com status real (2026-08-21).
 > A **especificação funcional completa** (fórmulas, setups, schema, critérios detalhados) está em [../roadmap.md](../roadmap.md) — vá lá só quando for implementar a wave, na seção indicada.
 
 Legenda: 🟢 concluída · 🟡 em progresso · ⚪ não iniciada
@@ -8,7 +8,7 @@ Legenda: 🟢 concluída · 🟡 em progresso · ⚪ não iniciada
 ## Estado geral
 
 **13 / 33 concluídas** (W00–W12), **mais duas waves inseridas fora da ordem** — ver abaixo.
-Fronteira atual: a **Wave 13 — Backtesting**. As W10, W11 e W12 fecharam em 2026-08-21: a W11
+Fronteira atual: a **Wave 14 — Walk-Forward Validation**. A W13 fechou em 2026-08-21 com 6 tasks (o roadmap previa 2): o backtest **fala ledger**, então mede com o mesmo código que mede a carteira do investidor, e replaya **a** estratégia do projeto em vez de uma reimplementação dela. Registro anterior: a **Wave 13 — Backtesting**. As W10, W11 e W12 fecharam em 2026-08-21: a W11
 tirou o frontend do estado de scaffold e a W12 trouxe a camada que explica — e que por contrato
 não calcula (ver [CURRENT_TASK.md](../memory/CURRENT_TASK.md)).
 
@@ -63,8 +63,8 @@ o último dos 10 indicadores sem insumo.
 | Wave | Objetivo | Status | Depende de | Spec |
 |---|---|---|---|---|
 | W12 | **AI Engine** — `AIProvider` (Gemini/Ollama/none), fact pack e explicações auditáveis | 🟢 — 3 tasks ([ADR-029](../decisions/ADR-029-ai-provider-speaks-rest.md), [ADR-030](../decisions/ADR-030-fact-pack-and-the-hallucination-guard.md)) | W09 | §24 |
-| **W13** | **Backtesting de carteira** — simulação histórica de aportes + métricas | ⚪ **próxima** | W07, W09 | §25 |
-| W14 | Walk-forward — janelas móveis, validação out-of-sample | ⚪ | W13 | §26 |
+| W13 | **Backtesting de carteira** — simulação histórica de aportes + métricas | 🟢 — 6 tasks ([ADR-031](../decisions/ADR-031-a-statement-is-readable-only-after-the-filing-deadline.md), [ADR-032](../decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md)) | W07, W09 | §25 |
+| **W14** | Walk-forward — janelas móveis, validação out-of-sample | ⚪ **próxima** | W13 | §26 |
 
 ✅ **A W12 fez da regra "a IA não calcula" um mecanismo** (2026-08-21): o modelo recebe um
 **fact pack** — valores já calculados, já arredondados na string que a tela mostra — e um guard

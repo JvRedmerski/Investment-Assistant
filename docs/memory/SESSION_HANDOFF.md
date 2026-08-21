@@ -6,114 +6,117 @@
 
 ## Last Completed Work
 
-### Wave 12 — AI Engine, 3/3 (`c7643af`, `47ee85a`, `6d0b315`)
+### Wave 13 — Backtesting de carteira, 6/6 (`02cd288`, `a42a91f`, `6409568`, `67b6cf7`, `9c55cab`, `6142a97`, `0f5bb0b`)
 
-A wave que transformou "a IA não calcula" de promessa em mecanismo. O
-[ADR-009](../decisions/ADR-009-quant-deterministic-ai-explains.md) decidiu isso em
-2026-08-09 e não disse *como* — não havia código de IA para dizer. Agora há.
+O roadmap previa duas tasks. Foram seis, e as quatro a mais não são subdivisão — são coisas
+que só apareceram ao construir.
 
 | task | entrega |
 |---|---|
-| **W12-001** | `AIProvider` + `GeminiProvider` + `OllamaProvider` + `DisabledAIProvider`, sobre o transporte compartilhado ([ADR-029](../decisions/ADR-029-ai-provider-speaks-rest.md)) |
-| **W12-002** | `app/domain/ai/` — fact pack, prompts versionados, guard ([ADR-030](../decisions/ADR-030-fact-pack-and-the-hallucination-guard.md)) |
-| **W12-003** | `POST /portfolios/{id}/explain/{performance,contribution-plan,scores/{ticker}}` |
+| **W13-001** | Ação societária aplicada no replay do ledger — defeito de wave anterior |
+| **W13-002** | O motor de simulação, puro e sem I/O |
+| **W13-003** | A própria estratégia do projeto replayada, com o lag da CVM ([ADR-031](../decisions/ADR-031-a-statement-is-readable-only-after-the-filing-deadline.md)) |
+| **W13-004** | `alpha` no quant, *slippage* **medido**, trade fechado ausente por desenho |
+| **W13-005** | O serviço, com a janela parando onde a série de retorno total para ([ADR-032](../decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md)) |
+| **W13-006** | `GET /api/v1/backtests` |
 
-### Como a garantia funciona, e por que ela não é um prompt
+### Por que a wave não tem uma segunda contabilidade
 
-Um prompt **pede**; ele não **garante**. Três mecanismos, nesta ordem:
+**O backtest fala ledger.** A saída da simulação são linhas de `Transaction`, então
+`compute_positions`, `value_series` e `performance_index` medem um backtest com exatamente o
+código que mede a carteira do investidor. Um segundo caminho de valorização seria um segundo
+conjunto de bugs, e a primeira divergência apareceria como um backtest discordando do
+dashboard por motivo que ninguém saberia nomear.
 
-1. **Não há o que calcular.** O modelo recebe um fact pack — lista fechada e plana de
-   valores já calculados, com rótulo, unidade, string renderizada e endpoint de origem.
-   Sem série, sem componente, sem linha de banco. `facts.py` é a **cintura estreita**:
-   tudo que o modelo verá passa por ali, então a regra vive em um lugar legível em vez de
-   depender de disciplina espalhada.
-2. **Não há o que arredondar.** Arredondar é calcular. `formatting.py` é o espelho exato
-   de `frontend/src/lib/format.ts`, incluindo `ROUND_HALF_UP` porque é o gêmeo Python do
-   half-expand do ECMA-402. O modelo recebe `12,4%` e copia — a frase e o painel citam a
-   **mesma string**.
-3. **O que sobrar é apontado.** `guard.py` confronta todo número do texto com o conjunto
-   fechado de figuras que o backend escreveu (valor renderizado, valor canônico e
-   **rótulo** — "nota de 0 a 100" torna `0` e `100` citáveis). O que não casar volta em
-   `unverified_figures`.
+Pela mesma razão a estratégia **não é reimplementada**: `universe.py` monta os candidatos como
+estariam numa data passada e entrega a `allocate_contribution` — a mesma função pura que
+`/contribution-plan` chama hoje.
 
-**Reportar em vez de rejeitar foi decisão, não preguiça.** Rejeitar faria a confiabilidade
-do recurso depender de como o modelo redigiu uma frase: o usuário veria erro no lugar da
-explicação, a chamada seria repetida, e a repetição é outro sorteio. Filtro com falso
-positivo é filtro que alguém desliga. Reportar mantém a falha visível e grudada no
-artefato — a mesma escolha que o motor de score faz com `coverage`.
+### As três formas de olhar o futuro, e como cada uma foi fechada
 
-### Os dois defeitos que a wave achou em si mesma
+1. **Preço.** A decisão recebe os fechamentos **daquela sessão** e nada mais, e a ordem
+   preenche na **seguinte** — um fechamento só pode ser lido depois de impresso. O intervalo
+   entre decidir e preencher é onde mora o *slippage*, que por isso é **medido** e não
+   assumido a alguma taxa em pontos-base.
+2. **Balanço.** A regra 108 bastava para um score de hoje e não para um backtest: exercício
+   que fecha em 31 de dezembro não é público em 1º de janeiro. Três meses, o prazo do DFP —
+   a data **legal mais tardia**, porque errar para tarde custa informação e errar para cedo
+   dá informação que ninguém tinha.
+3. **Provento.** A janela começa onde **todo** ativo tem série de retorno total completa.
+   Sessão marcada ex sem ação dimensionada é distribuição que a simulação não paga: a
+   execução ficaria **errada**, não apenas não-mensurável.
 
-Os dois eram de **desenho**, e os dois apareceram rodando um teste escrito para outra
-coisa — o teste que proíbe o prompt de introduzir número que não seja fato (regra 43).
+### Os dois defeitos que rodar contra o banco real encontrou
 
-1. **`key` e `source` estavam sendo renderizados dentro do prompt.** Servem ao leitor, não
-   ao modelo, e mandá-los punha os dígitos de `/api/v1/portfolios/1` na frente de um
-   modelo instruído a citar só o que recebeu. Hoje viajam só na `Explanation`.
-2. **O prompt de sistema trazia `"12,4%"` como exemplo** de como citar um valor — um
-   número plausível presente em toda requisição, pronto para vazar. Virou `"X,Y%"`, e um
-   teste agora proíbe qualquer coisa com a forma `\d,\d` ali.
+Nenhum era alcançável por fixture, e os dois saíram de **ler** uma execução de seis anos —
+o mesmo passo que achou os dois erros de janela da W11.
 
-Um terceiro achado, sobre o contrato e não sobre o código: meus testes de rota assumiam o
-envelope de erro sob `detail`, quando a regra 72 o põe no topo. **O teste é que estava
-errado** — conferir de que lado está o erro continua valendo.
+1. **Um feriado estava sendo reportado como problema de dado.** Ninguém negocia em 1º de
+   janeiro, então uma execução pedida a partir do dia 1º começa no dia 2, e
+   `window.bounded_by` nomeava um ativo por isso. Passou a comparar contra a primeira sessão
+   que o universo de fato tem.
+2. **Alpha estava sendo calculado contra o CDI.** O `compare` deliberadamente não reporta
+   beta para benchmark de **taxa**, e alpha é a aritmética do beta. O portão passou a ser o
+   beta que o `compare` alcançou — segunda leitura do tipo do benchmark é como as duas
+   passariam a discordar.
+
+Um terceiro achado, este de convenção e não de correção: `schemas.py` é a camada Pydantic em
+**13 de 13** módulos, e a W13-002 tinha feito o de backtesting guardar as dataclasses do
+motor. Elas foram para `simulation.py`, ao lado do replay que as produz.
 
 ## Current State
 
-- `pytest` → **944 passed** (859 → 944), verificado em 2026-08-21. `ruff` e `black` limpos
-  nos arquivos alterados.
-- **Nenhuma migration**: nada da W12 é gravado (regra 16). Schema segue `012_corporate_actions`.
-- `google-generativeai` **removido** do `pyproject.toml` — declarado desde a W00, nunca
-  importado, nem instalado no venv, e descontinuado pelo Google
-  ([ADR-029](../decisions/ADR-029-ai-provider-speaks-rest.md)).
-- `RetryingJsonClient` ganhou `post_json` e `default_headers`, as primeiras capacidades
-  novas desde o ADR-012. As 859 asserções anteriores passaram sem alteração.
-- **Wave 12 🟢 concluída**, 3/3. Nada iniciado da W13.
+- `pytest` → **1.049 passed** (944 → 1.049), verificado em 2026-08-21. `ruff` e `black`
+  limpos no repositório inteiro.
+- **Nenhuma migration**: nada da W13 é gravado (regra 16). Schema segue `012_corporate_actions`.
+- **Nenhuma dependência nova.** `alpha` entrou em `app/quant/risk.py`, em `Decimal`, como
+  todo o resto do motor.
+- **Wave 13 🟢 concluída**, 6/6. Nada iniciado da W14.
 
 ## Important Details
 
 ### 🔴 O que NÃO foi verificado, e é a primeira coisa a fazer
 
-**Nenhuma chamada real a modelo nenhum aconteceu.** A `GEMINI_API_KEY` é válida, mas a
-Gemini API está **desabilitada no projeto Google Cloud dela** — HTTP 403
-`SERVICE_DISABLED`, projeto `980912867288`. Não há Ollama local.
-
-**Por isso nenhum teste de regressão de parser foi escrito**, de propósito: um mock
-construído sobre suposição não verifica a suposição, reproduz ela. Foi assim que dois
-campos da Brapi passaram por 45 testes verdes na W06-003. O procedimento completo está em
+**Nenhuma chamada real a modelo nenhum aconteceu** (herdado da W12). A `GEMINI_API_KEY` é
+válida, mas a Gemini API está **desabilitada no projeto Google Cloud dela** — HTTP 403
+`SERVICE_DISABLED`, projeto `980912867288`. Não há Ollama local. Por isso **nenhum teste de
+regressão de parser foi escrito**, de propósito. Procedimento completo em
 [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ### Os enganos fáceis de cometer aqui
 
-**`unverified_figures` não é diagnóstico, é leitura obrigatória.** Um cliente que exiba a
-prosa e ignore a lista desfaz metade da garantia. Nenhuma tela lê o campo hoje — a W12 é
-backend-only por decisão, e isso está em Future Work.
+**`wealth` não é desempenho.** É patrimônio em BRL com `contributed` por baixo. A resposta
+comparável a um benchmark é `comparison`, que é time-weighted. Exibir a primeira sozinha é a
+leitura que o [ADR-019](../decisions/ADR-019-portfolio-return-is-time-weighted.md) existe para
+impedir.
 
-**Tópico novo exige builder novo.** Não existe tópico livre, de propósito: tópico sem
-builder é prompt sem fatos, que é exatamente o que o ADR-030 proíbe.
+**`comparison` descreve um período mais curto que `index`** sempre que o benchmark tem menos
+histórico — os dois lados são recortados à janela compartilhada. Medido: uma execução de seis
+anos comparada com o CDI reporta **quatro meses**, porque 2025-08-18 é o começo do CDI
+ingerido. `subject.start_date` é o que diz isso.
 
-**Não edite um `prompts/*_v1.txt` no lugar.** Wording nova é arquivo `_v2`, porque a versão
-viaja em toda `Explanation` — editar em cima deixaria textos já gerados atribuídos a uma
-instrução que não existe mais.
+**As cinco figuras de trade fechado voltam `null` de propósito.** `win_rate`, `average_win`,
+`average_loss`, `profit_factor` e `expectancy` são definidas sobre trade **fechado**, e nada
+que este projeto entrega vende ([ADR-028](../decisions/ADR-028-rebalancing-is-cash-flow-only.md)).
+`closed_trades: 0` é o que diz por quê — `0%` leria como *toda operação perdeu*.
 
-**`AI_PROVIDER=none` não é defeito.** É deployment suportado: as rotas respondem 503
-`AI_NOT_CONFIGURED` dizendo o que configurar. Explicação é a única feature do projeto que
-pode ser desligada sem mudar um número em lugar nenhum.
+**Uma janela curta não é bug do backtest.** ITUB4 reduz seis anos a nove meses porque sua
+série ajustada tem 198 de 1.495 pregões. A correção é a montante — dimensionar os eventos que
+faltam — e **nunca** relaxar a regra de completude.
 
-**Um POST que grava não pode reusar `post_json` cegamente.** O retry dele é seguro porque
-geração de texto não cria recurso; um POST que mutasse estado precisa de idempotência
-própria.
+**O lag de publicação é zero por padrão.** `score_asset(publication_lag_months=0)` deixa o
+caminho vivo exatamente como estava (regra 134). Só o backtest passa o valor real. O
+corolário é que `GET /portfolios/{id}/scores?as_of=` faz pergunta histórica sem lag — está em
+Future Work.
 
-### As duas capacidades do roadmap §24 que ficaram fora
-
-*Resumir documentos* e *resumir notícias*. Não é falta de tempo: **o projeto não ingere
-notícia nem documento** — não há tabela, provedor nem endpoint. Um tópico para eles seria
-prompt sem fatos. Está em Future Work; ingerir notícia é uma wave própria.
+**Não guarde a magnitude de um evento em `share_ratio` e `cash_amount` ao mesmo tempo.**
+Exatamente uma das duas é preenchida por linha, e é isso que separa "quanto pagou" de
+"quantas ações virou".
 
 ## Pending Work
 
-1. **Verificar os providers contra uma resposta real** (acima).
-2. **Wave 13 — Backtesting**. Ver [CURRENT_TASK.md](CURRENT_TASK.md) e o roadmap §25.
+1. **Verificar os providers de IA contra uma resposta real** (acima).
+2. **Wave 14 — Walk-Forward Validation**. Ver [CURRENT_TASK.md](CURRENT_TASK.md) e o roadmap §26.
 
 ## Next Step
 
@@ -122,11 +125,12 @@ item 1 — são vinte minutos e ele tira dois módulos do estado "não verificad
 
 ## Relevant Files
 
-- `backend/app/integrations/ai/` — `base` · `schemas` · `exceptions` · `gemini` · `ollama` · `factory`
-- `backend/app/domain/ai/facts.py` — a cintura estreita: tudo que o modelo vê passa aqui
-- `backend/app/domain/ai/formatting.py` — o espelho de `frontend/src/lib/format.ts`
-- `backend/app/domain/ai/guard.py` — o controle que torna a regra 44 verificável
-- `backend/app/domain/ai/prompts/*_v1.txt` — os prompts versionados (regra 43)
-- `backend/app/integrations/http.py` — `post_json` e `default_headers`
-- `backend/app/api/routes/portfolios.py` — as três rotas `explain/*`, no fim do arquivo
-- `docs/decisions/ADR-029-*.md` e `ADR-030-*.md`
+- `backend/app/domain/backtesting/simulation.py` — o motor **e** os objetos que ele fala
+- `backend/app/domain/backtesting/metrics.py` — trade fechado, taxas e o *slippage* medido
+- `backend/app/domain/backtesting/availability.py` — quando um demonstrativo virou público
+- `backend/app/domain/backtesting/universe.py` — a estratégia do projeto, numa data passada
+- `backend/app/domain/backtesting/service.py` — o que pode ser replayado, e a partir de quando
+- `backend/app/domain/backtesting/schemas.py` — os contratos da API (Pydantic, como nos outros)
+- `backend/app/quant/risk.py` — `alpha`, ao lado do `beta` em que se apoia
+- `backend/app/api/routes/backtests.py` — `GET /api/v1/backtests`
+- `docs/decisions/ADR-031-*.md` e `ADR-032-*.md`

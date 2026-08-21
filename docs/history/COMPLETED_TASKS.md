@@ -615,6 +615,79 @@ quando a regra 72 o põe no topo. **O teste é que estava errado.**
 
 ---
 
+## Wave 13 — Backtesting de carteira (2026-08-21)
+
+**6 tasks** — o roadmap previa 2, e as quatro a mais não são subdivisão: são coisas que só
+apareceram ao construir. `02cd288` · `a42a91f` · `6409568` · `67b6cf7` · `9c55cab` · `6142a97` ·
+`0f5bb0b`
+
+| task | entrega |
+|---|---|
+| **W13-001** | Ação societária aplicada no replay do ledger |
+| **W13-002** | O motor de simulação, puro e sem I/O |
+| **W13-003** | A própria estratégia do projeto replayada, com o lag de publicação da CVM |
+| **W13-004** | `alpha` no quant, *slippage* medido, trade fechado |
+| **W13-005** | O serviço, com a janela limitada pela série de retorno total |
+| **W13-006** | `GET /api/v1/backtests` |
+
+### O ponto da wave, em uma frase
+
+**O backtest fala ledger.** A saída da simulação são linhas de `Transaction` — o mesmo formato de
+uma carteira real — então `compute_positions`, `value_series` e `performance_index` medem um
+backtest com **exatamente** o código que mede a carteira do investidor. Um segundo caminho de
+valorização seria um segundo conjunto de bugs, e a primeira divergência apareceria como um
+backtest discordando do dashboard por motivo que ninguém saberia nomear. Pela mesma razão a
+estratégia sob teste não é reimplementada: é `allocate_contribution`, a mesma função pura que
+`/contribution-plan` chama hoje.
+
+### As três formas de olhar o futuro, e como cada uma foi fechada
+
+1. **Preço.** A decisão recebe os fechamentos **daquela sessão** e nada mais, e a ordem preenche
+   na **seguinte** — um fechamento só pode ser lido depois de impresso. O intervalo entre decidir
+   e preencher é onde mora o *slippage*, e por isso ele é **medido** e não assumido a uma taxa em
+   pontos-base.
+2. **Balanço.** A regra 108 bastava para um score de hoje e não para um backtest: exercício que
+   fecha em 31 de dezembro não é público em 1º de janeiro. Três meses, o prazo do DFP — a data
+   **legal mais tardia**, porque errar para tarde custa informação e errar para cedo dá informação
+   que ninguém tinha ([ADR-031](../decisions/ADR-031-a-statement-is-readable-only-after-the-filing-deadline.md)).
+3. **Provento.** A janela começa onde **todo** ativo tem série de retorno total completa: sessão
+   marcada ex sem ação dimensionada é distribuição que a simulação não paga, e a execução ficaria
+   **errada**, não apenas não-mensurável ([ADR-032](../decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md)).
+
+### O defeito de wave anterior que a W13-001 corrigiu
+
+Desdobramento, grupamento e bonificação mudam o que está em custódia e **não geram transação**.
+Inofensivo enquanto posição era só custo; erro de fator inteiro assim que valor de mercado chegou
+na W11-001. Medido no banco real, três dos quatro ativos acompanhados têm um — a MGLU3 tem os três,
+que compostos dão **0,42**: uma posição de 2019 reportaria 100 ações contra as 42 em custódia.
+A metade sutil é que as **duas curvas precisam de restatements opostos do mesmo evento**, porque
+precificam a posição de formas diferentes; inverter isso desenha uma linha suave errada pelo fator
+ao quadrado.
+
+### Os dois defeitos que rodar contra o banco real encontrou
+
+Nenhum era alcançável por fixture:
+
+1. **Um feriado estava sendo reportado como problema de dado.** `window.bounded_by` nomeava um
+   ativo porque ninguém negocia em 1º de janeiro. O campo existe para o caso honesto.
+2. **Alpha estava sendo calculado contra o CDI.** O `compare` não reporta beta para benchmark de
+   taxa, e alpha é a aritmética do beta.
+
+### Balanço
+
+- `pytest` **944 → 1.049**. Nenhuma migration: nada da wave é gravado (regra 16).
+- **Nenhuma dependência adicionada** — `alpha` entrou em `Decimal`, como todo o resto do quant.
+- Dois ADRs novos ([031](../decisions/ADR-031-a-statement-is-readable-only-after-the-filing-deadline.md),
+  [032](../decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md)).
+- **Um padrão paralelo removido**: `schemas.py` é a camada Pydantic em 13 de 13 módulos, e o de
+  backtesting guardava dataclasses do motor. Elas foram para `simulation.py`.
+- ⚠️ **Nenhuma tela lê um backtest** — a wave é backend-only por decisão; o roadmap põe
+  `/backtests` na W22.
+- ⚠️ **As cinco figuras de trade fechado voltam `null`** em toda estratégia que o projeto entrega,
+  porque nada aqui vende (ADR-028). É a resposta honesta, não uma lacuna.
+
+---
+
 ## Marcos de infraestrutura de conhecimento
 
 - **2026-08-17** — Sistema de memória persistente criado: `CLAUDE.md` na raiz + `docs/{memory,architecture,decisions,planning,history}/`, com 11 ADRs extraídos do código e do histórico de decisões.

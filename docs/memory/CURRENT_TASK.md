@@ -2,58 +2,88 @@
 
 ## Task
 
-**Duas coisas, e a primeira é curta.**
+**Duas coisas, e a primeira continua curta.**
 
 1. 🔴 **Fechar a verificação da W12-001** — os dois providers de IA são código **não
-   verificado** até que uma chamada real aconteça. Ver *O que ficou pendente* abaixo.
-2. ⚪ **Wave 13 — Backtesting** (roadmap §25, AGENTS.md §35).
+   verificado** até que uma chamada real aconteça. Ver *O que continua pendente* abaixo.
+2. ⚪ **Wave 14 — Walk-Forward Validation** (roadmap §26, AGENTS.md §60–62).
 
 ## Status
 
-🟢 **A Wave 12 fechou em 2026-08-21**, 3 de 3 tasks, e não há código pela metade em lugar
-nenhum. `pytest -q` → **944 passed**.
+🟢 **A Wave 13 fechou em 2026-08-21**, 6 de 6 tasks, e não há código pela metade em lugar
+nenhum. `pytest -q` → **1.049 passed**.
 
 ---
 
-## O que a Wave 12 entregou
+## O que a Wave 13 entregou
+
+O roadmap previa duas tasks. A execução precisou de seis, e as quatro a mais não são
+subdivisão — são coisas que só apareceram ao construir.
 
 | task | entrega |
 |---|---|
-| **W12-001** | `AIProvider` + `GeminiProvider` + `OllamaProvider` + `DisabledAIProvider`, todos sobre o transporte compartilhado ([ADR-029](../decisions/ADR-029-ai-provider-speaks-rest.md)) |
-| **W12-002** | O domínio que explica: fact pack, prompts versionados e o guard ([ADR-030](../decisions/ADR-030-fact-pack-and-the-hallucination-guard.md)) |
-| **W12-003** | `POST /portfolios/{id}/explain/{performance,contribution-plan,scores/{ticker}}` |
+| **W13-001** | Ação societária aplicada no replay do ledger — **defeito de wave anterior**, e pré-requisito honesto |
+| **W13-002** | O motor de simulação, puro e sem I/O, onde o look-ahead fica *fora de alcance* |
+| **W13-003** | A **própria estratégia do projeto** replayada, com o lag de publicação da CVM ([ADR-031](../decisions/ADR-031-a-statement-is-readable-only-after-the-filing-deadline.md)) |
+| **W13-004** | Métricas de execução: `alpha` no quant, *slippage* **medido**, trade fechado ausente por desenho |
+| **W13-005** | O serviço, com a janela parando onde a série de retorno total para ([ADR-032](../decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md)) |
+| **W13-006** | `GET /api/v1/backtests` |
 
 ### O ponto inteiro da wave, em uma frase
 
-**"A IA não calcula" deixou de ser confiança e virou mecanismo.** O modelo nunca vê o
-banco, uma série ou os componentes de um score — vê um **fact pack**: lista fechada de
-valores já calculados, cada um com rótulo, unidade, a string **já renderizada** e o
-endpoint de origem. Não há o que calcular. Arredondar também é calcular, então quem
-arredonda é `app/domain/ai/formatting.py`, que é o espelho exato de
-`frontend/src/lib/format.ts` — o texto e o painel citam a **mesma string**.
+**O backtest fala ledger.** A saída da simulação são linhas de `Transaction` — o mesmo
+formato de uma carteira real — então `compute_positions`, `value_series` e
+`performance_index` medem um backtest com **exatamente** o código que mede a carteira do
+investidor. E a estratégia sob teste não é *uma* estratégia: é `allocate_contribution`, a
+mesma função pura que `/contribution-plan` chama hoje. Backtest de reimplementação mede a
+reimplementação.
 
-E depois da geração, `guard.py` confronta todo número do texto com o conjunto fechado de
-figuras que o backend escreveu. O que não casar volta em `unverified_figures`.
+### As três coisas que ficam fora de alcance em vez de desencorajadas
 
-### Os dois defeitos que a wave achou em si mesma
+1. **Preço futuro.** A decisão recebe um `SimulationState` com o dia, o caixa, as posições e
+   os fechamentos **daquela sessão** — não o mapa de preços, não o calendário, nada que ela
+   possa indexar para frente. E a ordem decidida numa sessão preenche na **seguinte**, porque
+   um fechamento só pode ser lido depois de impresso.
+2. **Balanço futuro.** Exercício que fecha em 31 de dezembro não é público em 1º de janeiro.
+   Três meses — o prazo do DFP na CVM, a data legal mais tardia — e o teste percorre uma
+   década de datas provando que a regra só consegue **segurar** um demonstrativo, nunca
+   soltá-lo cedo.
+3. **Provento que o projeto não sabe dimensionar.** A janela começa onde **todo** ativo tem
+   série de retorno total completa. Não é só medição: sessão marcada ex sem ação dimensionada
+   é distribuição que a simulação não paga, e a execução ficaria **errada**, não apenas
+   não-mensurável.
 
-Nenhum foi de digitação; os dois eram de desenho, e os dois apareceram **rodando o teste
-que eu tinha escrito para outra coisa**:
+### Os dois defeitos que rodar contra o banco real encontrou
 
-1. **As URLs de origem estavam sendo renderizadas dentro do prompt.** `key` e `source`
-   servem ao leitor, não ao modelo — e mandá-los punha os dígitos de
-   `/api/v1/portfolios/1` na frente de um modelo instruído a citar só o que recebeu. Hoje
-   viajam só na `Explanation`, que é onde a rastreabilidade é consultada (§91, §112).
-2. **O prompt de sistema trazia `"12,4%"` como exemplo** de como citar um valor — um
-   número plausível em toda requisição, pronto para vazar para uma explicação onde não
-   significa nada. Virou `"X,Y%"`, e um teste agora proíbe qualquer coisa com a forma
-   `\d,\d` ali.
+Nenhum era alcançável por fixture, e os dois saíram de **ler** uma execução de seis anos:
+
+1. **Um feriado estava sendo reportado como problema de dado.** Ninguém negocia em 1º de
+   janeiro, então uma execução pedida a partir do dia 1º começa no dia 2 — e
+   `window.bounded_by` nomeava um ativo por isso. O campo existe para o caso honesto;
+   dispará-lo por um dia de calendário torna o caso honesto ilegível.
+2. **Alpha estava sendo calculado contra o CDI.** O `compare` deliberadamente não reporta
+   beta para benchmark de **taxa**, e alpha é a aritmética do beta. Estava reportando 0,30
+   p.p. de habilidade contra um número que não mede nada. O portão passou a ser o beta que o
+   `compare` alcançou — segunda leitura do tipo do benchmark é como as duas passariam a
+   discordar.
+
+### O que a execução real mostrou, e não é defeito
+
+Com PETR4 e BBAS3 (1.495 de 1.495 pregões ajustados cada), seis anos: **R$ 72.000 aportados,
+28 compras, R$ 58.471 em caixa**. Cada recusa é nomeada. Três dos quatro ativos não têm
+demonstrativo e nunca passam do piso de cobertura, e a **PETR4 cai de 62,28 para 35,83** no
+instante em que é detida — 15 pontos são o pilar de concentração
+([ADR-027](../decisions/ADR-027-target-weight-comes-from-merit.md)) e 11,45 são a regra 109
+entregando o exercício de 2024 no vencimento do prazo da CVM.
+
+Com os quatro ativos, a janela cai de 2020-01-01 para **2025-03-19**, `bounded_by: ITUB4`,
+cuja série ajustada tem 198 de 1.495 pregões.
 
 ---
 
-## O que ficou pendente, e é a primeira coisa a fazer
+## O que continua pendente, e é a primeira coisa a fazer
 
-🔴 **Nenhuma chamada real a modelo nenhum aconteceu.**
+🔴 **Nenhuma chamada real a modelo nenhum aconteceu** (herdado da W12).
 
 - A `GEMINI_API_KEY` no `.env` é **válida**, mas a Gemini API está **desabilitada no
   projeto Google Cloud dela**. Toda chamada responde HTTP 403 `SERVICE_DISABLED`, com a
@@ -61,51 +91,50 @@ que eu tinha escrito para outra coisa**:
 - Não há Ollama instalado, então o `OllamaProvider` está igualmente sem verificação.
 
 **Consequência deliberada**: nenhum teste de regressão de parser foi escrito. Um mock
-construído sobre suposição não verifica a suposição — reproduz ela. Foi assim que dois
-campos da Brapi passaram por 45 testes verdes na W06-003.
+construído sobre suposição não verifica a suposição — reproduz ela.
 
-**Procedimento quando houver acesso** (`docs/planning/IMPLEMENTATION_GUIDE.md`):
-
-1. Habilitar a API no console do Google Cloud.
-2. **Uma** chamada real. Salvar a resposta.
-3. Conferir nome por nome: `candidates[0].content.parts[]`, `finishReason`,
-   `usageMetadata.promptTokenCount`, `candidatesTokenCount`, `modelVersion`.
-4. Corrigir `gemini.py` no que divergir, e **só então** escrever o teste de regressão, no
-   molde de `tests/test_brapi_fundamentals_provider.py::test_regression_against_the_real_petr4_response`.
-5. Rodar ponta a ponta contra o banco real e **ler a explicação gerada** — não só conferir
-   que veio 200. É o passo que achou os dois erros de janela da W11.
-
-O que **já** foi observado ao vivo é o envelope de erro do Google, e ele está documentado
-no docstring de `gemini.py`.
+**Procedimento quando houver acesso** (`docs/planning/IMPLEMENTATION_GUIDE.md`): habilitar a
+API → **uma** chamada real → conferir nome por nome (`candidates[0].content.parts[]`,
+`finishReason`, `usageMetadata`, `modelVersion`) → corrigir `gemini.py` no que divergir → e
+**só então** o teste de regressão.
 
 ---
 
-## O que a W13 tem que respeitar
+## O que a W14 tem que respeitar
 
-- **Retorno total, não preço bruto.** A série ajustada existe onde o ajuste é completo
-  ([ADR-026](../decisions/ADR-026-corporate-action-magnitude-and-the-completeness-rule.md));
-  onde não é, ela para, e o backtest tem que parar junto em vez de medir preço cru.
-- **Sem look-ahead** (§58, §108). Vale para a ordem de replay do ledger, não só para o
-  preço.
-- **Determinismo** (§113): mesma entrada, mesmo resultado de backtest, sempre.
-- ⚠️ **O ledger ainda não conhece evento societário** — desdobramento muda quantidade em
-  custódia sem gerar transação. Está em Future Work e é pré-requisito honesto de um
-  backtest que carregue posição através de um evento.
+- **A W13 inteira já existe**: motor, estratégia e métricas. O que falta é o
+  **particionamento** das janelas (treino / validação / teste) e o que se afirma a partir
+  dele — estabilidade, e não um número melhor.
+- ⚠️ **A janela herdada é apertada.** Uma série já truncada por
+  [ADR-032](../decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md)
+  tem menos espaço para ser dividida em três: o universo dos quatro ativos acompanhados dá
+  **nove meses**. Ampliar isso é ingerir os eventos societários que faltam, **não** relaxar a
+  regra.
+- **Nada de ajustar parâmetro até o histórico ficar bonito** (regra 60). A wave existe para
+  medir estabilidade, e um `min_score` escolhido por dar o melhor retorno passado é
+  exatamente o que ela deve detectar.
+- **Determinismo** (regra 113): mesma entrada, mesmo resultado, sempre. Já vale para o
+  backtest e tem teste; a partição de janelas não pode quebrá-lo.
 
 ## O que já está pronto — não reimplemente
 
-Todo o backend das waves 00–12 e as quatro telas. Contrato completo em
-[../architecture/API.md](../architecture/API.md); a camada de IA em
+Todo o backend das waves 00–13 e as quatro telas. Contrato completo em
+[../architecture/API.md](../architecture/API.md); o backtesting em
 [../architecture/BACKEND.md](../architecture/BACKEND.md).
 
 ## Estado do ambiente (verificado 2026-08-21)
 
-- ✅ `pytest -q` → **944 passed** (era 859). `ruff` e `black` limpos nos arquivos alterados.
-- ✅ **Nenhuma migration nova**: nada da W12 é gravado (regra 16).
-- ✅ `AI_PROVIDER=none` é um deployment suportado — as rotas respondem 503
-  `AI_NOT_CONFIGURED` com a mensagem dizendo o que configurar.
-- Banco real: carteira `Local` (id 1) sem transação; PETR4 com setor e fundamentos, os
-  outros três sem. 1.495 pregões para os quatro papéis.
+- ✅ `pytest -q` → **1.049 passed** (era 944). `ruff` e `black` limpos no repositório inteiro.
+- ✅ **Nenhuma migration nova**: nada da W13 é gravado (regra 16). Schema segue
+  `012_corporate_actions`.
+- Banco real: quatro ativos, 1.495 pregões cada. Série ajustada **completa** em BBAS3 e
+  PETR4; **198** pregões em ITUB4 (último buraco em 2025-03-18) e **478** em MGLU3 (último em
+  2024-02-01). Só a PETR4 tem setor e demonstrativos.
+- Benchmarks ingeridos não cobrem a janela do backtest: IBOV a partir de 2026-05-20, CDI de
+  2025-08-18. Um comparativo contra o CDI mede quatro meses de uma execução de seis anos — e
+  `comparison.subject.start_date` é o que diz isso.
 - Rodar a app: `docker compose up -d postgres`, depois
   `cd backend && .venv/Scripts/python.exe -m uvicorn app.main:app --port 8000` e
   `cd frontend && npm run dev`.
+  ⚠️ Rodando da máquina (fora do Docker), sobrescreva `DATABASE_URL` para `localhost` — o
+  `.env` aponta para o hostname `postgres` da rede do Compose.

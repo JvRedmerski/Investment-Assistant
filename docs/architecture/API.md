@@ -101,6 +101,34 @@ Unidades dos indicadores: margens, crescimento, ROE, ROIC e DY são **frações*
 | POST | `/{id}/explain/contribution-plan` | explicação do plano de aporte. Aceita **os mesmos** overrides de política de `/{id}/contribution-plan`: quem subiu um teto e pediu explicação tem que receber o plano que está vendo. O modelo recebe o valor **e** a regra nomeada que dimensionou cada linha, então nunca precisa inferir o motivo |
 | POST | `/{id}/explain/scores/{ticker}` | explicação do score de um ativo nesta carteira. Ticker casado sem diferenciar maiúsculas; não pontuado → 404 `ASSET_NOT_FOUND` |
 
+### Backtests — `/api/v1/backtests` (autenticado)
+| Método | Rota | Nota |
+|---|---|---|
+| GET | `""` | replaya **uma das estratégias do próprio projeto** sobre o histórico. `strategy=contribution-plan` (ordena por score) ou `rebalance-plan` (ordena por distância até o alvo); `start` obrigatório, `end` default hoje; `amount` default = `monthly_contribution` do perfil (senão R$ 1.000); `day_of_month` é alvo, não data — cai na primeira sessão **em ou depois** dele. `tickers` restringe o universo, `benchmark` mede contra o catálogo. Custos (`brokerage`, `brokerage_rate`, `exchange_rate`) e toda a política de alocação são sobrescrevíveis e voltam em `settings`. Lê **só** do banco; nada é gravado |
+
+⚠️ **Três leituras obrigatórias antes de qualquer número dessa resposta.**
+
+1. **`window.start` pode ser bem depois de `window.requested_start`.** A série de retorno total só
+   existe onde o ajuste é completo, e sessão marcada ex sem ação dimensionada por trás é
+   distribuição que o projeto não sabe pagar — rodar através dela credita menos caixa do que o
+   investidor receberia ([ADR-032](../decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md)).
+   `window.bounded_by` nomeia o ativo que decidiu isso. Ele vem `null` quando só o calendário
+   moveu a data (ninguém negocia em 1º de janeiro).
+2. **`excluded[]` é parte do que foi medido.** `NO_PRICES` (nada armazenado) e
+   `NO_TOTAL_RETURN_SERIES` (preço sim, ajuste completo não). Comparar dois backtests exige
+   comparar `universe` e `window` antes dos números.
+3. **`wealth` não é desempenho.** É patrimônio em BRL — `holdings` a fechamento cru mais `cash`,
+   o que a estratégia não gastou — com `contributed` por baixo. A resposta comparável a um
+   benchmark é `comparison`, que é **time-weighted**
+   ([ADR-019](../decisions/ADR-019-portfolio-return-is-time-weighted.md)). E `comparison`
+   descreve um período **mais curto** que `index` sempre que o benchmark tem menos histórico:
+   os dois lados são recortados à janela compartilhada, então `comparison.subject.start_date` é
+   leitura obrigatória antes de citar um número dali ao lado da curva.
+
+`GET`, e não `POST`, porque nada é gravado (regra 16): rodar duas vezes com os mesmos parâmetros
+é a mesma requisição duas vezes, não dois recursos. Erros: 400 `UNKNOWN_STRATEGY`, 400
+`INVALID_WINDOW`, 404 `EMPTY_UNIVERSE`, 404 `BENCHMARK_NOT_FOUND`.
+
 ### Benchmarks — `/api/v1/benchmarks` (todos autenticados)
 | Método | Rota | Nota |
 |---|---|---|
@@ -125,6 +153,28 @@ DEPOSIT/WITHDRAWAL: registrar `quantity = valor`, `price = 1`, sem `asset_id`.
 - `ContributionPlanResponse`: `policy` (os limites usados), `contribution`, `allocated`, `unallocated`, `base_value`, `allocations[]` e `skipped[]`, mais `formula_version` e `rules_version`.
   `allocated + unallocated == contribution` sempre — dinheiro que os limites não deixam colocar volta como `unallocated`, nunca é forçado. Cada `allocation` traz `amount`, `rank`, `final_score`, `coverage`, `coverage_tier`, `headroom`, `limited_by` (`ASSET_WEIGHT` / `SECTOR_WEIGHT` / `POSITION_SHARE` / `CONTRIBUTION_REMAINING`), `weight_before`/`weight_after` e os `sub_scores` inteiros. Cada `skipped` traz `reason` (`NOT_SCORABLE`, `COVERAGE_BELOW_MINIMUM`, `SCORE_BELOW_MINIMUM`, `SECTOR_UNKNOWN`, `ASSET_LIMIT_REACHED`, `SECTOR_LIMIT_REACHED`, `BELOW_MINIMUM_TICKET`, `MAX_POSITIONS_REACHED`, `CONTRIBUTION_EXHAUSTED`) e um `detail` em texto.
   `coverage_tier` é a faixa de comparabilidade: scores são comparados **dentro** de uma faixa e nunca entre faixas ([ADR-021](../decisions/ADR-021-allocation-ranks-by-coverage-tier.md)).
+
+- `BacktestResponse`: `settings` (tudo que parametrizou a execução, inclusive `costs` e
+  `publication_lag_months`), `window`, `universe[]`, `excluded[]`, `comparison`, `alpha`,
+  `index[]`, `wealth[]`, `trades` e `sources[]`.
+  `alpha` é o retorno que sobra **depois de pagar pela exposição ao mercado** — não é o
+  `comparison.excess_return`, que é diferença simples. Excesso positivo com alpha negativo
+  significa que a estratégia subiu porque o mercado subiu, e menos do que o próprio beta dela
+  dava direito. Vem `null` contra benchmark de **taxa**, pelo mesmo motivo que `beta`:
+  sensibilidade ao CDI não é quantidade que signifique algo.
+  `trades` traz `trades`, `buys`, `sells`, `closed_trades`, `wins`, `losses`, `win_rate`,
+  `average_win`, `average_loss`, `profit_factor`, `expectancy`, `realized_result`, `fees`,
+  `slippage`/`slippage_paid`/`slippage_earned`, `dividends_received`, `contributed` e
+  `unfilled{}`.
+  ⚠️ **As cinco figuras de trade fechado vêm `null` em toda estratégia que este projeto
+  entrega**, e é a resposta honesta e não uma lacuna: as cinco são definidas sobre trade
+  **fechado**, e nada aqui vende ([ADR-028](../decisions/ADR-028-rebalancing-is-cash-flow-only.md)).
+  `closed_trades: 0` é o que diz isso — `0%` leria como *toda operação perdeu*.
+  **`slippage` é medido, não assumido**: a ordem é decidida contra o fechamento de uma sessão e
+  preenchida contra o da seguinte, e a diferença é somada do que aconteceu. Positivo = custou
+  dinheiro; as duas direções vêm à parte porque uma execução que pagou R$ 40 e ganhou R$ 38 não é
+  uma que quase não se moveu. `unfilled{}` conta as ordens que terminaram em nada, por motivo
+  (`NO_PRICE`, `BELOW_ONE_SHARE`, `INSUFFICIENT_CASH`, `NOTHING_HELD`).
 
 - `Explanation` (as três rotas `explain/*`): `topic`, `subject`, `text`, `model`, `prompt_version`, `generated_at`, `facts[]` e `unverified_figures[]`.
   ⚠️ **`unverified_figures` é leitura obrigatória, não diagnóstico.** É a lista de números que aparecem no texto e **não** casam com nenhum fato enviado — ou seja, números que o modelo inventou ou derivou por conta própria. Vem reportada em vez de bloquear a resposta ([ADR-030](../decisions/ADR-030-fact-pack-and-the-hallucination-guard.md)); um cliente que a ignorar desfaz metade da garantia.

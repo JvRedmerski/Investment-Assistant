@@ -38,6 +38,8 @@ Um ADR existe aqui porque a decisão (a) teve alternativas reais, (b) afeta arqu
 | [028](ADR-028-rebalancing-is-cash-flow-only.md) | Rebalancear é dirigir aporte e **nunca vender**; e o portão, a banda e a ordenação rodam sobre a carteira **depois** do aporte, não sobre a de hoje — usar o peso pré-aporte deixava R$ 1.000 parados e afastava a carteira do alvo | Accepted | rebalanceamento, plano de aporte, venda, diluição, W10, rule 34 |
 | [029](ADR-029-ai-provider-speaks-rest.md) | O provedor de IA fala REST pelo `RetryingJsonClient` (POST + header de auth); `google-generativeai` é **removido** em vez de usado — SDK descontinuado e transporte paralelo | Accepted | IA, Gemini, Ollama, dependências, transporte HTTP, completa ADR-012 |
 | [030](ADR-030-fact-pack-and-the-hallucination-guard.md) | O modelo recebe um **fact pack** já renderizado (nada de série, nada de arredondar) e número sem lastro volta em `unverified_figures` — reportado, nunca rejeitado | Accepted | IA, prompts, explicações, rule 43/44, materializa o ADR-009 |
+| [031](ADR-031-a-statement-is-readable-only-after-the-filing-deadline.md) | Um demonstrativo só é legível **três meses** depois do fim do período — o prazo da própria CVM, a data legal mais tardia — e o lag é zero no caminho vivo | Accepted | backtesting, fundamentos, look-ahead, rule 108/109, estende ADR-013 |
+| [032](ADR-032-the-backtest-stops-where-the-total-return-series-stops.md) | A janela do backtest começa onde **todo** ativo tem série de retorno total completa, e quem não tem nenhuma é excluído com motivo nomeado | Accepted | backtesting, `adjusted_close`, proventos, janela, rule 59, consome ADR-026 |
 
 ## Template
 

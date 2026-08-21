@@ -101,15 +101,30 @@ O produto final deve responder: *Como está minha carteira? Estou batendo o CDI?
   ativos?* e *o que esse score está medindo?*. Gemini ou Ollama local, atrás da mesma
   interface — ou nenhum dos dois, que é um deployment suportado.
 
+- **A estratégia medida contra o passado, sem deixá-la enxergar o futuro.** O backtest não
+  testa *uma* estratégia: replaya **a** estratégia — `allocate_contribution`, a mesma função pura
+  que `/contribution-plan` chama hoje. E a saída da simulação são linhas de `Transaction`, então
+  `compute_positions`, `value_series` e `performance_index` medem um backtest com **exatamente** o
+  código que mede a carteira do investidor; uma segunda contabilidade seria um segundo conjunto de
+  bugs. Três formas de olhar o futuro ficam **fora de alcance**, não desencorajadas: a decisão só
+  recebe os fechamentos da própria sessão e preenche na seguinte; um demonstrativo só é legível
+  três meses depois do fim do período, que é o prazo da CVM
+  ([ADR-031](../decisions/ADR-031-a-statement-is-readable-only-after-the-filing-deadline.md)); e a
+  janela para onde a série de retorno total para, porque sessão marcada ex sem ação dimensionada é
+  provento que a simulação não sabe pagar
+  ([ADR-032](../decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md)).
+  Custo é modelado e **slippage é medido** — o intervalo entre decidir e preencher, somado do que
+  aconteceu, em vez de uma taxa inventada.
+
 ### Em desenvolvimento
-- **Nenhuma wave em andamento.** A próxima é a **Wave 13 — Backtesting**. Ver
+- **Nenhuma wave em andamento.** A próxima é a **Wave 14 — Walk-Forward Validation**. Ver
   [CURRENT_TASK.md](CURRENT_TASK.md), que também lista a verificação pendente da W12.
 
 ### Planejado (não existe código)
-Backtesting/Walk-forward → Day Trade (intraday, setups, risco, paper trading) → Observabilidade/Segurança/CI-CD/Deploy.
+Walk-forward → Day Trade (intraday, setups, risco, paper trading) → Observabilidade/Segurança/CI-CD/Deploy.
 Ver [../planning/ROADMAP.md](../planning/ROADMAP.md).
 
-As capacidades acima estão **expostas em tela** desde a W11. O que continua sem interface: backtesting, IA e day trade, que ainda não existem em lugar nenhum.
+As capacidades acima estão **expostas em tela** desde a W11. O que continua sem interface: **backtesting e IA, que existem no backend e não em tela** (as duas waves são backend-only por decisão; o roadmap põe `/backtests` na W22), e day trade, que ainda não existe em lugar nenhum.
 
 ## Stack real (o que está de fato em uso)
 
@@ -143,7 +158,7 @@ PostgreSQL  ←  Alembic migrations
 
 Domínios conceituais (AGENTS.md §4):
 `Market Data → Quant Engine → Portfolio Engine → Recommendation Engine → AI Engine (só explicação)`.
-Os cinco existem desde a W12.
+Os cinco existem desde a W12; desde a W13 há um sexto, o **Backtesting Engine**, que não é uma nova contabilidade — é o replay que consome os outros.
 
 ## Documentos-âncora do projeto
 

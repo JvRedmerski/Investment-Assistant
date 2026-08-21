@@ -10,17 +10,18 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 ---
 
 ## Current Phase
-- **Phase**: **Wave 12 — AI Engine** (roadmap §24), a camada que explica e que por contrato não calcula ([ADR-009](decisions/ADR-009-quant-deterministic-ai-explains.md))
-- **Status**: 🟢 **WAVE 12 COMPLETED** (2026-08-21) — **3 de 3 tasks**: W12-001 (`AIProvider` + Gemini + Ollama, falando REST pelo transporte compartilhado, [ADR-029](decisions/ADR-029-ai-provider-speaks-rest.md)), W12-002 (o domínio de explicação: fact pack, prompts versionados e o guard de alucinação, [ADR-030](decisions/ADR-030-fact-pack-and-the-hallucination-guard.md)) e W12-003 (as três rotas `POST /portfolios/{id}/explain/*`). ⚠️ **Com uma ressalva que vale ler**: o parser do Gemini **não foi verificado contra uma resposta real** — ver Known Issues.
+- **Phase**: **Wave 13 — Backtesting de carteira** (roadmap §25), a wave que mede a estratégia contra o passado sem deixá-la enxergar o futuro
+- **Status**: 🟢 **WAVE 13 COMPLETED** (2026-08-21) — **6 de 6 tasks**: W13-001 (ação societária aplicada no replay do ledger), W13-002 (o motor de simulação, puro e sem I/O), W13-003 (a **própria estratégia do projeto** replayada, com o lag de publicação da CVM, [ADR-031](decisions/ADR-031-a-statement-is-readable-only-after-the-filing-deadline.md)), W13-004 (métricas de execução: alpha, slippage **medido**, e as cinco figuras de trade fechado que voltam `null` porque nada aqui vende), W13-005 (o serviço, com a janela limitada pela série de retorno total, [ADR-032](decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md)) e W13-006 (`GET /api/v1/backtests`). ⚠️ **Rodar contra o banco real achou dois defeitos** — ver *Last Execution*.
+- **Status anterior**: 🟢 **WAVE 12 COMPLETED** (2026-08-21) — **3 de 3 tasks**: W12-001 (`AIProvider` + Gemini + Ollama, falando REST pelo transporte compartilhado, [ADR-029](decisions/ADR-029-ai-provider-speaks-rest.md)), W12-002 (o domínio de explicação: fact pack, prompts versionados e o guard de alucinação, [ADR-030](decisions/ADR-030-fact-pack-and-the-hallucination-guard.md)) e W12-003 (as três rotas `POST /portfolios/{id}/explain/*`). ⚠️ **Com uma ressalva que vale ler**: o parser do Gemini **não foi verificado contra uma resposta real** — ver Known Issues.
 - **Status**: 🟢 **WAVE 11 COMPLETED** (2026-08-21) — **5 de 5 tasks**: W11-001 (valor de mercado), W11-002 (série de evolução, **corrigindo um erro de unidade que deixava o índice time-weighted negativo**), W11-003 (**a primeira aplicação real de frontend do projeto**), W11-004 (**o Dashboard**, que expôs e corrigiu um comparativo que media duas janelas diferentes) e W11-005 (tela de Ativo). Antes dela: 🟢 **WAVE 10 COMPLETED** (2026-08-21). - **Status**: 🟡 **WAVE 11 IN_PROGRESS** (2026-08-21) — 3 de 5 tasks: W11-001 (valor de mercado), W11-002 (série de evolução, **corrigindo um erro de unidade que deixava o índice time-weighted negativo**) W11-003 (**a primeira aplicação real de frontend do projeto**) e W11-004 (**o Dashboard**, que expôs e corrigiu um comparativo que media duas janelas diferentes). Antes dela: 🟢 **WAVE 10 COMPLETED** (2026-08-21) — **3 de 3 tasks**: W10-001 (peso-alvo derivado do **mérito** e não do `final_score`, [ADR-027](decisions/ADR-027-target-weight-comes-from-merit.md)), W10-002 (tabela de desvio sobre a API) e W10-003 (o aporte que fecha os gaps, sem vender, [ADR-028](decisions/ADR-028-rebalancing-is-cash-flow-only.md)). Antes dela: 🟢 EVENTS COMPLETED (2026-08-20) — **3 de 3 tasks**: EVENTS-001 (distribuições por exercício, da DMPL da CVM — fechou o `dy`), EVENTS-002 (data e natureza do evento societário, pelo arquivo de fim de dia da B3) e EVENTS-003 (a **magnitude**, pelo serviço aberto de eventos da B3, e o `adjusted_close` derivado dela — **destravou o pilar de Risco**). A wave **PRICE** (3 tasks) fechou antes, em 2026-08-19. Próxima: **Wave 12 — AI Engine**, a primeira que explica em linguagem natural o que os motores calculam
 
 ---
 
 ## Overall Progress
 - **Total Waves**: 33 (W00 a W32)
-- **Completed Waves**: 10 do roadmap (W00 a W09) + 1 inserida (PRICE)
-- **In Progress Waves**: 1 inserida (EVENTS, 2/3 tasks)
-- **Pending Waves**: 23
+- **Completed Waves**: 14 do roadmap (W00 a W13) + 2 inseridas (PRICE, EVENTS)
+- **In Progress Waves**: nenhuma
+- **Pending Waves**: 19 (W14 a W32)
 
 ---
 
@@ -50,7 +51,7 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 > `🟢 COMPLETED` aqui significa **entregue na wave correspondente**, não "produto acabado".
 > O frontend é o caso que mais confunde e por isso está marcado à parte.
 
-- **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS (`frontend/`) 🟡 SCAFFOLD — landing page única, sem rotas, sem estado, nenhuma capacidade do backend exposta em tela. Primeira wave de frontend real: **W11**
+- **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS (`frontend/`) 🟢 COMPLETED (Wave 11) — rotas, react-query, cliente tipado com validação `zod`, autenticação e quatro telas (Dashboard, Carteira, Ativos, Ativo). Sem tela ainda: backtesting, IA e day trade
 - **Backend**: FastAPI + Python 3.11/3.14 + Pydantic v2 + Uvicorn (`backend/`) 🟢 COMPLETED
 - **Quant Engine**: retorno e risco em `decimal.Decimal` puro, sem I/O (`backend/app/quant`) 🟢 COMPLETED (Wave 07) — **NumPy/Pandas/SciPy não foram adotados**, decisão revogada no adendo ao [ADR-017](decisions/ADR-017-annualisation-and-numeric-type.md)
 - **Portfolio Engine**: CRUD de carteiras/ativos, ledger de transações, motor de posições (custo médio/saldo) determinístico (`backend/app/domain/portfolio`) 🟢 COMPLETED (Wave 04)
@@ -59,7 +60,8 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 - **Benchmark Engine**: CDI/Selic/IPCA pelo BCB-SGS e IBOV pelo provedor de market data; comparativo time-weighted (`backend/app/domain/benchmarks`) 🟢 COMPLETED (Wave 08)
 - **Recommendation Engine**: sub-scores decomponíveis e alocação do aporte mensal (`backend/app/domain/recommendations`) 🟢 COMPLETED (Wave 09)
 - **Database**: PostgreSQL 16 + SQLAlchemy 2.0 Models + Alembic (`001` … `011_dividends_paid`) (`backend/app/data/models`) 🟢 COMPLETED
-- **AI Integration**: Abstração `AIProvider` (Gemini / Ollama) (Wave 12) ⚪ NOT_STARTED
+- **AI Integration**: Abstração `AIProvider` (Gemini / Ollama / none) + o domínio que explica e é impedido de calcular (`backend/app/integrations/ai`, `backend/app/domain/ai`) 🟢 COMPLETED (Wave 12) — ⚠️ os dois providers seguem **sem verificação contra resposta real**, ver Known Issues
+- **Backtesting Engine**: motor de replay puro, métricas de execução e o serviço que roda contra o banco (`backend/app/domain/backtesting`) 🟢 COMPLETED (Wave 13) — a simulação fala **ledger**, então `compute_positions`, `value_series` e `performance_index` medem um backtest com exatamente o código que mede a carteira do investidor
 
 ---
 
@@ -619,18 +621,98 @@ Detalhes W11-005 (2026-08-21):
 ---
 
 ### Wave 12 — AI Engine Integration
-Status: ⚪ NOT_STARTED
+Status: 🟢 COMPLETED (2026-08-21), 3 de 3 tasks
 
-- [ ] **W12-001**: Abstração `AIProvider` (`GeminiProvider`, `OllamaProvider`) ⚪ NOT_STARTED
-- [ ] **W12-002**: Geração de Explicações em Linguagem Natural ⚪ NOT_STARTED
+- [x] **W12-001**: Abstração `AIProvider` (`GeminiProvider`, `OllamaProvider`, `DisabledAIProvider`) 🟢 COMPLETED
+- [x] **W12-002**: Geração de Explicações em Linguagem Natural — fact pack, prompts versionados, guard 🟢 COMPLETED
+- [x] **W12-003**: `POST /portfolios/{id}/explain/{performance,contribution-plan,scores/{ticker}}` 🟢 COMPLETED
 
 ---
 
 ### Wave 13 — Portfolio Backtesting Engine
-Status: ⚪ NOT_STARTED
+Status: 🟢 COMPLETED (2026-08-21), 6 de 6 tasks
 
-- [ ] **W13-001**: Motor de Simulação Histórica de Aportes ⚪ NOT_STARTED
-- [ ] **W13-002**: Geração de Métricas de Performance do Backtest ⚪ NOT_STARTED
+O roadmap previa duas tasks; a execução precisou de seis, e as quatro a mais não são
+subdivisão — são coisas que só apareceram ao construir. A primeira é um **defeito de wave
+anterior** que um backtest não pode conviver com; as outras três são a estratégia, a medição
+e a rota.
+
+- [x] **W13-001**: Ação societária aplicada no replay do ledger 🟢 COMPLETED
+- [x] **W13-002**: Motor de simulação histórica de aportes, puro e sem I/O 🟢 COMPLETED
+- [x] **W13-003**: A própria estratégia do projeto replayada, com o lag de publicação ([ADR-031](decisions/ADR-031-a-statement-is-readable-only-after-the-filing-deadline.md)) 🟢 COMPLETED
+- [x] **W13-004**: Métricas de execução — alpha no `quant`, slippage medido, trade fechado 🟢 COMPLETED
+- [x] **W13-005**: O serviço que roda contra o banco, com a janela limitada pela série de retorno total ([ADR-032](decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md)) 🟢 COMPLETED
+- [x] **W13-006**: `GET /api/v1/backtests` 🟢 COMPLETED
+
+#### Notas de implementação
+
+**W13-001 — o pré-requisito honesto.** Desdobramento, grupamento e bonificação mudam o que
+está em custódia e **não geram transação**: o investidor não fez nada, então o ledger não
+registrou nada, e toda posição derivada dele carregava a contagem pré-evento para sempre.
+Inofensivo enquanto posição era só custo — um desdobramento não move nem o que foi pago nem o
+resultado realizado. Erro de fator inteiro assim que valor de mercado chegou na W11-001, e o
+motivo de ser a primeira task da wave: uma simulação que carrega posição através de um evento
+que ela desconhece produz **número plausível e errado**. Medido no banco real, três dos quatro
+ativos acompanhados têm um: BBAS3 desdobrou 1:2 em 2024, ITUB4 bonificou 3%, e a MGLU3 tem os
+três — desdobramento 1:4, grupamento 1:10 em 2024-05-27 e bonificação de 5% — que compostos
+dão **0,42**: uma posição de 2019 reportaria 100 ações contra as 42 em custódia.
+A metade sutil é que as **duas curvas precisam de restatements opostos do mesmo evento**,
+porque precificam a posição de formas diferentes. `value_series` cota o fechamento bruto, então
+suas quantidades são as detidas naquele dia e a razão vale **para frente** a partir da data-ex.
+`performance_index` cota `adjusted_close`, que já está expresso nas ações de hoje, então suas
+quantidades são **restatadas para a contagem atual** e um desdobramento vira **no-op** — a
+contagem dobrada e o preço ajustado pela metade se cancelam. Inverter isso desenha uma linha
+suave errada pelo fator ao quadrado.
+
+**W13-002 — onde o look-ahead fica fora de alcance, não apenas desencorajado.** Duas
+propriedades do caminhamento. (a) Uma decisão recebe um `SimulationState` com o dia, o caixa,
+as posições e os fechamentos **daquela sessão** — não o mapa de preços, não o calendário, nada
+que ela possa indexar para frente. (b) Uma ordem decidida numa sessão **preenche na seguinte**,
+porque um fechamento só pode ser lido depois de impresso, então ordem colocada sobre ele é
+ordem para amanhã. O intervalo entre decidir e preencher é onde mora o slippage do investidor
+real, e um backtest que preenche no preço da decisão está negociando a um preço que ninguém
+conseguiu.
+Tudo executa e valoriza no **fechamento bruto**, com proventos chegando à parte como caixa —
+única combinação que não conta duas vezes, porque `adjusted_close` já contém todo dividendo.
+Ações inteiras apenas; o resto fica como caixa e alcança o aporte seguinte. Taxa arredonda
+**para cima**. Ordem que não pode ser preenchida termina como preenchimento de zero com motivo
+nomeado (`NO_PRICE`, `BELOW_ONE_SHARE`, `INSUFFICIENT_CASH`, `NOTHING_HELD`) em vez de sumir.
+
+**W13-003 — a estratégia é *a* estratégia, não *uma*.** O módulo não constrói ranking próprio:
+monta os candidatos como estariam numa data passada e entrega a `allocate_contribution`, a
+mesma função pura que o endpoint vivo chama. Backtest de reimplementação mede a
+reimplementação. Três entradas poderiam vazar futuro e as três são cortadas na data: preço
+(filtro que o `score_asset` já tinha), a **própria carteira** (a exposição vem das posições
+simuladas, não de uma carteira guardada) e os fundamentos — que exigiram a regra nova do
+[ADR-031](decisions/ADR-031-a-statement-is-readable-only-after-the-filing-deadline.md).
+
+**W13-004 — duas medições e uma delas deixou de ser premissa.** `alpha` entrou no
+`app/quant/risk.py` ao lado do beta em que se apoia, e **não é** o excesso de retorno que o
+comparativo já reporta: uma carteira de ativos de beta alto bate um índice em alta quase por
+construção, e isso é alavancagem sobre o mesmo movimento, não habilidade. **Slippage é
+medido**, não assumido a alguma taxa em pontos-base: o intervalo entre o fechamento da decisão
+e o do preenchimento é somado do que de fato aconteceu, com as duas direções reportadas à
+parte. `Decision` passou a carregar os fechamentos que a estratégia viu, que é o que torna a
+medição possível.
+`win_rate`, `average_win`, `average_loss`, `profit_factor` e `expectancy` (regras 63/64) são
+todas definidas sobre trade **fechado**, e nada que este projeto entrega vende
+([ADR-028](decisions/ADR-028-rebalancing-is-cash-flow-only.md)). As cinco voltam `None`, com
+`closed_trades` em zero dizendo por quê — `0%` leria como *toda operação perdeu*.
+
+**W13-005 — onde a série de retorno total para, o backtest para junto**
+([ADR-032](decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md)).
+Não é só problema de medição: sessão marcada ex sem ação dimensionada por trás é distribuição
+que o projeto não sabe pagar, então rodar através dela credita menos caixa do que o investidor
+receberia. O resultado seria **errado**, não apenas não-mensurável. O plano de rebalanceamento
+entrou como segunda estratégia, que é o item *rebalanceamento* do roadmap §25: mesma política,
+mesmo universo, mesmas datas, e a única diferença é se o dinheiro é ordenado por score ou por
+distância até o alvo.
+
+**W13-006 — a rota, e um padrão paralelo removido no caminho.** `schemas.py` é a camada
+Pydantic da API em **13 de 13** módulos deste projeto; a W13-002 tinha feito o de backtesting
+guardar as dataclasses do motor. Elas foram para `simulation.py`, ao lado do replay que as
+produz — que é onde `benchmarks/comparison.py`, `portfolio/performance.py` e
+`recommendations/allocation.py` guardam as suas.
 
 ---
 
@@ -771,9 +853,10 @@ Status: ⚪ NOT_STARTED
 
 ## Current Task
 
-Wave: **EVENTS** (inserida fora da ordem, entre a W09 e a W10)
-Task ID: **EVENTS-003** — série de retorno total
-Status: ⚪ NOT_STARTED (a wave está 🟡 em andamento: 2 de 3 tasks entregues)
+Wave: **13 — Portfolio Backtesting Engine** (roadmap §25)
+Task ID: — (a wave fechou: 6 de 6 tasks)
+Status: 🟢 COMPLETED (2026-08-21). Nenhuma wave em andamento; a próxima é a **W14 —
+Walk-Forward Validation**.
 
 > O detalhe task-a-task fica na seção *Waves inseridas fora da ordem* acima, em *Last Execution*
 > e em [history/COMPLETED_TASKS.md](history/COMPLETED_TASKS.md) (esta última só recebe a wave
@@ -797,10 +880,7 @@ Completed:
   ambas em 2026-08-19.
 
 Next Action:
-**EVENTS-003 — série de retorno total.** É a task que a wave existe para chegar: com a data e a
-natureza do evento já legíveis, falta a **magnitude** (fator de desdobramento/grupamento e valor
-do provento por pagamento) e o `adjusted_close` derivado dela. É o que destrava o pilar de Risco,
-a cobertura do score (0,75 → 1,00) e o backtesting da W13. Ver `docs/memory/CURRENT_TASK.md`.
+**Wave 14 — Walk-Forward Validation** (roadmap §26). Ver `docs/memory/CURRENT_TASK.md`.
 
 ---
 
@@ -846,12 +926,26 @@ a cobertura do score (0,75 → 1,00) e o backtesting da W13. Ver `docs/memory/CU
 - **EVENTS-002**: Data e natureza do evento societário pelo arquivo de fim de dia da B3, via contador de distribuição (ADR-025) — sem magnitude, de propósito (🟢 COMPLETED, 2026-08-19)
 - **DOC-001**: Manutenção de documentação — zerar a lista *Inconsistências documentação × código* (🟢 COMPLETED, 2026-08-19)
 - **FIX-001**: Manutenção de código — corrigir todos os Known Issues que tinham correção possível; migrations `008` e `009` (🟢 COMPLETED, 2026-08-19)
+- **EVENTS-003**: Magnitude do evento societário pelo serviço aberto da B3 e o `adjusted_close` derivado dela (ADR-026) — **destravou o pilar de Risco** (🟢 COMPLETED, 2026-08-20) — **wave EVENTS concluída**
+- **W10-001**: Peso-alvo derivado do **mérito** e não do `final_score` (ADR-027) (🟢 COMPLETED, 2026-08-21)
+- **W10-002**: Tabela de desvio sobre a API (🟢 COMPLETED, 2026-08-21)
+- **W10-003**: O aporte que fecha os gaps, sem vender (ADR-028) (🟢 COMPLETED, 2026-08-21) — **Wave 10 concluída**
+- **W11-001** a **W11-005**: Valor de mercado, série de evolução, fundação do frontend, Dashboard e tela de Ativo (🟢 COMPLETED, 2026-08-21) — **Wave 11 concluída**
+- **W12-001**: `AIProvider` + Gemini + Ollama + Disabled, sobre o transporte compartilhado (ADR-029) (🟢 COMPLETED, 2026-08-21)
+- **W12-002**: O domínio que explica — fact pack, prompts versionados, guard (ADR-030) (🟢 COMPLETED, 2026-08-21)
+- **W12-003**: As três rotas `POST /portfolios/{id}/explain/*` (🟢 COMPLETED, 2026-08-21) — **Wave 12 concluída**
+- **W13-001**: Ação societária aplicada no replay do ledger — correção de um erro de fator inteiro que a W11-001 tornou visível (🟢 COMPLETED, 2026-08-21)
+- **W13-002**: Motor de simulação histórica de aportes, puro e sem I/O; ordem decidida numa sessão preenche na seguinte (🟢 COMPLETED, 2026-08-21)
+- **W13-003**: A estratégia do projeto replayada, com o lag de publicação da CVM (ADR-031) (🟢 COMPLETED, 2026-08-21)
+- **W13-004**: Métricas de execução — `alpha` no quant, slippage **medido**, trade fechado ausente por desenho (🟢 COMPLETED, 2026-08-21)
+- **W13-005**: O serviço, com a janela limitada pela série de retorno total (ADR-032) (🟢 COMPLETED, 2026-08-21)
+- **W13-006**: `GET /api/v1/backtests`, e o `schemas.py` de backtesting devolvido à convenção (🟢 COMPLETED, 2026-08-21) — **Wave 13 concluída**
 
 ---
 
 ## In Progress
-**Wave EVENTS 🟡 em andamento**, 2 de 3 tasks entregues. Nenhuma task com código pela metade — a
-próxima, **EVENTS-003** (série de retorno total), ainda não começou. Ver
+**Nenhuma wave em andamento.** A Wave 13 fechou em 2026-08-21, 6 de 6 tasks, sem código pela
+metade em lugar nenhum. A próxima é a **W14 — Walk-Forward Validation**. Ver
 [memory/CURRENT_TASK.md](memory/CURRENT_TASK.md).
 
 ---
@@ -1039,6 +1133,44 @@ Nenhuma tarefa bloqueada no momento.
 ---
 
 ## Future Work
+- 🔴 **A data de arquivamento da CVM existe e não é ingerida** (W13-003). O backtest trata um
+  demonstrativo como público **três meses** depois do fim do período — o prazo do DFP, ou seja a
+  data legal mais tardia ([ADR-031](decisions/ADR-031-a-statement-is-readable-only-after-the-filing-deadline.md)).
+  Os arquivos abertos da CVM carregam a data em que cada peça foi **recebida**, e ingeri-la
+  substituiria a regra pelo fato que ela representa. Exige coluna nova em `fundamentals` e
+  reingestão de todo exercício já gravado. Enquanto não for feito, um backtest está lendo
+  *"três meses depois do fim do exercício"*, não *"o dia em que foi arquivado"* — e isso está
+  dito no docstring do módulo, não só aqui.
+- ⚠️ **`GET /portfolios/{id}/scores?as_of=` faz pergunta histórica ao motor vivo, e esse caminho
+  não tem lag** (W13-003). O parâmetro `publication_lag_months` tem default zero de propósito
+  (regra 134): um score exibido hoje deve ler o demonstrativo mais recente que existe. Mas
+  `?as_of=` no passado devolve um score que leu um balanço que ainda não estava público naquela
+  data. Não é defeito do backtest; é uma inconsistência entre dois consumidores da mesma função,
+  e resolvê-la é decidir o que `?as_of=` significa.
+- ⚠️ **O índice time-weighted supõe provento reinvestido na data-ex; a simulação reinveste no
+  aporte seguinte** (W13-005). É o que `adjusted_close` significa, então o índice superestima um
+  pouco uma estratégia que deixa dividendo parado — e a diferença aparece na curva de patrimônio,
+  que carrega o caixa. A premissa **já existe no dashboard vivo** (`portfolio/performance.py`),
+  então a correção é um retorno **ponderado por dinheiro** (MWR), que pertence aos dois
+  consumidores ou a nenhum. Ver o item de MWR/TIR mais abaixo, que é o mesmo trabalho.
+- **Alpha não é reportado por `/portfolios/{id}/benchmarks/{code}`** (W13-004). `jensens_alpha`
+  entrou no `app/quant/risk.py` e o backtest o consome, mas `BenchmarkComparison` não ganhou o
+  campo — seria alterar um contrato da W08 de dentro de uma task da W13 (regra 134). O lugar
+  natural dele é ali, ao lado do beta de que depende e onde a regra "beta é `None` para
+  benchmark de taxa" já vive.
+- **Nenhuma tela lê um backtest.** A W13 é backend-only por decisão, como a W12. O roadmap põe
+  `/backtests` na **W22** (frontend avançado). O que a tela precisa mostrar sem falhar: a janela
+  efetivamente rodada contra a pedida, os ativos excluídos com motivo, e as duas curvas lado a
+  lado — patrimônio com a linha de aporte por baixo, índice contra benchmark — porque exibir só
+  a primeira é a leitura que o [ADR-019](decisions/ADR-019-portfolio-return-is-time-weighted.md)
+  existe para impedir.
+- **Data de entrada por ativo no backtest** (W13-005). Hoje a janela é encurtada até onde **todo**
+  o universo é mensurável, então um ativo com série quebrada custa o histórico inteiro — ITUB4
+  reduz seis anos a nove meses. Deixar cada ativo entrar quando fica mensurável é mais fiel e
+  aproxima o viés que a regra 59 vigia; é trabalho da W14, que move janelas por construção.
+- **Datasets fixos de regressão de backtest** (roadmap §33, W21). O resultado é determinístico e
+  há teste afirmando isso, mas não há *golden file*: uma mudança de fórmula que altere um número
+  histórico passa despercebida enquanto os testes só verificarem consistência interna.
 - ⚠️ **Uma carteira sem transação ainda gasta uma chamada ao modelo** (medido em 2026-08-21
   contra o banco real, carteira `Local`). O curto-circuito da regra 44 dispara quando **nenhum**
   fato tem valor, e nesse caso três têm: o nome do benchmark, `observações: 0` e a taxa livre de
@@ -1060,11 +1192,11 @@ Nenhuma tarefa bloqueada no momento.
 - **Duas das cinco capacidades do roadmap §24 ficaram fora, por falta de fonte, não de tempo**: *resumir documentos* e *resumir notícias*. O projeto não ingere notícia nem documento — não há tabela, provedor nem endpoint —, então um tópico de explicação para eles seria um prompt sem fatos, que é exatamente o que o [ADR-030](decisions/ADR-030-fact-pack-and-the-hallucination-guard.md) proíbe. As três entregues (desempenho, plano de aporte, score de ativo) cobrem *explicar recomendações*, *transformar métricas em linguagem natural* e *apontar riscos qualitativos*. Ingerir notícia é uma wave própria, com fonte a decidir.
 - **Nenhuma explicação é persistida.** `Explanation` é derivada e descartada, como posições e planos (regra 16). Guardá-las daria histórico — *o que o sistema me disse em março?* — e é a base de qualquer avaliação de qualidade do texto ao longo do tempo. Exige tabela, migration e uma decisão sobre retenção; nada disso foi feito na W12.
 - **O frontend não tem teste automatizado nenhum** (a partir da W11-003). Os 14 schemas `zod` foram conferidos à mão contra um backend real, e isso não se repete sozinho: um campo renomeado no backend só aparece quando alguém abre a tela. Falta infraestrutura — `vitest` é uma dependência nova e portanto uma decisão (regra 92) — e o alvo mínimo é reexecutar aquela checagem de contrato contra um backend no ar. Pertence à W21 (suíte de testes), mas vale antes se o frontend crescer mais duas telas.
-- 🔴 **O ledger não conhece evento societário, e o valor de mercado tornou isso visível (descoberto na W11-001).** `compute_positions` reproduz o que foi negociado; um desdobramento ou grupamento muda a quantidade em custódia sem gerar transação, então uma posição carregada através de um evento fica com a quantidade **errada** até o investidor registrar a mudança à mão. Custo basis nunca dependia disso — `quantity × price` depende. As magnitudes já estão no banco desde a EVENTS-003 (`corporate_actions`), então a correção é aplicável: replay do ledger aplicando o fator às posições abertas na data-ex. Fora do escopo da W11-001 (regra 134), e deve vir antes de a tela de carteira ser levada a sério por quem detém papel com desdobramento.
+- ✅ ~~**O ledger não conhece evento societário**~~ — **CORRIGIDO em 2026-08-21** (W13-001): `compute_positions`, `value_series` e `performance_index` passaram a aplicar as ações que movem contagem de ações, cada curva com o restatement que o seu preço exige. Registro original: **(descoberto na W11-001)** `compute_positions` reproduz o que foi negociado; um desdobramento ou grupamento muda a quantidade em custódia sem gerar transação, então uma posição carregada através de um evento fica com a quantidade **errada** até o investidor registrar a mudança à mão. Custo basis nunca dependia disso — `quantity × price` depende. As magnitudes já estão no banco desde a EVENTS-003 (`corporate_actions`), então a correção é aplicável: replay do ledger aplicando o fator às posições abertas na data-ex. Fora do escopo da W11-001 (regra 134), e deve vir antes de a tela de carteira ser levada a sério por quem detém papel com desdobramento.
 - ✅ ~~**`dy` a partir da DMVL/DMPL da CVM**~~ — **FEITO em 2026-08-19** (EVENTS-001): `5.04.06` + `5.04.07` na coluna `Patrimônio Líquido`, com `5.04.11` (prescritos) excluído e o sinal tratado como apresentação. Os 10 indicadores passaram a ter insumo real.
 - **Magnitude do evento societário** — o que a EVENTS-002 deliberadamente não entregou. A data e a natureza vêm de graça do arquivo da B3; o **fator** de desdobramento/grupamento e o **valor por pagamento** do provento exigem outra fonte, e são o que a série de retorno total consome. É a EVENTS-003, a task corrente.
 - **Persistir os eventos societários.** Hoje `get_corporate_events` varre o arquivo em cache a cada chamada — não há tabela, migration nem endpoint. Dimensionar isso é parte da EVENTS-003, e vale medir antes: são ~15 MB destilados por ano e uma varredura por ano civil.
-- ✅ ~~**Histórico de preços é o que ainda trava `pe`/`pb` no banco real**~~ — **FEITO em 2026-08-19** (wave PRICE): o COTAHIST da B3 entrou como fonte aberta e o backfill da PETR4 gravou 1.495 pregões, com `pe`/`pb` reais nos seis exercícios. ⚠️ **A W13 continua travada pelo mesmo motivo de antes**: backtesting precisa de retorno **total**, e o que existe é preço bruto.
+- ✅ ~~**Histórico de preços é o que ainda trava `pe`/`pb` no banco real**~~ — **FEITO em 2026-08-19** (wave PRICE): o COTAHIST da B3 entrou como fonte aberta e o backfill da PETR4 gravou 1.495 pregões, com `pe`/`pb` reais nos seis exercícios. ✅ **E a W13 destravou em 2026-08-20** (EVENTS-003): a série de retorno total passou a existir onde o ajuste é completo, e o backtesting da W13 foi construído sobre ela em 2026-08-21 — parando onde ela para ([ADR-032](decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md)).
 - **Valor de mercado como base da concentração**: o pilar de Diversification e o alocador continuam lendo custo de aquisição, deliberadamente ([ADR-021](decisions/ADR-021-allocation-ranks-by-coverage-tier.md)). A W11-001 trouxe valor de mercado e **não** migrou os dois — é decisão de produto, não consequência automática, e eles devem migrar **juntos** por serem a mesma exposição por desenho. Agora há como fazê-lo.
 - **Modelar caixa da carteira.** A base da alocação é `custo das posições + aporte`, e o que sobra fica implicitamente como caixa sem estar registrado em lugar nenhum. `portfolio_snapshots.cash_value` existe e não é usado.
 - **Teto de 3 meses de histórico da Brapi no plano gratuito** (ver Known Issues): resolvido para **ações** pela wave PRICE, que troca a fonte pela B3. Continua aberto para o **IBOV**, cuja série ainda vem do fornecedor — o que mantém `beta` com janela estatisticamente pobre. Decidir: assinar plano pago, achar fonte aberta para o índice, ou aceitar o teto.
@@ -1084,6 +1216,48 @@ Nenhuma tarefa bloqueada no momento.
 ---
 
 ## Last Execution
+- **Timestamp**: 2026-08-21T20:00:00-03:00
+- **Action**: **Wave 13 — Backtesting de carteira**, 6 de 6 tasks (`02cd288`, `a42a91f`,
+  `6409568`, `67b6cf7`, `9c55cab`, `6142a97`, `0f5bb0b`). O roadmap previa duas tasks; a
+  execução precisou de seis. **W13-001**: ação societária aplicada no replay do ledger — um
+  desdobramento muda a custódia e não gera transação, então toda posição derivada carregava a
+  contagem pré-evento; as duas curvas precisam de restatements **opostos** do mesmo evento,
+  porque precificam a posição de formas diferentes. **W13-002**: o motor, puro e sem I/O, onde
+  o look-ahead fica **fora de alcance** — a decisão só recebe os fechamentos da própria sessão,
+  e ordem decidida numa sessão preenche na seguinte. **W13-003**: a estratégia é *a* estratégia
+  (o `allocate_contribution` que o endpoint vivo chama), com o lag de publicação da CVM
+  ([ADR-031](decisions/ADR-031-a-statement-is-readable-only-after-the-filing-deadline.md)).
+  **W13-004**: `alpha` no `app/quant/risk.py`, slippage **medido** em vez de assumido, e as
+  cinco figuras de trade fechado voltando `None` porque nada aqui vende. **W13-005**: o
+  serviço, com a janela parando onde a série de retorno total para
+  ([ADR-032](decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md)) e o
+  plano de rebalanceamento como segunda estratégia. **W13-006**: `GET /api/v1/backtests`, e o
+  `schemas.py` de backtesting devolvido à convenção dos outros 13 módulos.
+- **Result**: Sucesso. **1.049 testes** (944 + 105 novos), `ruff` e `black` limpos no
+  repositório inteiro; nenhuma migration, porque nada da wave é gravado (regra 16).
+- **Validado contra o banco real** (PostgreSQL no ar, 2026-08-21), e **a validação achou dois
+  defeitos que nenhum fixture alcançaria**:
+  1. **Um feriado estava sendo reportado como problema de dado.** Ninguém negocia em 1º de
+     janeiro, então uma execução pedida a partir do dia 1º começa no dia 2 — e
+     `window.bounded_by` nomeava um ativo por isso. O campo existe para responder *"por que meu
+     backtest de dez anos cobriu quatro?"*; dispará-lo por um dia de calendário torna o caso
+     honesto ilegível. A comparação passou a ser contra a primeira sessão que o universo de fato
+     tem.
+  2. **Alpha estava sendo calculado contra o CDI.** O `compare` deliberadamente não reporta beta
+     para benchmark de **taxa** — sensibilidade ao CDI não é quantidade que signifique algo — e
+     alpha é a aritmética do beta. Estava reportando 0,30 p.p. de habilidade contra um número que
+     não mede nada. O portão passou a ser o beta que o `compare` alcançou, e não uma segunda
+     leitura do tipo do benchmark, porque segunda leitura é como as duas passariam a discordar.
+- **O que a execução real mostrou, e não é defeito**: universo dos quatro ativos → a janela cai
+  de 2020-01-01 para **2025-03-19**, `bounded_by: ITUB4`, cuja série ajustada tem 198 de 1.495
+  pregões. Com PETR4 e BBAS3 (1.495 de 1.495 cada), roda os seis anos: **R$ 72.000 aportados, 28
+  compras, R$ 58.471 em caixa**, R$ 10.340 de proventos, R$ 7,32 de taxas, slippage de R$ 268,95
+  pago contra R$ 61,60 ganho. Cada recusa é nomeada: três dos quatro ativos não têm demonstrativo
+  e nunca passam do piso de cobertura, e a **PETR4 cai de 62,28 para 35,83** no instante em que é
+  detida — **15 pontos são o pilar de concentração** ([ADR-027](decisions/ADR-027-target-weight-comes-from-merit.md))
+  e **11,45 são a regra 109** entregando o exercício de 2024 no vencimento do prazo da CVM
+  (ROE 0,10 contra 0,33; P/L 12,74 contra 3,87). A estratégia estacionar dinheiro quando nada
+  passa do seu piso é **um resultado sobre a estratégia**, que é para isso que serve um backtest.
 - **Timestamp**: 2026-08-21T00:00:00-03:00
 - **Action**: **Wave 12 — AI Engine**, 3 de 3 tasks. **W12-001**: `AIProvider` abstrato + `GeminiProvider` + `OllamaProvider` + `DisabledAIProvider` (`AI_PROVIDER=none` é deployment, não defeito), todos sobre o `RetryingJsonClient`, que ganhou `post_json` e `default_headers` ([ADR-029](decisions/ADR-029-ai-provider-speaks-rest.md)); `google-generativeai` removido do `pyproject.toml`. **W12-002**: `app/domain/ai/` — `facts.py` (a cintura estreita: tudo que o modelo vê passa por ali), `formatting.py` (espelho de `format.ts`), `prompting.py` + `prompts/*_v1.txt` versionados (regra 43), `guard.py` e `service.py` ([ADR-030](decisions/ADR-030-fact-pack-and-the-hallucination-guard.md)). **W12-003**: `POST /portfolios/{id}/explain/{performance,contribution-plan,scores/{ticker}}`, com `_contribution_plan_response`, `_asset_score_response` e `_resolve_benchmark` **extraídos** das rotas existentes em vez de duplicados — a explicação descreve o objeto que o endpoint devolve, não uma segunda montagem dele.
 - **Result**: Sucesso. **944 testes** (859 + 85 novos), `ruff` e `black` limpos nos arquivos alterados; nenhuma migration, porque nada da wave é gravado (regra 16). **A decisão que define a wave** é que "a IA não calcula" deixou de ser confiança e virou mecanismo: o prompt não contém série, componente nem linha de banco, os números chegam **já arredondados na string que a tela mostra**, e o que sair do conjunto fechado de figuras é apontado em `unverified_figures`. Dois testes pegaram defeitos de desenho meus antes de qualquer revisão: (a) as URLs de origem estavam sendo renderizadas **dentro** do prompt, o que punha os dígitos de `/api/v1/portfolios/1` na frente de um modelo instruído a citar só o que recebeu — `key` e `source` passaram a ficar só na `Explanation`, que é onde um leitor os consulta (§91, §112); (b) o prompt de sistema trazia `"12,4%"` como **exemplo** de como citar um valor, um número plausível pronto para vazar para uma explicação onde não significa nada — virou `"X,Y%"`, e um teste passou a proibir qualquer coisa com a forma `\d,\d` ali. Um terceiro achado, este sobre o contrato e não sobre o código: os testes de rota assumiam envelope de erro sob `detail`, quando a regra 72 o põe no topo — o teste é que estava errado. 🔴 **Não verificado**: nenhuma chamada real a modelo nenhum aconteceu (Gemini 403 `SERVICE_DISABLED`, sem Ollama local), e por isso **nenhum teste de regressão de parser foi escrito** — ver Known Issues.
@@ -1123,7 +1297,16 @@ Nenhuma tarefa bloqueada no momento.
 ---
 
 ## Next Action
-**Duas coisas, e a primeira é curta.**
+**Duas coisas, e a primeira continua curta.**
 
-1. **Fechar a verificação da W12-001**: habilitar a Gemini API no projeto Google Cloud da chave, fazer *uma* chamada real, conferir o formato campo a campo e escrever o teste de regressão. Enquanto isso não acontece, os dois providers são código **não verificado** (Known Issues).
-2. **Wave 13 — Backtesting** (roadmap §25, AGENTS.md §35): simulação histórica de aportes com CAGR, drawdown, volatilidade, Sharpe, Sortino, alpha e beta. Ela depende de **retorno total**, que a EVENTS-003 destravou — a série ajustada existe onde o ajuste é completo ([ADR-026](decisions/ADR-026-corporate-action-magnitude-and-the-completeness-rule.md)).
+1. **Fechar a verificação da W12-001**: habilitar a Gemini API no projeto Google Cloud da chave,
+   fazer *uma* chamada real, conferir o formato campo a campo e escrever o teste de regressão.
+   Enquanto isso não acontece, os dois providers são código **não verificado** (Known Issues).
+2. **Wave 14 — Walk-Forward Validation** (roadmap §26): dividir a série em treino, validação e
+   teste e rodar períodos móveis, para medir estabilidade e evitar overfitting (regras 60, 61,
+   62). Ela consome a W13 inteira — o motor, a estratégia e as métricas já existem; o que falta é
+   o particionamento das janelas e o que se afirma a partir dele.
+   ⚠️ **A W14 herda a janela apertada da W13**: uma série já truncada por
+   [ADR-032](decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md) tem
+   menos espaço para ser dividida em três, e o universo dos quatro ativos acompanhados hoje dá
+   nove meses. Ampliar isso é ingerir os eventos que faltam, não relaxar a regra.

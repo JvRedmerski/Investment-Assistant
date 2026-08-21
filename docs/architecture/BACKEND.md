@@ -11,15 +11,16 @@ backend/
 │   ├── main.py                 App FastAPI, CORS, exception handler global, registro de routers
 │   ├── api/
 │   │   ├── dependencies.py     get_current_user · get_{market_data,historical_price,fundamentals,benchmark}_provider
-│   │   └── routes/             health · auth · assets · portfolios · benchmarks
+│   │   └── routes/             health · auth · assets · portfolios · benchmarks · backtests
 │   ├── core/
 │   │   ├── config.py           Settings (pydantic-settings, lê .env) → singleton `settings`
 │   │   ├── security.py         hash/verify de senha (bcrypt) · create/decode de JWT (PyJWT)
 │   │   └── logging.py          setup_logging()
-│   ├── domain/                 users · portfolio · assets · market_data · fundamentals · benchmarks · recommendations · ai
+│   ├── domain/                 users · portfolio · assets · market_data · fundamentals · benchmarks · recommendations · ai · backtesting
 │   │   ├── <área>/             schemas.py (Pydantic) + service.py (regra de negócio)
 │   │   ├── recommendations/    + scoring.py e allocation.py — puros, no molde do app/quant/
-│   │   └── ai/                 facts · formatting · prompting · guard · service + prompts/*.txt (versionados)
+│   │   ├── ai/                 facts · formatting · prompting · guard · service + prompts/*.txt (versionados)
+│   │   └── backtesting/        simulation · metrics · availability (puros) + universe · service (I/O)
 │   ├── quant/                  returns.py · risk.py — puro, sem I/O, tudo em Decimal
 │   ├── integrations/
 │   │   ├── http.py             RetryingJsonClient — transporte compartilhado (retry/throttle)
@@ -30,7 +31,7 @@ backend/
 │   └── data/
 │       ├── database.py         engine · SessionLocal · Base · get_db · utc_now
 │       └── models/             users · assets · portfolio · fundamentals · benchmarks · recommendations · daytrade
-├── migrations/versions/        001_initial_schema … 007_shares_outstanding
+├── migrations/versions/        001_initial_schema … 012_corporate_actions
 ├── tests/                      plano, sem subpastas
 ├── pyproject.toml              deps + config de pytest/ruff
 └── alembic.ini
@@ -56,7 +57,36 @@ o do outro, para que não exista uma segunda cópia livre para divergir.
 
 Dentro de um domínio, cálculo puro e I/O ficam em arquivos separados — `fundamentals/indicators.py`
 (puro) contra `fundamentals/service.py` (I/O); `benchmarks/{series,comparison}.py` e
-`portfolio/performance.py` (puros) contra `benchmarks/service.py` (I/O).
+`portfolio/performance.py` (puros) contra `benchmarks/service.py` (I/O); e em `backtesting/`,
+`simulation.py`, `metrics.py` e `availability.py` (puros) contra `universe.py` e `service.py`
+(I/O).
+
+### O backtest fala ledger, e é isso que o impede de ter uma segunda contabilidade
+
+`backtesting/simulation.py` devolve linhas de `Transaction` — o mesmo formato em que uma carteira
+real é registrada — mais as ações societárias que moveram uma posição sem gerar transação. Não é
+detalhe de implementação: é o que faz `compute_positions`, `value_series` e `performance_index`
+medirem um backtest com **exatamente** o código que mede a carteira do investidor. Um segundo
+caminho de valorização seria um segundo conjunto de bugs, e a primeira divergência entre os dois
+apareceria como um backtest discordando do dashboard por motivo que ninguém saberia nomear.
+
+Pela mesma razão a estratégia sob teste **não é reimplementada**: `backtesting/universe.py` monta
+os candidatos como estariam numa data passada e entrega a `allocate_contribution` — a mesma
+função pura que `/contribution-plan` chama hoje. Backtest de reimplementação mede a
+reimplementação.
+
+### Duas regras temporais que só o backtest exige
+
+**A ordem de uma sessão.** Uma decisão recebe apenas os fechamentos da sessão em que é tomada, e
+a ordem que ela produz preenche na sessão **seguinte** — um fechamento só pode ser lido depois de
+impresso (regra 58). O intervalo entre decidir e preencher é o que torna o *slippage* uma
+**medição** em vez de uma taxa assumida.
+
+**Quando um demonstrativo virou público.** A regra 108 recusa balanço datado depois do dia
+pontuado, o que basta para um score exibido hoje e **não** para um backtest: exercício que fecha
+em 31 de dezembro não é público em 1º de janeiro. `backtesting/availability.py` traz o prazo da
+CVM (três meses) como parâmetro, e ele é **zero por padrão** no caminho vivo — só o backtest
+passa o valor real ([ADR-031](../decisions/ADR-031-a-statement-is-readable-only-after-the-filing-deadline.md)).
 
 ## Fluxo de uma requisição
 
