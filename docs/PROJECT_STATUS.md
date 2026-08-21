@@ -11,7 +11,7 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 
 ## Current Phase
 - **Phase**: wave **EVENTS** (eventos societários e proventos) em andamento — segunda wave **inserida fora da ordem do roadmap**, entre a W09 e a W10
-- **Status**: 🟡 **WAVE 11 IN_PROGRESS** (2026-08-21) — 1 de 6 tasks: W11-001 deu valor de mercado às posições, o número que a tela de patrimônio precisa e o backend não produzia. Antes dela: 🟢 **WAVE 10 COMPLETED** (2026-08-21) — **3 de 3 tasks**: W10-001 (peso-alvo derivado do **mérito** e não do `final_score`, [ADR-027](decisions/ADR-027-target-weight-comes-from-merit.md)), W10-002 (tabela de desvio sobre a API) e W10-003 (o aporte que fecha os gaps, sem vender, [ADR-028](decisions/ADR-028-rebalancing-is-cash-flow-only.md)). Antes dela: 🟢 EVENTS COMPLETED (2026-08-20) — **3 de 3 tasks**: EVENTS-001 (distribuições por exercício, da DMPL da CVM — fechou o `dy`), EVENTS-002 (data e natureza do evento societário, pelo arquivo de fim de dia da B3) e EVENTS-003 (a **magnitude**, pelo serviço aberto de eventos da B3, e o `adjusted_close` derivado dela — **destravou o pilar de Risco**). A wave **PRICE** (3 tasks) fechou antes, em 2026-08-19. A **Wave 11 — Dashboard** está em curso, e é a primeira com trabalho de frontend real
+- **Status**: 🟡 **WAVE 11 IN_PROGRESS** (2026-08-21) — 2 de 6 tasks: W11-001 deu valor de mercado às posições e W11-002 a série de evolução, **corrigindo de passagem um erro de unidade que deixava o índice time-weighted negativo**. Antes dela: 🟢 **WAVE 10 COMPLETED** (2026-08-21) — **3 de 3 tasks**: W10-001 (peso-alvo derivado do **mérito** e não do `final_score`, [ADR-027](decisions/ADR-027-target-weight-comes-from-merit.md)), W10-002 (tabela de desvio sobre a API) e W10-003 (o aporte que fecha os gaps, sem vender, [ADR-028](decisions/ADR-028-rebalancing-is-cash-flow-only.md)). Antes dela: 🟢 EVENTS COMPLETED (2026-08-20) — **3 de 3 tasks**: EVENTS-001 (distribuições por exercício, da DMPL da CVM — fechou o `dy`), EVENTS-002 (data e natureza do evento societário, pelo arquivo de fim de dia da B3) e EVENTS-003 (a **magnitude**, pelo serviço aberto de eventos da B3, e o `adjusted_close` derivado dela — **destravou o pilar de Risco**). A wave **PRICE** (3 tasks) fechou antes, em 2026-08-19. A **Wave 11 — Dashboard** está em curso, e é a primeira com trabalho de frontend real
 
 ---
 
@@ -417,10 +417,10 @@ Detalhes W10-003 (2026-08-21):
 ---
 
 ### Wave 11 — Dashboard & Main Interface
-Status: 🟡 IN_PROGRESS (1 de 6 tasks)
+Status: 🟡 IN_PROGRESS (2 de 6 tasks)
 
 - [x] **W11-001**: Valor de mercado e P&L não realizado nas posições 🟢 COMPLETED
-- [ ] **W11-002**: A série de evolução da carteira sobre a API ⚪ NOT_STARTED
+- [x] **W11-002**: A série de evolução da carteira sobre a API — e a correção de unidade que ela expôs no índice time-weighted 🟢 COMPLETED
 - [ ] **W11-003**: Fundação do frontend (rotas, react-query, cliente tipado, auth, layout) ⚪ NOT_STARTED
 - [ ] **W11-004**: Tela Dashboard ⚪ NOT_STARTED
 - [ ] **W11-005**: Tela Carteira ⚪ NOT_STARTED
@@ -455,6 +455,58 @@ Detalhes W11-001 (2026-08-21):
 - Medido no banco real: 100 PETR4 a custo de R$ 28 valem **R$ 3.082** no fechamento de
   2025-12-30 (+R$ 282); a mesma carteira `as_of` 2020-03-18 (o fundo da COVID) vale R$ 1.129.
 - 17 testes novos (11 de unidade, 6 de rota). `pytest` 815 → **832**.
+
+Detalhes W11-002 (2026-08-21):
+
+- `GET /portfolios/{id}/series` devolve **duas** curvas: `wealth` (patrimônio em BRL, fechamento
+  cru, com a linha `invested` ao lado) e `index` (nível time-weighted, que neutraliza aporte).
+  Rotular as duas diferente é o ponto: curva de patrimônio lida como desempenho é exatamente o
+  engano que o [ADR-019](decisions/ADR-019-portfolio-return-is-time-weighted.md) existe para
+  impedir.
+- `align` (em `comparison.py`) recorta as duas séries para a janela **compartilhada** e rebaseia
+  ambas ali. União em vez de interseção daria ao benchmark uma vantagem que o leitor não vê — a
+  métrica reporta as datas de cada lado, mas o olho compara as linhas direto.
+- Nada é interpolado: data que só uma série tem fica só nela (regra 44).
+- `value_series` é uma **caminhada separada** de `performance_index`, sobre `closes_by_asset` em
+  vez de `adjusted_closes_by_asset`. As duas respondem perguntas diferentes com preços
+  diferentes, e produzi-las na mesma caminhada colocaria os dois tipos de preço dentro de um
+  cálculo só.
+
+#### 🔴 A correção que a verificação real forçou: o índice estava errado, e negativo
+
+Rodando a série contra seis anos reais de PETR4, o índice deu **-3,88**. Valor de cota não pode
+ser negativo.
+
+**Causa: erro de unidade.** As posições são valorizadas em `adjusted_close`, mas os fluxos
+entravam em preço **negociado**. Para papel que pagou anos de provento o ajustado é uma *fração*
+do negociado, então cada compra subtraía ~3× o valor que havia adicionado.
+
+Reduzido ao caso mínimo — mesmas operações, mesmo +10% de retorno:
+
+| fator de ajuste | níveis |
+|---|---|
+| 1 (o único caso que a suíte exercitava) | 100 → 100 → 110 ✅ |
+| 3 | 100 → **-100** → **-110** 🔴 |
+
+**A suíte inteira era cega a isso e não podia não ser**: todo fixture precificava o ativo
+exatamente ao preço negociado, que é o único caso em que as duas moedas coincidem. É a mesma
+lição da W10-003 — os testes compartilhavam a premissa errada.
+
+**Correção**: `_external_share_flows` expressa o fluxo em **ações**, valorizadas no mesmo
+`adjusted_close` das posições no dia em que o fluxo é neutralizado. Taxa mantém o arrasto,
+convertida ao preço da própria transação (R$ 5 sobre ação de R$ 10 é meia ação).
+
+**Efeito colateral bom**: a aproximação que o módulo documentava como *"the one weak point of
+this module"* **sumiu para o caso comum**. Comprar mais de algo já detido durante um vão de
+preço passou a ser **exato**, porque o preço desconhecido aparece nos dois sub-períodos e
+cancela. Só comprar ativo novo durante o vão continua aproximado, e agora só **subestima** em vez
+de atribuir o ganho ao capital errado. Um teste mudou de `130` para `120`, e `120` é o valor
+verdadeiro.
+
+- Medido no banco real depois da correção: aportes ao longo de 2020 em PETR4 dão índice
+  **100 → 358,23** em seis anos (+258%), consistente com o fator de retorno total de **3,43×**
+  medido na EVENTS-003. O patrimônio vai de R$ 2.955 a R$ 12.328 sobre R$ 8.000 aportados.
+- 26 testes novos (14 de unidade, 10 de rota, 2 fixando a unidade do fluxo). `pytest` 832 → **858**.
 
 - [ ] **W11-001**: Dashboard Principal (Patrimônio, Rentabilidade, Benchmarks) ⚪ NOT_STARTED
 - [ ] **W11-002**: Interface de Gestão de Carteira e Histórico ⚪ NOT_STARTED

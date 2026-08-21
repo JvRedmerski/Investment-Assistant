@@ -26,6 +26,13 @@ formality:
    daily data are both estimates of the same annual quantity; the raw
    per-period numbers would not be comparable at all.
 
+4. **A chart aligns both series to one window and one base** (`align`).
+   The metrics above each measure a series over whatever window it has,
+   and report those dates so the difference is visible. A reader looking
+   at two lines does no such checking — the eye compares them directly —
+   so the drawing has to start both at the same date and the same level
+   or it lies without saying anything false.
+
 ## Beta only against an index, deliberately
 
 `beta` is reported for an `INDEX` benchmark and left `None` for a `RATE`
@@ -205,3 +212,92 @@ def _ratio(subject: Decimal | None, benchmark: Decimal | None) -> Decimal | None
     if subject <= 0 or benchmark <= 0:
         return None
     return subject / benchmark
+
+
+#: Level both series start at when drawn together.
+#:
+#: 100, so a level reads as a percentage of the start, matching
+#: `portfolio.performance.DEFAULT_BASE` and `benchmarks.series`.
+CHART_BASE = Decimal(100)
+
+
+@dataclass(frozen=True)
+class AlignedSeries:
+    """Two series clipped to one window and rebased to one level.
+
+    `base_date` is where both start; `end_date` where both stop. Empty
+    when the two never overlap — which is a real answer, not a failure:
+    a portfolio whose prices stop before the benchmark's begin cannot be
+    drawn against it.
+    """
+
+    subject: tuple[PricePoint, ...]
+    benchmark: tuple[PricePoint, ...]
+    base: Decimal
+    base_date: date | None
+    end_date: date | None
+
+
+def align(
+    subject: list[PricePoint],
+    benchmark: list[PricePoint] | None = None,
+    base: Decimal = CHART_BASE,
+) -> AlignedSeries:
+    """Put two level series on one window and one starting level.
+
+    The window is the **intersection** of the two, not the union. A
+    benchmark drawn a month before the portfolio's first valuation would
+    be showing a month of return the portfolio never had the chance to
+    earn, and the eye reads that as the benchmark winning.
+
+    Each series is then rebased by its own first point *inside* the
+    window, so both leave the same place. Rebasing outside the window —
+    at the series' own start — would put one line above the other on day
+    one for no reason a reader could see.
+
+    Nothing is interpolated onto a date a series does not have. Two
+    calendars that disagree stay disagreeing, with each line drawn where
+    it has values; inventing a point to make a line continuous is
+    fabricating a price (rule 44).
+    """
+    if not subject:
+        return AlignedSeries((), (), base, None, None)
+    if not benchmark:
+        rebased = _rebase(subject, base)
+        return AlignedSeries(rebased, (), base, rebased[0].date, rebased[-1].date)
+
+    start = max(subject[0].date, benchmark[0].date)
+    end = min(subject[-1].date, benchmark[-1].date)
+    if start > end:
+        return AlignedSeries((), (), base, None, None)
+
+    inside_subject = [p for p in subject if start <= p.date <= end]
+    inside_benchmark = [p for p in benchmark if start <= p.date <= end]
+    if not inside_subject or not inside_benchmark:
+        return AlignedSeries((), (), base, None, None)
+
+    return AlignedSeries(
+        subject=_rebase(inside_subject, base),
+        benchmark=_rebase(inside_benchmark, base),
+        base=base,
+        base_date=start,
+        end_date=end,
+    )
+
+
+def _rebase(points: list[PricePoint], base: Decimal) -> tuple[PricePoint, ...]:
+    """Scale a level series so its first point reads `base`.
+
+    A ratio of levels, so it works whatever the series started at — an
+    index at 130.000 and a compounded CDI at 1.07 both come out at 100.
+    A first level of zero cannot be scaled and the series is returned
+    untouched rather than divided by it; that only arises for a
+    degenerate input.
+    """
+    first = points[0].adjusted_close
+    if first == 0:  # pragma: no cover - a level series never starts at zero
+        return tuple(points)
+    return tuple(
+        PricePoint(date=point.date, adjusted_close=base * point.adjusted_close / first)
+        for point in points
+    )

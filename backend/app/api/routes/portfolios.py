@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -11,17 +11,26 @@ from app.data.models.assets import Asset
 from app.data.models.portfolio import Portfolio, Transaction, TransactionTypeEnum
 from app.data.models.users import User
 from app.domain.benchmarks.catalog import UnknownBenchmarkError, get_benchmark
-from app.domain.benchmarks.schemas import BenchmarkComparisonResponse
-from app.domain.benchmarks.service import compare_portfolio_with_benchmark
+from app.domain.benchmarks.schemas import (
+    BenchmarkComparisonResponse,
+    SeriesPerformanceResponse,
+)
+from app.domain.benchmarks.service import (
+    compare_portfolio_with_benchmark,
+    portfolio_series,
+)
 from app.domain.market_data.service import latest_closes
 from app.domain.portfolio.schemas import (
     AssetPositionResponse,
+    IndexPointResponse,
     PortfolioCreate,
     PortfolioPositionsResponse,
     PortfolioResponse,
+    PortfolioSeriesResponse,
     PortfolioUpdate,
     TransactionCreate,
     TransactionResponse,
+    WealthPointResponse,
 )
 from app.domain.portfolio.service import (
     ZERO,
@@ -364,6 +373,90 @@ def compare_portfolio_against_benchmark(
 
     comparison = compare_portfolio_with_benchmark(db, portfolio, definition, start, end)
     return BenchmarkComparisonResponse.model_validate(comparison)
+
+
+@router.get("/{portfolio_id}/series", response_model=PortfolioSeriesResponse)
+def get_portfolio_series(
+    portfolio_id: int,
+    benchmark: str | None = Query(
+        None,
+        description=(
+            "Benchmark code to draw alongside the index — CDI, IBOV, "
+            "IPCA or SELIC. Omitted, only the portfolio's own series "
+            "come back."
+        ),
+    ),
+    start: date | None = None,
+    end: date | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PortfolioSeriesResponse:
+    """The two curves an evolution chart draws (roadmap §23, rule 74).
+
+    `wealth` is patrimônio in BRL — raw closes, contributions included —
+    with `invested` beside it so the part that is the investor's own
+    money is visible rather than read as performance.
+
+    `index` is the time-weighted level, which neutralises contributions
+    and is the only one comparable with a benchmark (ADR-019). When a
+    benchmark is asked for, both are clipped to the window they share and
+    rebased at `base_date`, so neither line starts with a head start the
+    reader cannot see.
+
+    Reads only stored data (rule 23); prices and benchmark values must
+    have been synced first. A date where any held asset has no stored
+    price is absent from both series rather than being valued partially.
+    """
+    owned = _get_owned_portfolio(db, portfolio_id, current_user)
+
+    definition = None
+    if benchmark is not None:
+        try:
+            definition = get_benchmark(benchmark)
+        except UnknownBenchmarkError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "error": {
+                        "code": "BENCHMARK_NOT_FOUND",
+                        "message": f"Unknown benchmark {benchmark}.",
+                    }
+                },
+            ) from exc
+
+    series = portfolio_series(db, owned, definition, start, end)
+
+    return PortfolioSeriesResponse(
+        portfolio_id=owned.id,
+        currency="BRL",
+        base=series.aligned.base,
+        base_date=series.aligned.base_date,
+        end_date=series.aligned.end_date,
+        sources=list(series.sources),
+        generated_at=datetime.now(UTC),
+        wealth=[
+            WealthPointResponse(
+                date=point.date, value=point.value, invested=point.invested
+            )
+            for point in series.value
+        ],
+        index=[
+            IndexPointResponse(date=point.date, value=point.adjusted_close)
+            for point in series.aligned.subject
+        ],
+        benchmark_code=definition.code if definition else None,
+        benchmark_name=definition.name if definition else None,
+        benchmark_index=[
+            IndexPointResponse(date=point.date, value=point.adjusted_close)
+            for point in series.aligned.benchmark
+        ],
+        subject=SeriesPerformanceResponse.model_validate(series.subject),
+        benchmark=(
+            SeriesPerformanceResponse.model_validate(series.benchmark)
+            if series.benchmark is not None
+            else None
+        ),
+    )
 
 
 @router.get("/{portfolio_id}/scores", response_model=PortfolioScoresResponse)

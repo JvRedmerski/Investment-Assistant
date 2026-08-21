@@ -179,14 +179,18 @@ def test_a_date_missing_a_price_for_a_held_asset_is_not_valued():
 
 
 def test_a_purchase_during_a_price_gap_is_still_neutralised():
-    """The flow waits for a date that can be valued.
+    """The flow waits for a date that can be valued, and is exact there.
 
     Without the carry-forward the day-2 purchase would be measured as a
-    gain. This also pins the documented approximation: the sub-period
-    runs 1 -> 3, so what the day-2 shares gained in between is credited
-    to the capital already there. 10 shares bought at 11 reaching 12 is
-    a real 10 of value that lands in the wrong bucket, giving 130 rather
-    than a flow-dated 110 * (240/220) = 120.
+    gain. With it, the sub-period runs 1 -> 3 and the flow is settled at
+    day 3's price: 10 shares at 12, so (240 - 120) / 100 = 1.20.
+
+    That 120 is the *true* time-weighted answer, not an approximation of
+    it. Splitting at the flow gives (10*P2 / 100) * (240 / 20*P2), and
+    the unknown day-2 price cancels — the new shares are the same asset
+    as the old ones, so it moves both halves together. Buying an asset
+    the portfolio did not already hold is the case that stays
+    approximate.
     """
     transactions = [
         _tx(1, TransactionTypeEnum.BUY, "10", "10", tx_id=1),
@@ -196,7 +200,47 @@ def test_a_purchase_during_a_price_gap_is_still_neutralised():
 
     points = performance_index(transactions, prices)
 
-    assert _levels(points) == [Decimal(100), Decimal(130)]
+    assert _levels(points) == [Decimal(100), Decimal(120)]
+
+
+def test_the_index_is_unchanged_by_the_adjustment_factor():
+    """The unit error the real database caught, pinned at minimum size.
+
+    Identical trades and an identical +10% return. With an adjustment
+    factor of 1 the traded price and the adjusted close coincide, which
+    is the only case the rest of this file exercises. With a factor of 3
+    -- an asset that has paid years of dividends -- subtracting the cash
+    spent instead of the value added drove the level to -100.
+    """
+    transactions = [
+        _tx(1, TransactionTypeEnum.BUY, "100", "10", tx_id=1),
+        _tx(2, TransactionTypeEnum.BUY, "100", "10", tx_id=2),
+    ]
+
+    unadjusted = performance_index(
+        transactions, _prices((1, "10"), (2, "10"), (3, "11"))
+    )
+    adjusted = performance_index(transactions, _prices((1, "3"), (2, "3"), (3, "3.3")))
+
+    assert _levels(unadjusted) == [Decimal(100), Decimal(100), Decimal(110)]
+    assert _levels(adjusted) == [Decimal(100), Decimal(100), Decimal(110)]
+
+
+def test_a_sale_priced_away_from_the_adjusted_close_is_still_neutralised():
+    """The same unit rule on the way out.
+
+    Half the position sold at a traded price of 30 while the adjusted
+    close is 10: the index must see 10 shares leaving, not R$ 300.
+    """
+    transactions = [
+        _tx(1, TransactionTypeEnum.BUY, "20", "30", tx_id=1),
+        _tx(2, TransactionTypeEnum.SELL, "10", "30", tx_id=2),
+    ]
+    prices = _prices((1, "10"), (2, "10"), (3, "11"))
+
+    points = performance_index(transactions, prices)
+
+    assert _levels(points) == [Decimal(100), Decimal(100), Decimal(110)]
 
 
 def test_nothing_before_the_first_transaction_is_measured():

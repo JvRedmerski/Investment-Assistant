@@ -29,14 +29,26 @@ from app.data.models.assets import Asset, AssetPrice
 from app.data.models.benchmarks import BenchmarkValue
 from app.data.models.portfolio import Portfolio, Transaction
 from app.domain.benchmarks.catalog import CDI, BenchmarkDefinition
-from app.domain.benchmarks.comparison import BenchmarkComparison, compare
+from app.domain.benchmarks.comparison import (
+    AlignedSeries,
+    BenchmarkComparison,
+    SeriesPerformance,
+    align,
+    compare,
+    summarise,
+)
 from app.domain.benchmarks.data_quality import validate_benchmark_series
 from app.domain.benchmarks.series import annualised_rate, to_price_points
 from app.domain.market_data.series import (
     adjusted_closes_by_asset,
     adjusted_price_points,
+    closes_by_asset,
 )
-from app.domain.portfolio.performance import performance_index
+from app.domain.portfolio.performance import (
+    ValuePoint,
+    performance_index,
+    value_series,
+)
 from app.integrations.benchmarks.base import BenchmarkProvider
 from app.quant.returns import Periodicity, PricePoint
 
@@ -239,6 +251,87 @@ def compare_portfolio_with_benchmark(
 
     subject = performance_index(transactions, prices, as_of=end)
     return _compare(db, subject, definition, start, end)
+
+
+@dataclass(frozen=True)
+class PortfolioSeries:
+    """Everything one evolution chart needs, loaded once.
+
+    `value` is the wealth curve — raw closes, contributions included —
+    and `aligned` holds the time-weighted index against the benchmark,
+    both rebased to the same date and level. They are returned together
+    because a chart that shows one without the other invites the reading
+    ADR-019 exists to prevent: patrimonial growth read as performance.
+    """
+
+    value: list[ValuePoint]
+    aligned: AlignedSeries
+    subject: SeriesPerformance
+    benchmark: SeriesPerformance | None
+    definition: BenchmarkDefinition | None
+    sources: tuple[str, ...]
+
+
+def portfolio_series(
+    db: Session,
+    portfolio: Portfolio,
+    definition: BenchmarkDefinition | None = None,
+    start: date | None = None,
+    end: date | None = None,
+) -> PortfolioSeries:
+    """The two series a dashboard draws, plus what labels them.
+
+    The whole ledger is replayed and only the *valuation* is windowed,
+    for the reason `compare_portfolio_with_benchmark` gives: holdings on
+    the window's first day are the product of every transaction before
+    it.
+
+    Two price maps are loaded from the same rows — raw closes for the
+    wealth curve, adjusted ones for the index — because they answer
+    different questions and `market_data.series` is the only place
+    allowed to tell them apart.
+
+    `sources` names where the prices came from, which rule 74 requires a
+    chart to be able to state.
+    """
+    transactions = (
+        db.query(Transaction)
+        .filter(Transaction.portfolio_id == portfolio.id)
+        .order_by(Transaction.transaction_date, Transaction.id)
+        .all()
+    )
+    asset_ids = {tx.asset_id for tx in transactions if tx.asset_id is not None}
+
+    rows: list[AssetPrice] = []
+    if asset_ids:
+        price_query = db.query(AssetPrice).filter(AssetPrice.asset_id.in_(asset_ids))
+        if start is not None:
+            price_query = price_query.filter(AssetPrice.date >= start)
+        if end is not None:
+            price_query = price_query.filter(AssetPrice.date <= end)
+        rows = price_query.all()
+
+    index = performance_index(transactions, adjusted_closes_by_asset(rows), as_of=end)
+    wealth = value_series(transactions, closes_by_asset(rows), as_of=end)
+
+    benchmark_points: list[PricePoint] = []
+    if definition is not None:
+        benchmark_points = to_price_points(
+            read_benchmark_values(db, definition, start, end), definition
+        )
+
+    return PortfolioSeries(
+        value=wealth,
+        aligned=align(index, benchmark_points or None),
+        subject=summarise(index, Periodicity.DAILY, end),
+        benchmark=(
+            summarise(benchmark_points, definition.periodicity, end)
+            if definition is not None
+            else None
+        ),
+        definition=definition,
+        sources=tuple(sorted({row.source for row in rows})),
+    )
 
 
 def _compare(

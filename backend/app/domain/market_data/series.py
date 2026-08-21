@@ -71,3 +71,25 @@ def adjusted_closes_by_asset(
             continue
         closes.setdefault(row.asset_id, {})[row.date] = row.adjusted_close
     return closes
+
+
+def closes_by_asset(
+    rows: Iterable[AssetPrice],
+) -> dict[int, dict[date, Decimal]]:
+    """Raw closes keyed by asset and date, for valuing a portfolio.
+
+    The counterpart of `adjusted_closes_by_asset`, and the two are not
+    interchangeable — which is the whole reason this module exists. A
+    wealth curve asks *what was this worth*, a point-in-time question, so
+    it takes the price the market printed. A return series asks *what did
+    this earn*, so it takes the adjusted one.
+
+    No row is dropped here, because `close` is never null: the archive
+    that publishes no adjustment still publishes a traded price. An asset
+    simply missing from the store is missing from the result, and the
+    caller reports the date as unvaluable rather than valuing it wrongly.
+    """
+    closes: dict[int, dict[date, Decimal]] = {}
+    for row in rows:
+        closes.setdefault(row.asset_id, {})[row.date] = row.close
+    return closes

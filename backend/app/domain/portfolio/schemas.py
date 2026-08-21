@@ -4,6 +4,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.data.models.portfolio import TransactionTypeEnum
+from app.domain.benchmarks.schemas import SeriesPerformanceResponse
 
 _ASSET_LINKED_TYPES = (
     TransactionTypeEnum.BUY,
@@ -142,3 +143,65 @@ class PortfolioPositionsResponse(BaseModel):
     unvalued_invested: Decimal
     oldest_price_date: date | None
     newest_price_date: date | None
+
+
+class WealthPointResponse(BaseModel):
+    """What the holdings were worth on one date, and what they cost.
+
+    `value` is priced at the raw close and **includes contributions**;
+    `invested` is the money that had gone into holdings by that date.
+    The two are meant to be drawn together: a curve that doubled because
+    R$ 1.000 arrived every month looks exactly like one that doubled on
+    returns until the second line is under it.
+
+    For the question "did it perform", read `index` instead — that one
+    neutralises contributions ([ADR-019]).
+    """
+
+    date: date
+    value: Decimal
+    invested: Decimal
+
+
+class IndexPointResponse(BaseModel):
+    """One point of a rebased level series. `value` starts at `base`."""
+
+    date: date
+    value: Decimal
+
+
+class PortfolioSeriesResponse(BaseModel):
+    """The two curves a dashboard draws, and everything that labels them.
+
+    ⚠️ **`wealth` and `index` answer different questions and must be
+    labelled as such.** `wealth` is patrimônio in BRL, contributions and
+    all. `index` is time-weighted performance rebased to `base`, which is
+    the only one comparable with a benchmark, because a benchmark has no
+    contributions to neutralise (ADR-019).
+
+    `index` and `benchmark_index` are clipped to the window they
+    **share** and both rebased at `base_date`. A benchmark drawn from
+    before the portfolio's first valuation would show return the
+    portfolio never had the chance to earn, and the eye reads that as the
+    benchmark winning.
+
+    Rule 74 asks a chart to state its período, unidade, benchmark, moeda,
+    fonte and atualização: `base_date`/`end_date`, `base`, `benchmark_code`,
+    `currency`, `sources` and `generated_at` are those six.
+    """
+
+    portfolio_id: int
+    currency: str
+    base: Decimal
+    base_date: date | None
+    end_date: date | None
+    #: Where the prices came from — `b3-cotahist`, `brapi`, or both.
+    sources: list[str]
+    generated_at: datetime
+    wealth: list[WealthPointResponse]
+    index: list[IndexPointResponse]
+    benchmark_code: str | None
+    benchmark_name: str | None
+    benchmark_index: list[IndexPointResponse]
+    subject: SeriesPerformanceResponse
+    benchmark: SeriesPerformanceResponse | None

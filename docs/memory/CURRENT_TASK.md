@@ -2,12 +2,13 @@
 
 ## Task
 
-**W11-001 — Valor de mercado e P&L não realizado.** Primeira das seis tasks da
-**Wave 11 — Dashboard** (roadmap §23), e a primeira wave do projeto com trabalho de frontend real.
+**W11-003 — Fundação do frontend.** Terceira das seis tasks da **Wave 11 — Dashboard**
+(roadmap §23), e o ponto em que a wave finalmente toca React.
 
 ## Status
 
-🟡 **Em andamento.** A Wave 10 fechou em 2026-08-21 e não há código pela metade em lugar nenhum.
+🟡 **Em andamento.** As duas tasks de backend (W11-001 e W11-002) estão entregues; nada de
+frontend começou.
 
 ---
 
@@ -19,8 +20,8 @@ no frontend.
 
 | task | entrega | por quê |
 |---|---|---|
-| **W11-001** | Valor de mercado e P&L não realizado nas posições | "Patrimônio" é a manchete do dashboard e não existe: `/positions` é custo basis |
-| **W11-002** | A **série** de evolução da carteira sobre a API | o comparativo com benchmark devolve só métricas resumidas; não há como desenhar "evolução" |
+| ✅ **W11-001** | Valor de mercado e P&L não realizado nas posições | "Patrimônio" é a manchete do dashboard e não existia: `/positions` era custo basis |
+| ✅ **W11-002** | A **série** de evolução da carteira sobre a API | o comparativo devolvia só métricas resumidas. **Expôs e corrigiu um erro de unidade** que deixava o índice negativo |
 | **W11-003** | Fundação do frontend: rotas, react-query, cliente tipado com envelope de erro e token, `zod`, layout, login e rota protegida | sem autenticação no cliente, nenhuma tela busca nada |
 | **W11-004** | Tela **Dashboard** | patrimônio, rentabilidade, CDI, IBOV, composição, risco, evolução, próximo aporte |
 | **W11-005** | Tela **Carteira** | posições, transações, performance |
