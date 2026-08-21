@@ -199,6 +199,21 @@ PILLAR_WEIGHTS: dict[str, Decimal] = {
 }
 
 
+#: The pillar that reads the portfolio the score is being computed for.
+#:
+#: Named because two consumers need to treat it differently from the
+#: rest: it is the only pillar whose value changes when nothing about
+#: the company changes.
+DIVERSIFICATION = "diversification"
+
+#: The pillars that describe the asset itself.
+#:
+#: Everything except Diversification — see `merit`.
+MERIT_PILLARS: tuple[str, ...] = tuple(
+    name for name in PILLAR_WEIGHTS if name != DIVERSIFICATION
+)
+
+
 @dataclass(frozen=True)
 class SubScore:
     """One pillar, with everything needed to explain it.
@@ -407,6 +422,66 @@ def compose(sub_scores: list[SubScore]) -> AssetScore:
         final_score=weighted / covered,
         coverage=coverage,
     )
+
+
+@dataclass(frozen=True)
+class Merit:
+    """The part of a score that describes the asset and not the holder.
+
+    `value` is the merit pillars recomposed on their own, renormalised
+    over whichever of them were available — the same rule `compose`
+    applies one level up, over a smaller set. `coverage` is measured
+    against the merit weights alone, so a fully-covered merit reads 1.0
+    rather than 0.85.
+
+    `None` follows `compose` too: fewer than `MIN_SUB_SCORES` merit
+    pillars available and there is no merit score, only a coverage
+    saying how little there was.
+    """
+
+    value: Decimal | None
+    coverage: Decimal
+
+
+def merit(score: AssetScore) -> Merit:
+    """`score` with the Diversification pillar taken back out.
+
+    Diversification is the one pillar that measures the *portfolio*
+    rather than the asset: the same company scores 100 for an investor
+    holding none of it and 0 for one at the 20% ceiling, with nothing
+    about the business having changed. That is exactly right for ranking
+    a contribution, which is what `compose` feeds.
+
+    It is exactly wrong for a **target weight**, because a target built
+    on it is self-referential — it recedes as the portfolio approaches
+    it, so the gap reported to the investor is not the distance to
+    anything. Measured on PETR4 against the real database, `final_score`
+    slides 76.72 → 65.47 across 0% → 20% held while the four merit
+    pillars sit unchanged at 97.8 / 93.5 / 76.7 / 28.3.
+
+    Concentration does not thereby stop mattering. It moves to where it
+    cannot chase its own tail: the per-asset and per-sector ceilings that
+    cap the targets, which are the same limits this pillar scores against
+    (see `targets.py` and ADR-027).
+    """
+    available = [
+        sub
+        for sub in score.sub_scores
+        if sub.name in MERIT_PILLARS and sub.is_available
+    ]
+
+    intended = sum((PILLAR_WEIGHTS[name] for name in MERIT_PILLARS), Decimal(0))
+    covered = sum((sub.weight for sub in available), Decimal(0))
+    coverage = covered / intended if intended else Decimal(0)
+
+    if len(available) < MIN_SUB_SCORES or covered == 0:
+        return Merit(value=None, coverage=coverage)
+
+    weighted = sum(
+        (sub.weight * sub.value for sub in available if sub.value is not None),
+        Decimal(0),
+    )
+    return Merit(value=weighted / covered, coverage=coverage)
 
 
 # -- helpers ---------------------------------------------------------

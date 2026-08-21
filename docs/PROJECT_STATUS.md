@@ -11,7 +11,7 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 
 ## Current Phase
 - **Phase**: wave **EVENTS** (eventos societários e proventos) em andamento — segunda wave **inserida fora da ordem do roadmap**, entre a W09 e a W10
-- **Status**: 🟢 EVENTS COMPLETED (2026-08-20) — **3 de 3 tasks**: EVENTS-001 (distribuições por exercício, da DMPL da CVM — fechou o `dy`), EVENTS-002 (data e natureza do evento societário, pelo arquivo de fim de dia da B3) e EVENTS-003 (a **magnitude**, pelo serviço aberto de eventos da B3, e o `adjusted_close` derivado dela — **destravou o pilar de Risco**). A wave **PRICE** (3 tasks) fechou antes, em 2026-08-19. Próxima: **Wave 10 — Rebalanceamento**, de volta à ordem do roadmap
+- **Status**: 🟡 **WAVE 10 IN_PROGRESS** (2026-08-21) — 1 de 3 tasks: W10-001 entregou o peso-alvo, derivado do **mérito** e não do `final_score` ([ADR-027](decisions/ADR-027-target-weight-comes-from-merit.md)). Antes dela: 🟢 EVENTS COMPLETED (2026-08-20) — **3 de 3 tasks**: EVENTS-001 (distribuições por exercício, da DMPL da CVM — fechou o `dy`), EVENTS-002 (data e natureza do evento societário, pelo arquivo de fim de dia da B3) e EVENTS-003 (a **magnitude**, pelo serviço aberto de eventos da B3, e o `adjusted_close` derivado dela — **destravou o pilar de Risco**). A wave **PRICE** (3 tasks) fechou antes, em 2026-08-19. A **Wave 10 — Rebalanceamento** está em curso, de volta à ordem do roadmap
 
 ---
 
@@ -329,10 +329,43 @@ Definition of Done da wave EVENTS: **atendida**. `dy` tem fonte, a data e a natu
 ---
 
 ### Wave 10 — Portfolio Rebalancing Engine
-Status: ⚪ NOT_STARTED
+Status: 🟡 IN_PROGRESS (1 de 3 tasks)
 
-- [ ] **W10-001**: Cálculo de Target Weights e Weight Gaps ⚪ NOT_STARTED
-- [ ] **W10-002**: Restrições Quantitativas para Perfil Conservador ⚪ NOT_STARTED
+- [x] **W10-001**: Peso-alvo e *drift* — `targets.py`, `scoring.merit` ([ADR-027](decisions/ADR-027-target-weight-comes-from-merit.md)) 🟢 COMPLETED
+- [ ] **W10-002**: Carregamento e endpoint da tabela de desvio (`GET /portfolios/{id}/rebalance`) ⚪ NOT_STARTED
+- [ ] **W10-003**: O aporte que fecha os gaps — plano de rebalanceamento por fluxo de caixa ⚪ NOT_STARTED
+
+> **Renumeração deliberada.** O plano original tinha duas tasks: "target weights e weight gaps"
+> e "restrições quantitativas para perfil conservador". A segunda **já estava entregue** quando a
+> wave começou — os tetos por ativo e por setor, o piso de cobertura, o piso de score e o
+> `min_ticket` são a `AllocationPolicy` da W09-004, toda ela configurável por requisição
+> ([ADR-021](decisions/ADR-021-allocation-ranks-by-coverage-tier.md)), e a W10-001 as reusa em
+> vez de escrever uma segunda cópia. O que sobrava sem dono era o **plano**: calcular o gap não
+> diz onde pôr o dinheiro. Daí a W10-003.
+
+Detalhes W10-001 (2026-08-21):
+
+- **A wave inteira era uma pergunta só: de onde vem o `target_weight`.** O roadmap §22 e a regra
+  34 pedem `current_weight`, `target_weight` e `weight_gap`; o primeiro sai do ledger e o
+  terceiro é uma subtração.
+- **A resposta óbvia foi medida e reprovada, antes de qualquer código.** Alvo proporcional ao
+  `final_score` não converge: variando só quanto a carteira detém de PETR4, de 0% a 20%, o score
+  escorrega de **76,72 para 65,47** enquanto os quatro pilares de mérito ficam constantes em
+  97,8 / 93,5 / 76,7 / 28,3. O que cai é Diversificação, o pilar que lê o detentor. Um alvo
+  construído sobre isso **recua conforme a carteira se aproxima dele**.
+- **O alvo passa a sair do mérito** — Quality, Valuation, Growth e Risk recompostos sozinhos por
+  `scoring.merit` — e a concentração vira **teto** em vez de termo, lida do mesmo
+  `AllocationPolicy` da W09 para que as duas não possam divergir.
+- **Um erro de ordem foi encontrado traçando o algoritmo à mão**, não pelos testes: com o teto
+  por ativo checado antes do setorial, três papéis de um mesmo setor congelam a 20% cada e põem
+  o setor em **60%**, contra um limite de 40% nunca consultado. O teste
+  `test_the_sector_ceiling_is_tested_before_the_asset_ceiling` fixa a ordem.
+- **Verificado contra o banco real**: PETR4 com mérito **72,61** e cobertura de mérito 1,00
+  (contra `final_score` 76,72, inflado pela Diversificação de uma carteira vazia); alvo de
+  **0,200000** aparado pelo teto por ativo; **0,800000 `unassigned`**. ITUB4, que marca **92,47
+  com cobertura 0,40** — o maior número do universo, feito só dos dois pilares que nunca faltam
+  —, **não recebe alvo nenhum**: sob a regra do mérito ela tem um pilar só.
+- 25 testes novos, todos com valores calculados à mão. `pytest` 750 → **775**.
 
 ---
 

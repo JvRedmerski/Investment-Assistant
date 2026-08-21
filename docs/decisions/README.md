@@ -34,6 +34,7 @@ Um ADR existe aqui porque a decisão (a) teve alternativas reais, (b) afeta arqu
 | [024](ADR-024-refill-fills-null-columns.md) | Um período de demonstrativo já gravado aceita preenchimento de coluna **nula**, e só dela; valor presente nunca é tocado | Accepted | fundamentals, coluna de demonstrativo nova, ingestão, emenda operacional ao ADR-013 |
 | [025](ADR-025-corporate-events-come-from-the-distribution-counter.md) | Evento societário vem do contador de distribuição da B3 (não do marcador), com data e natureza e **sem magnitude** | Accepted | eventos societários, proventos, COTAHIST, série de retorno total, rule 44 |
 | [026](ADR-026-corporate-action-magnitude-and-the-completeness-rule.md) | A **magnitude** vem do serviço aberto de eventos da B3, junta pelo ISIN; `adjusted_close` só é derivado onde **toda** sessão contada tem ação dimensionada, com o `ATZ` como única exceção | Accepted | eventos societários, magnitude, retorno total, `adjusted_close`, pilar de Risco, completa ADR-023/ADR-025 |
+| [027](ADR-027-target-weight-comes-from-merit.md) | O peso-alvo é proporcional ao **mérito** (o score sem Diversificação), porque um alvo feito do `final_score` recua conforme a carteira se aproxima; concentração vira teto em vez de termo, e o que os tetos não cobrem volta como `unassigned` | Accepted | rebalanceamento, `target_weight`, `weight_gap`, drift, mérito, W10, rule 34 |
 
 ## Template
 

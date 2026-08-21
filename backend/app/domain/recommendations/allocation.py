@@ -168,11 +168,31 @@ COVERAGE_TIER_WIDTH = Decimal("0.25")
 #: bottom half is not bought merely for being the best of a bad universe.
 MIN_SCORE = Decimal(50)
 
+#: How far from its target a weight may sit before it is off-target.
+#:
+#: Two percentage points. Read by `targets.py`, and the reason it exists
+#: is that a target is a number with more decimal places than a portfolio
+#: can hold: without a band every asset is off-target forever, by
+#: centavos, and the word stops meaning anything.
+#:
+#: Two rather than one because of what closing a gap costs. Correcting
+#: 2 p.p. of a portfolio smaller than R$ 5.000 is an order below
+#: `MIN_TICKET`, which the allocator already refuses to emit; above that
+#: size it is inside the noise the next monthly contribution absorbs
+#: anyway. Configurable like every other limit (rule 32).
+REBALANCE_BAND = Decimal("0.02")
+
 
 class Exclusion(str, Enum):
-    """Why a candidate received nothing. Every skip carries one."""
+    """Why a candidate received nothing. Every skip carries one.
+
+    Shared with `targets.py`, which reaches the same verdicts by testing
+    merit instead of the final score — the vocabulary of "why did this
+    asset get nothing" is one, even where the tests differ.
+    """
 
     NOT_SCORABLE = "NOT_SCORABLE"
+    NO_MERIT_SCORE = "NO_MERIT_SCORE"
     COVERAGE_BELOW_MINIMUM = "COVERAGE_BELOW_MINIMUM"
     SCORE_BELOW_MINIMUM = "SCORE_BELOW_MINIMUM"
     SECTOR_UNKNOWN = "SECTOR_UNKNOWN"
@@ -209,6 +229,7 @@ class AllocationPolicy:
     min_coverage: Decimal = MIN_COVERAGE
     min_score: Decimal = MIN_SCORE
     coverage_tier_width: Decimal = COVERAGE_TIER_WIDTH
+    rebalance_band: Decimal = REBALANCE_BAND
     #: Whether an asset with no sector recorded may be funded.
     #:
     #: `True` refuses it. A sector ceiling that cannot be evaluated is
@@ -327,7 +348,7 @@ def allocate_contribution(
     eligible: list[Candidate] = []
     skipped: list[Skipped] = []
     for candidate in candidates:
-        reason = _ineligibility(candidate, policy)
+        reason = ineligibility(candidate, policy)
         if reason is None:
             eligible.append(candidate)
         else:
@@ -467,7 +488,7 @@ def allocate_contribution(
 # -- helpers ---------------------------------------------------------
 
 
-def _ineligibility(
+def ineligibility(
     candidate: Candidate, policy: AllocationPolicy
 ) -> tuple[Exclusion, str] | None:
     """Why this candidate cannot be funded, before any money is counted.

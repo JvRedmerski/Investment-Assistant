@@ -2,97 +2,84 @@
 
 ## Task
 
-**Wave 10 — Rebalanceamento.** De volta à ordem do roadmap, depois de duas waves inseridas fora
-dela (PRICE e EVENTS). Ver [../planning/ROADMAP.md](../planning/ROADMAP.md).
+**W10-001 — Pesos-alvo: de onde vem o `target_weight`.** Primeira das três tasks da
+**Wave 10 — Rebalanceamento** (roadmap §22, AGENTS.md §34).
 
 ## Status
 
-⚪ **Não começou.** A wave EVENTS fechou em 2026-08-20 com as três tasks entregues, e não há
-código pela metade em lugar nenhum.
+🟡 **Em andamento.** A wave EVENTS fechou em 2026-08-20 e não há código pela metade em lugar
+nenhum.
 
 ---
 
-## O que a wave EVENTS entregou, e por que isso muda a Wave 10
+## A wave em três tasks
 
-| task | entrega | efeito medido |
+| task | entrega | por que separada |
 |---|---|---|
-| **EVENTS-001** | Distribuições por exercício, da DMPL da CVM | `dy` deixou de ser `None`: 0,22 em 2024 e 0,70 em 2022 (PETR4) |
-| **EVENTS-002** | **Data e natureza** de todo evento, pelo contador de distribuição da B3 | PETR4 com 47 eventos em 6 anos; MGLU3 com 15 |
-| **EVENTS-003** | **Magnitude**, do serviço aberto de eventos da B3, e o `adjusted_close` derivado dela | **PETR4 com 1.495 de 1.495 pregões ajustados**; volatilidade 41,8%, drawdown -63,4% |
-
-**O score ficou completo.** O pilar de Risco tem insumo real pela primeira vez, e é exatamente o
-score que o rebalanceamento consome — daí a Wave 10 vir agora e não antes.
-
-Três ADRs saíram da wave: [ADR-024](../decisions/ADR-024-refill-fills-null-columns.md),
-[ADR-025](../decisions/ADR-025-corporate-events-come-from-the-distribution-counter.md) e
-[ADR-026](../decisions/ADR-026-corporate-action-magnitude-and-the-completeness-rule.md).
+| **W10-001** | `targets.py` puro: `target_weight` por ativo e o *drift* (`current`/`target`/`gap`) | é a decisão da wave, e é aritmética pura — dá para fixar antes de tocar em banco |
+| **W10-002** | `service.py` + `GET /portfolios/{id}/rebalance` — a tabela de desvio | carregamento, o mesmo corte que `benchmarks/service.py` faz contra `comparison.py` |
+| **W10-003** | `rebalancing.py` + `GET /portfolios/{id}/rebalance-plan` — o aporte que fecha os gaps | é um plano diferente do da W09: ordena por gap, não por score |
 
 ---
 
-## O que saber antes de mexer em preço ajustado
+## A pergunta que a wave tem que responder primeiro
 
-**`adjusted_close` só é derivado onde o ajuste é completo**, e a completude é julgada pelo
-**contador da B3**, não pelo serviço de eventos — porque o serviço **omite**: a ITUB4 foi ex em
-2025-03-18 com marcador `EB` e degrau de **-8,60%**, e ele não reporta nada ali. Toda sessão
-contada precisa de ação dimensionada; a mais recente que não tiver é um piso.
+O roadmap §22 pede `current_weight`, `target_weight`, `weight_gap` — e **não diz de onde sai o
+alvo**. Peso atual é ledger; gap é subtração. **O alvo é a wave inteira.**
 
-A única exceção é o marcador **`ATZ`** (`CorporateEventKind.NOMINAL_UPDATE`), medido em 151
-incrementos com degrau mediano de 1,0028. Sem ela a PETR4 teria **28** pregões ajustáveis em vez
-de 1.495. Foi decisão do dono do projeto, com os números à vista — está registrada no ADR-026 §6.
+### Medido contra o banco real (2026-08-21), antes de escrever código
 
-**A junção com o serviço da B3 é o ISIN, nunca a classe adivinhada pelo ticker.** A B3 repete um
-evento de contagem uma vez por ISIN que o emissor já teve; compor as três cópias do desdobramento
-da BBAS3 dá 8,0 contra um degrau real de 2,02.
+Alvo proporcional ao `final_score` **não converge**, porque o score lê a carteira que o alvo
+deveria mirar:
+
+| peso detido de PETR4 | `final_score` | quality | valuation | growth | risk | diversification |
+|---|---|---|---|---|---|---|
+| 0% | **76,72** | 97,8 | 93,5 | 76,7 | 28,3 | 100,0 |
+| 5% | 73,91 | 97,8 | 93,5 | 76,7 | 28,3 | 81,2 |
+| 10% | 71,10 | 97,8 | 93,5 | 76,7 | 28,3 | 62,5 |
+| 15% | 68,28 | 97,8 | 93,5 | 76,7 | 28,3 | 43,8 |
+| 20% | **65,47** | 97,8 | 93,5 | 76,7 | 28,3 | 25,0 |
+
+**Nada mudou no negócio** — os quatro pilares de mérito são constantes. O que caiu foi
+Diversificação, que é justamente o pilar que lê o peso atual. Um alvo construído sobre esse
+número é uma **trave que anda**: recua conforme a carteira se aproxima, e o `weight_gap`
+reportado ao investidor não é a distância até lugar nenhum.
+
+**Decisão**: o alvo sai do **mérito** — Quality, Valuation, Growth e Risk, renormalizados — e
+**nunca** de Diversificação. Concentração não some do cálculo: ela vira **teto** (as mesmas
+escalas da W09), que é onde ela não se auto-referencia. Vai virar ADR-027.
+
+### A armadilha de cobertura está viva neste universo
+
+ITUB4 marca **92,47 com cobertura 0,40** — o maior score do banco, montado sobre os dois pilares
+que nunca faltam (Risco e Diversificação). É exatamente o que o piso de cobertura da W09 existe
+para barrar, e o alvo herda o mesmo piso.
+
+### O universo real é pequeno de propósito — e força o caso difícil
+
+Só PETR4 tem fundamentos; ITUB4/BBAS3/MGLU3 estão em cobertura 0,40 e sem setor. Com um único
+ativo alvo-elegível e teto de 20% por ativo, os alvos somam **0,20** e sobram **0,80 sem dono**.
+Isso não pode ser redistribuído em silêncio — é o análogo do `unallocated` do plano de aporte, e
+tem que voltar nomeado.
+
+---
 
 ## O que já está pronto — não reimplemente
 
-- `app/integrations/market_data/b3_corporate_actions.py` — `B3CorporateActionProvider`, o
-  adaptador sobre o serviço aberto da B3. Fino de propósito: o endpoint não tem contrato
-  publicado, e a interface é a costura.
-- `app/integrations/market_data/base.py` — **quatro** ABCs agora: `DailyHistoryProvider`,
-  `MarketDataProvider`, `CorporateEventProvider` (com `get_security_identity`) e
-  `CorporateActionProvider`.
-- `app/domain/market_data/adjustment.py` — a aritmética do ajuste retroativo **e** a regra de
-  completude. Puro, sem I/O.
-- `app/domain/market_data/corporate_actions.py` — ingestão, resolução da ex-date contra o
-  calendário realmente gravado, e o preenchimento que só toca coluna nula.
-- `app/domain/market_data/series.py` — ponto único da série de retorno; linha sem ajuste não entra.
-- `app/domain/recommendations/{scoring,allocation,service}.py`, `app/quant/{returns,risk}.py`,
-  `app/domain/benchmarks/`, `app/integrations/fundamentals/cvm.py`.
+- `app/domain/recommendations/scoring.py` — pilares, `Scale`, `ASSET_WEIGHT_SCALE` /
+  `SECTOR_WEIGHT_SCALE`, `PILLAR_WEIGHTS`, `compose`.
+- `app/domain/recommendations/allocation.py` — `AllocationPolicy`, `Exclusion`, `Limit`, os tetos
+  lidos das escalas do score, `_floor_to_centavo`.
+- `app/domain/recommendations/service.py` — `build_exposure`, `score_universe`,
+  `plan_contribution`, `monthly_contribution_for`.
+- `app/api/routes/portfolios.py` — `GET /{id}/scores` e `GET /{id}/contribution-plan`, com o
+  helper de posse e os overrides de política por query.
 
-## Endpoints relevantes
+## Estado do ambiente (verificado 2026-08-21)
 
-- `POST /assets/{ticker}/prices/backfill` — histórico profundo pelo arquivo aberto da B3.
-- `POST /assets/{ticker}/corporate-actions/sync` — **rode depois do backfill**: ingere as ações
-  dimensionadas e reconstrói `adjusted_close` a partir do preço já gravado. A resposta traz
-  `unaccounted` — as sessões contadas que ninguém dimensionou, que é por que a série começa onde
-  começa.
-- `GET /assets/{ticker}/corporate-actions` — lê só do banco.
-- `POST /assets/{ticker}/fundamentals/sync?refill=true` — preenche coluna nula de período já
-  gravado, e só ela.
-
----
-
-## Estado do ambiente (verificado 2026-08-20)
-
-- ✅ `pytest -q` → **750 passed** (era 701). `ruff check` e `black --check` limpos.
-- ✅ Tudo commitado **e enviado** (`31ba72a`); árvore limpa, `main` em dia com `origin/main`.
-- 🔴 **Docker desligado** ao encerrar a sessão de 2026-08-20 — `docker compose up -d postgres`
-  antes de qualquer coisa que toque o banco. Com ele no ar, o schema é **`012`**
-  (`001`…`012_corporate_actions`), com `alembic check` sem drift e downgrade testado.
-- No banco real, **conferido em 2026-08-20** — quatro papéis com 1.495 pregões cada:
-
-  | papel | `adjusted_close` | `corporate_actions` |
-  |---|---|---|
-  | PETR4 | 1.495 | 62 |
-  | BBAS3 | 1.495 | 76 |
-  | ITUB4 | 198 | 102 |
-  | MGLU3 | 478 | 7 |
-
-  As truncagens de ITUB4 e MGLU3 são **corretas** e explicadas por `unaccounted` — não são
-  ingestão pela metade.
-- **Cache do COTAHIST em `backend/var/b3/`** (gitignored), 2020–2025 baixados. Ano frio: ~90 s.
+- ✅ Docker no ar, schema **`012_corporate_actions`** (head), sem drift.
+- ✅ `pytest -q` → **750 passed** na entrada da wave.
+- Banco real: uma carteira (`Local`, id 1) **sem transação nenhuma**; quatro ativos, dos quais só
+  PETR4 tem setor (`Energia`) e fundamentos (6 exercícios, 2020–2025).
 - Alembic do host precisa da URL sobrescrita:
   `DATABASE_URL="postgresql://investment_user:investment_pass_dev@localhost:5432/investment_assistant" .venv/Scripts/python.exe -m alembic upgrade head`
-- 🔴 O teto de `3mo` da Brapi continua existindo. Não trava mais o histórico nem o
-  `adjusted_close` de ação, mas ainda limita o **IBOV**, o que mantém `beta` com janela pobre.
