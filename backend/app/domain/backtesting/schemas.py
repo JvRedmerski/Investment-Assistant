@@ -177,6 +177,15 @@ class BacktestResponse(BaseModel):
     strategy rose because the market did, and by less than its own beta
     entitled it to.
 
+    ⚠️ **`comparison` describes a shorter period than `index` whenever
+    the benchmark has less history**, because the two series are cut to
+    the window they share before anything is measured (rule 28).
+    Measured against the real database, a six-year run compared with the
+    CDI reports four months in `comparison.subject`, since that is all
+    the CDI that has been ingested. `subject.start_date` and
+    `subject.end_date` are what say so, and they are required reading
+    before a figure here is quoted next to the curve.
+
     ⚠️ The index assumes each payout was reinvested on the day it went
     ex, because that is what an adjusted close means; the simulation
     reinvests at the next contribution and holds cash until then. The

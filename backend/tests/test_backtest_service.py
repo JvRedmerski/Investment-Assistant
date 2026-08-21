@@ -16,6 +16,7 @@ from sqlalchemy.orm import sessionmaker
 from app.data.database import Base
 from app.data.models.assets import Asset, AssetPrice
 from app.data.models.assets import CorporateAction as StoredAction
+from app.data.models.benchmarks import BenchmarkValue
 from app.data.models.fundamentals import FinancialIndicator
 from app.domain.backtesting.service import (
     NO_PRICES,
@@ -24,7 +25,7 @@ from app.domain.backtesting.service import (
     run_backtest,
 )
 from app.domain.backtesting.simulation import CostModel
-from app.domain.benchmarks.catalog import IBOVESPA
+from app.domain.benchmarks.catalog import CDI, IBOVESPA
 
 ZERO = Decimal(0)
 FIRST = date(2024, 1, 1)
@@ -406,3 +407,55 @@ def test_nothing_is_written_to_the_database(db_session):
     run_backtest(db_session, [asset], _settings())
 
     assert db_session.query(Transaction).count() == 0
+
+
+# -- the two the real database found ----------------------------------
+
+
+def test_a_holiday_at_the_start_of_the_window_does_not_name_an_asset(db_session):
+    """Found by running this against the real database.
+
+    Nobody trades on 1 January, so a run asked for from the 1st begins on
+    the 2nd — and reporting `bounded_by` for that would announce a data
+    problem where there is only a calendar. The comparison is against the
+    first session the universe actually has, not against the date asked
+    for.
+    """
+    asset = _asset(db_session, "AAA3")
+    _prices(db_session, asset, first=date(2024, 1, 2))
+    _indicators(db_session, asset)
+
+    result = run_backtest(db_session, [asset], _settings(start=date(2024, 1, 1)))
+
+    assert result.window.start == date(2024, 1, 2)
+    assert result.window.bounded_by is None
+
+
+def test_alpha_is_absent_against_a_rate_benchmark(db_session):
+    """The other one the real database found.
+
+    Alpha charges a portfolio for the return its market sensitivity
+    entitled it to. Sensitivity to the CDI is not a quantity that means
+    anything — which is why `compare` reports no beta for a rate — so
+    neither is the alpha built on it. The gate is that same beta, rather
+    than a second reading of the benchmark's kind.
+    """
+    asset = _asset(db_session, "AAA3")
+    _prices(db_session, asset)
+    _indicators(db_session, asset)
+    for offset in range(400):
+        db_session.add(
+            BenchmarkValue(
+                benchmark_code=CDI.code,
+                date=FIRST + timedelta(days=offset),
+                value=Decimal("0.0005"),
+                source="bcb",
+            )
+        )
+    db_session.commit()
+
+    against_rate = run_backtest(db_session, [asset], _settings(), CDI)
+
+    assert against_rate.comparison is not None
+    assert against_rate.comparison.beta is None
+    assert against_rate.alpha is None

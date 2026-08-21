@@ -206,14 +206,17 @@ def run_backtest(
     testable, excluded, bounded_by, complete_from = _testable_universe(assets, rows)
 
     start = max(settings.start, complete_from) if complete_from else settings.start
+    # Compared against the first session the universe actually has, not
+    # against the date asked for: a request starting on 1 January always
+    # runs from the 2nd, and naming an asset for that would report a data
+    # problem where there is only a holiday.
+    natural = _first_session_from(rows, testable, settings.start)
     window = BacktestWindow(
         requested_start=settings.start,
         requested_end=settings.end,
         start=start,
         end=settings.end,
-        bounded_by=(
-            bounded_by if complete_from and complete_from > settings.start else None
-        ),
+        bounded_by=bounded_by if natural is not None and start > natural else None,
     )
 
     if not testable or start > settings.end:
@@ -266,17 +269,26 @@ def run_backtest(
             periodicity=Periodicity.DAILY,
             as_of=settings.end,
         )
-        # Alpha is measured on the same shared window `compare` used, and
-        # not on the two series as they arrived: a subject and a benchmark
+        # Gated on the beta `compare` reached rather than on a second
+        # reading of the benchmark's kind. Alpha charges a portfolio for
+        # the return its market sensitivity entitled it to, so where that
+        # sensitivity is not a quantity that means anything — against a
+        # *rate* like the CDI — neither is alpha. `compare` already
+        # decides that once; asking it again here is how the two would
+        # come to disagree.
+        #
+        # Measured on the same shared window `compare` used, and not on
+        # the two series as they arrived: a subject and a benchmark
         # covering different periods are not comparable at all (rule 28).
-        shared = align(index, benchmark or None)
-        measured_alpha = jensens_alpha(
-            list(shared.subject),
-            list(shared.benchmark) or None,
-            risk_free,
-            Periodicity.DAILY,
-            settings.end,
-        )
+        if comparison.beta is not None:
+            shared = align(index, benchmark or None)
+            measured_alpha = jensens_alpha(
+                list(shared.subject),
+                list(shared.benchmark) or None,
+                risk_free,
+                Periodicity.DAILY,
+                settings.end,
+            )
 
     return BacktestResult(
         settings=settings,
@@ -389,6 +401,20 @@ def _testable_universe(
             bounded_by = asset.ticker
 
     return testable, tuple(excluded), bounded_by, latest
+
+
+def _first_session_from(
+    rows: Sequence[AssetPrice], testable: Sequence[Asset], start: date
+) -> date | None:
+    """The first session the universe has on or after `start`.
+
+    The date a run would begin if nothing but the trading calendar were
+    in the way, which is what `window.start` has to be compared against
+    before an asset is named for shortening it.
+    """
+    ids = {asset.id for asset in testable}
+    sessions = [row.date for row in rows if row.asset_id in ids and row.date >= start]
+    return min(sessions) if sessions else None
 
 
 def _complete_from(bars: Sequence[AssetPrice]) -> date | None:
