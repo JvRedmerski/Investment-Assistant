@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -13,6 +13,7 @@ from app.data.models.users import User
 from app.domain.benchmarks.catalog import UnknownBenchmarkError, get_benchmark
 from app.domain.benchmarks.schemas import BenchmarkComparisonResponse
 from app.domain.benchmarks.service import compare_portfolio_with_benchmark
+from app.domain.market_data.service import latest_closes
 from app.domain.portfolio.schemas import (
     AssetPositionResponse,
     PortfolioCreate,
@@ -28,6 +29,7 @@ from app.domain.portfolio.service import (
     compute_net_contributions,
     compute_positions,
 )
+from app.domain.portfolio.valuation import value_positions
 from app.domain.recommendations.allocation import DEFAULT_POLICY, AllocationPolicy
 from app.domain.recommendations.schemas import (
     AllocationPolicyResponse,
@@ -229,20 +231,55 @@ def list_transactions(
 @router.get("/{portfolio_id}/positions", response_model=PortfolioPositionsResponse)
 def get_portfolio_positions(
     portfolio_id: int,
+    as_of: date | None = Query(
+        None,
+        description=(
+            "Value the positions with the last close on or before this "
+            "date. Defaults to the latest stored price."
+        ),
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> PortfolioPositionsResponse:
-    """Consolidated, cost-basis positions for a portfolio.
+    """Consolidated positions, at cost and at market.
 
-    Entirely derived from the transaction ledger (AGENTS.md rule 16); does
-    not include current market value, which requires price data from the
-    Market Data integration (Wave 05, not yet implemented).
+    Quantities, average price and realised P&L are derived entirely from
+    the transaction ledger (rule 16). Market value is `quantity × close`,
+    computed here rather than in the frontend, which presents and does
+    not calculate (rule 73).
+
+    ⚠️ **Read `unvalued_positions` before reading `valued_market_value`.**
+    An asset with no stored price makes its own line absent, not the
+    whole total — so the total can cover part of the portfolio, and its
+    name says so. `unvalued_invested` measures what it leaves out.
+
+    `as_of` truncates the **ledger** as well as the prices, so it reports
+    the portfolio as it stood on that date rather than today's holdings
+    priced backwards.
+
+    ⚠️ Quantities are replayed from the ledger alone, which records what
+    was traded and knows nothing of splits or groupings. A position held
+    through a corporate action that changed the share count reads at the
+    old count until the investor records the change — visible here for
+    the first time, because cost basis never depended on it.
+
+    Reads only stored data (rule 23): opening this never calls the price
+    provider, so an asset nobody synced is simply unvalued.
     """
     _get_owned_portfolio(db, portfolio_id, current_user)
 
-    transactions = (
-        db.query(Transaction).filter(Transaction.portfolio_id == portfolio_id).all()
-    )
+    query = db.query(Transaction).filter(Transaction.portfolio_id == portfolio_id)
+    if as_of is not None:
+        # The ledger is truncated too, not only the prices. Valuing
+        # today's holdings at a past close answers a question nobody
+        # asked -- what the portfolio you have now would have been worth
+        # then -- and reads as history. `as_of` means the portfolio as it
+        # stood, at the prices that stood with it (rule 108).
+        query = query.filter(
+            Transaction.transaction_date
+            < datetime.combine(as_of, time.min) + timedelta(days=1)
+        )
+    transactions = query.all()
     positions = compute_positions(transactions)
 
     tickers: dict[int, str] = {}
@@ -250,22 +287,35 @@ def get_portfolio_positions(
         assets = db.query(Asset).filter(Asset.id.in_(positions.keys())).all()
         tickers = {asset.id: asset.ticker for asset in assets}
 
+    valuation = value_positions(positions, latest_closes(db, positions, as_of))
+
     position_items = [
         AssetPositionResponse(
-            asset_id=asset_id,
-            ticker=tickers.get(asset_id, "UNKNOWN"),
-            quantity=position.quantity,
-            average_price=position.average_price,
-            invested_amount=position.invested_amount,
-            realized_pnl=position.realized_pnl,
-            dividends_received=position.dividends_received,
+            asset_id=valued.asset_id,
+            ticker=tickers.get(valued.asset_id, "UNKNOWN"),
+            quantity=valued.quantity,
+            average_price=positions[valued.asset_id].average_price,
+            invested_amount=valued.invested_amount,
+            realized_pnl=positions[valued.asset_id].realized_pnl,
+            dividends_received=positions[valued.asset_id].dividends_received,
+            last_price=valued.last_price,
+            price_date=valued.price_date,
+            market_value=valued.market_value,
+            unrealised_pnl=valued.unrealised_pnl,
         )
-        for asset_id, position in sorted(positions.items())
+        for valued in valuation.positions
     ]
 
     return PortfolioPositionsResponse(
         portfolio_id=portfolio_id,
         positions=position_items,
+        valued_market_value=valuation.valued_market_value,
+        valued_invested=valuation.valued_invested,
+        unrealised_pnl=valuation.unrealised_pnl,
+        unvalued_positions=valuation.unvalued_positions,
+        unvalued_invested=valuation.unvalued_invested,
+        oldest_price_date=valuation.oldest_price_date,
+        newest_price_date=valuation.newest_price_date,
         total_invested=sum((p.invested_amount for p in positions.values()), ZERO),
         total_realized_pnl=sum((p.realized_pnl for p in positions.values()), ZERO),
         total_dividends_received=sum(

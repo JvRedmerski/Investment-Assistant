@@ -16,12 +16,15 @@ overwrites).
 """
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.data.models.assets import Asset, AssetPrice
+from app.domain.portfolio.valuation import ClosingPrice
 from app.integrations.market_data.base import DailyHistoryProvider
 from app.integrations.market_data.data_quality import validate_daily_bars
 
@@ -117,3 +120,47 @@ def sync_daily_history(
         skipped_existing=skipped,
         rejected=quality_report.rejected_count,
     )
+
+
+def latest_closes(
+    db: Session, asset_ids: Iterable[int], as_of: date | None = None
+) -> dict[int, ClosingPrice]:
+    """The most recent stored close for each asset, on or before `as_of`.
+
+    Reads only what is stored (rule 23): a screen opening never causes a
+    call to the provider, so an asset nobody has synced simply has no
+    entry here and the caller reports it as unvalued.
+
+    `as_of` is honoured rather than ignored, because valuing a portfolio
+    "as it stood in March" with a price from today is look-ahead in the
+    same way a score reading a later filing is (rule 108).
+
+    One query, not one per asset: the subquery picks each asset's newest
+    qualifying date and the join takes that row. A portfolio of thirty
+    holdings should not cost thirty round trips.
+    """
+    ids = list(asset_ids)
+    if not ids:
+        return {}
+
+    newest = (
+        select(
+            AssetPrice.asset_id.label("asset_id"),
+            func.max(AssetPrice.date).label("date"),
+        )
+        .where(AssetPrice.asset_id.in_(ids))
+        .group_by(AssetPrice.asset_id)
+    )
+    if as_of is not None:
+        newest = newest.where(AssetPrice.date <= as_of)
+    newest = newest.subquery()
+
+    rows = db.execute(
+        select(AssetPrice).join(
+            newest,
+            (AssetPrice.asset_id == newest.c.asset_id)
+            & (AssetPrice.date == newest.c.date),
+        )
+    ).scalars()
+
+    return {row.asset_id: ClosingPrice(date=row.date, close=row.close) for row in rows}

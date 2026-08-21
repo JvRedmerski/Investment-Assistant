@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -96,12 +96,49 @@ class AssetPositionResponse(BaseModel):
     invested_amount: Decimal
     realized_pnl: Decimal
     dividends_received: Decimal
+    #: Last stored **close** — what the market printed — and the session
+    #: it belongs to. Never the adjusted close, which is a total-return
+    #: price and would value a long-held position at a fraction of what
+    #: the shares would fetch.
+    last_price: Decimal | None
+    price_date: date | None
+    #: `quantity × last_price`, and `null` when no price is stored for
+    #: this asset — never a stand-in zero and never the cost basis
+    #: wearing a different label (ADR-014).
+    market_value: Decimal | None
+    unrealised_pnl: Decimal | None
 
 
 class PortfolioPositionsResponse(BaseModel):
+    """Consolidated positions, at cost and at market.
+
+    ⚠️ **`valued_market_value` is not necessarily the whole portfolio.**
+    It sums only the positions a stored price could be found for, and it
+    is named that way so it cannot be read as a patrimônio. Check
+    `unvalued_positions`: while it is above zero, `unvalued_invested`
+    says how much cost basis the total leaves out.
+
+    `unrealised_pnl` is `valued_market_value - valued_invested`, both
+    over the **same** rows. Comparing the valued total against
+    `total_invested` would report a loss made entirely of the positions
+    nobody could price.
+
+    `oldest_price_date` and `newest_price_date` bound the prices the
+    totals were built from (rules 103/104). Equal dates mean one
+    session; far apart means the total mixes a fresh close with a stale
+    one, and the difference is the label that says so.
+    """
+
     portfolio_id: int
     positions: list[AssetPositionResponse]
     total_invested: Decimal
     total_realized_pnl: Decimal
     total_dividends_received: Decimal
     net_contributions: Decimal
+    valued_market_value: Decimal
+    valued_invested: Decimal
+    unrealised_pnl: Decimal
+    unvalued_positions: int
+    unvalued_invested: Decimal
+    oldest_price_date: date | None
+    newest_price_date: date | None

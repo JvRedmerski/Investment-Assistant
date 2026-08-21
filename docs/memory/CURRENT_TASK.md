@@ -2,82 +2,82 @@
 
 ## Task
 
-**Wave 11 — Dashboard.** A primeira wave do projeto com **trabalho de frontend real** — o
-frontend hoje é só scaffold. Ver [../planning/ROADMAP.md](../planning/ROADMAP.md) e roadmap §23.
+**W11-001 — Valor de mercado e P&L não realizado.** Primeira das seis tasks da
+**Wave 11 — Dashboard** (roadmap §23), e a primeira wave do projeto com trabalho de frontend real.
 
 ## Status
 
-⚪ **Não começou.** A Wave 10 fechou em 2026-08-21 com as três tasks entregues, e não há código
-pela metade em lugar nenhum.
+🟡 **Em andamento.** A Wave 10 fechou em 2026-08-21 e não há código pela metade em lugar nenhum.
 
 ---
 
-## O que a Wave 10 entregou
+## A wave em seis tasks
 
-| task | entrega | ADR |
+O roadmap §23 pede três telas — Dashboard, Carteira e Ativo. Duas tasks de backend vêm antes
+delas, porque pedem números que **o backend ainda não produz** e que a regra 73 proíbe calcular
+no frontend.
+
+| task | entrega | por quê |
 |---|---|---|
-| **W10-001** | `targets.py` — peso-alvo derivado do **mérito** e o *drift* (`current`/`target`/`gap`) | [ADR-027](../decisions/ADR-027-target-weight-comes-from-merit.md) |
-| **W10-002** | `GET /portfolios/{id}/rebalance` — a tabela de desvio | — |
-| **W10-003** | `rebalancing.py` + `GET /portfolios/{id}/rebalance-plan` — o aporte que fecha os gaps | [ADR-028](../decisions/ADR-028-rebalancing-is-cash-flow-only.md) |
-
-### As duas coisas que a wave descobriu, e que valem mais que o código
-
-**1. O alvo não pode sair do `final_score`.** Medido antes de escrever código: variando só quanto
-a carteira detém de PETR4, de 0% a 20%, o score escorrega de **76,72 para 65,47** enquanto os
-quatro pilares de mérito ficam constantes. O que cai é Diversificação, o pilar que lê o detentor.
-Um alvo construído sobre isso é uma trave que anda. O alvo passou a sair do **mérito** (Quality,
-Valuation, Growth, Risk) e a concentração virou **teto** em vez de termo.
-
-**2. O plano tem que raciocinar sobre a carteira que o aporte cria, não sobre a de hoje.** Isso
-o **teste contra o banco real** pegou, e teste unitário nenhum pegaria — os unitários tinham sido
-escritos sob a mesma premissa errada. PETR4 a 25% contra alvo de 20% era recusada por estar
-*acima*; com os R$ 1.000 parados em caixa a base virava R$ 2.200 e ela caía para **13,6%**, mais
-abaixo do alvo do que estava acima. Corrigido: R$ 0 → **R$ 140** alocados, distância 0,0636 → 0.
+| **W11-001** | Valor de mercado e P&L não realizado nas posições | "Patrimônio" é a manchete do dashboard e não existe: `/positions` é custo basis |
+| **W11-002** | A **série** de evolução da carteira sobre a API | o comparativo com benchmark devolve só métricas resumidas; não há como desenhar "evolução" |
+| **W11-003** | Fundação do frontend: rotas, react-query, cliente tipado com envelope de erro e token, `zod`, layout, login e rota protegida | sem autenticação no cliente, nenhuma tela busca nada |
+| **W11-004** | Tela **Dashboard** | patrimônio, rentabilidade, CDI, IBOV, composição, risco, evolução, próximo aporte |
+| **W11-005** | Tela **Carteira** | posições, transações, performance |
+| **W11-006** | Tela **Ativo** | cotação, fundamentos, histórico, score |
 
 ---
+
+## W11-001 — as decisões que a task tem que tomar
+
+### Qual preço vale uma posição
+
+**`close`, nunca `adjusted_close`.** O próprio `market_data/series.py` já diz por quê: `close` é
+o que o mercado imprimiu e é o insumo certo para qualquer pergunta *pontual*; `adjusted_close` é
+preço de retorno total e só vale para série de retorno. Valorizar posição com preço ajustado
+reportaria um valor inventado para qualquer data que não a última.
+
+### O que fazer quando falta preço — e aqui há dois precedentes que se contradizem
+
+- `performance_index._value_on` devolve `None` para o **dia inteiro** se *um* ativo não tem preço:
+  série time-weighted com constituintes diferentes em duas datas não é uma série mais curta, é
+  outra carteira.
+- `recommendations/service.py` escolheu **custo basis** justamente para não deixar o pilar inteiro
+  ausente quando um ativo não tem preço.
+
+Os dois estão certos nos seus contextos, e nenhum dos dois serve aqui. Uma tabela de posições
+pede **ausência por linha**: a linha sem preço aparece com `market_value: null`, e o total diz o
+que cobre. Nome do campo faz o trabalho — `valued_market_value`, e não `total_market_value` —,
+mais `unvalued_positions` e `unvalued_invested` para dimensionar o buraco.
+
+### Defasagem é rótulo, não nota de rodapé (regras 103/104)
+
+Cada linha carrega `price_date`; o total carrega a data mais **antiga** e a mais **nova** entre os
+preços usados. Um patrimônio que mistura preço de hoje com preço de três meses atrás precisa
+dizer isso.
 
 ## O que já está pronto — não reimplemente
 
-Todo o backend das waves 00–10. Em particular, para a W11:
+- `compute_positions` (`app/domain/portfolio/service.py`) — posições consolidadas, puro.
+- `performance_index` (`app/domain/portfolio/performance.py`) — índice time-weighted; `_value_on`
+  já é a aritmética de valorizar um dia, mas com política de ausência diferente e de propósito.
+- `app/domain/market_data/series.py` — o ponto único que separa `close` de `adjusted_close`.
+- `GET /portfolios/{id}/positions` em `app/api/routes/portfolios.py`, com o helper de posse.
 
-- `GET /portfolios/{id}/positions` — posições consolidadas. ⚠️ **sem valor de mercado**: o
-  `PortfolioPositionsResponse` é custo médio, derivado do ledger.
-- `GET /portfolios/{id}/benchmarks/{code}` — carteira × CDI/IBOV/IPCA/Selic, com a carteira como
-  índice **time-weighted**.
-- `GET /portfolios/{id}/scores` — os cinco pilares por ativo, decomponíveis. **Ler `coverage`.**
-- `GET /portfolios/{id}/contribution-plan` — onde vai o próximo aporte (ordena por score).
-- `GET /portfolios/{id}/rebalance` e `/rebalance-plan` — desvio e o aporte que o fecha (ordena
-  por gap). ⚠️ Os dois **podem discordar** sobre o mesmo ativo, de propósito (ADR-028 §2).
-- `GET /assets/{ticker}/...` — cotações, histórico, fundamentos, indicadores, eventos societários.
+## Divergências entre documentação e código encontradas na abertura da wave
 
-Contrato completo dos endpoints: [../architecture/API.md](../architecture/API.md).
+O código é a fonte de verdade (CLAUDE.md §3); as duas serão corrigidas na wave:
 
-## O que a W11 vai esbarrar, e é bom saber antes
-
-- **Não existe valor de mercado em lugar nenhum.** Tudo hoje é custo basis. Um dashboard de
-  patrimônio precisa de `quantity × preço mais recente`, e essa multiplicação não existe no
-  backend — decidir onde ela mora é trabalho da wave, e o `service.py` de recommendations
-  registra por que a escolha do custo foi deliberada lá.
-- **`portfolio_snapshots.total_value`/`cash_value` ainda são `Float`** e sem consumidor. Se a W11
-  passar a usá-los, converter para `NUMERIC` primeiro ([ADR-003](../decisions/ADR-003-decimal-money.md)).
-- **A cobertura de alvo do banco real é de um papel só.** Só PETR4 tem fundamentos; ITUB4/BBAS3/
-  MGLU3 não têm setor nem demonstrativos, então a tela vai mostrar `unassigned` de 0,80. Isso é o
-  desenho, não um bug de tela — aumentar a cobertura é cadastrar setor e sincronizar CVM.
-- **O frontend é scaffold**: React 18 + TS + Vite 5 + Tailwind. `react-router-dom`,
-  `@tanstack/react-query`, `recharts`, `zod`, `clsx` e `tailwind-merge` estão declarados no
-  `package.json` e **ainda não são importados por nenhum código** — a W11 é onde entram.
-
----
+1. `docs/architecture/FRONTEND.md` diz que `npm run lint` está quebrado. **Não está** — a FIX-001
+   (2026-08-19) instalou ESLint 10 e o `eslint.config.js` existe. `npm run lint` e `npm run build`
+   passam limpos.
+2. O docstring de `get_portfolio_positions` diz que valor de mercado depende da "Wave 05, not yet
+   implemented". A W05 está concluída desde então.
 
 ## Estado do ambiente (verificado 2026-08-21)
 
-- ✅ `pytest -q` → **815 passed** (era 750 na entrada da wave). `ruff check` e `black --check`
-  limpos no repositório inteiro.
-- ✅ Docker no ar, schema **`012_corporate_actions`** (head). **A Wave 10 não criou migration** —
-  nada dela é gravado (regra 16).
-- Banco real: uma carteira (`Local`, id 1) **sem transação nenhuma**; quatro ativos, dos quais só
-  PETR4 tem setor (`Energia`) e fundamentos (6 exercícios, 2020–2025). Preço ajustado: PETR4
-  1.495/1.495, BBAS3 1.495, ITUB4 198, MGLU3 478.
-- Alembic do host precisa da URL sobrescrita:
-  `DATABASE_URL="postgresql://investment_user:investment_pass_dev@localhost:5432/investment_assistant" .venv/Scripts/python.exe -m alembic upgrade head`
-- 🔴 O teto de `3mo` da Brapi continua limitando o **IBOV**, o que mantém `beta` com janela pobre.
+- ✅ `pytest -q` → **815 passed**. `ruff check .` e `black --check .` limpos.
+- ✅ Frontend: `npm run build` e `npm run lint` passam. Baseline: 1.484 módulos, 154 kB.
+- ✅ Docker no ar, schema **`012_corporate_actions`** (head).
+- Banco real: carteira `Local` (id 1) **sem transação**; PETR4 com setor e fundamentos, os outros
+  três sem. Preço: 1.495 pregões para os quatro papéis.

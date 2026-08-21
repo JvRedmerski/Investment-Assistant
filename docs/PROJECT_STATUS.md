@@ -11,7 +11,7 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 
 ## Current Phase
 - **Phase**: wave **EVENTS** (eventos societários e proventos) em andamento — segunda wave **inserida fora da ordem do roadmap**, entre a W09 e a W10
-- **Status**: 🟢 **WAVE 10 COMPLETED** (2026-08-21) — **3 de 3 tasks**: W10-001 (peso-alvo derivado do **mérito** e não do `final_score`, [ADR-027](decisions/ADR-027-target-weight-comes-from-merit.md)), W10-002 (tabela de desvio sobre a API) e W10-003 (o aporte que fecha os gaps, sem vender, [ADR-028](decisions/ADR-028-rebalancing-is-cash-flow-only.md)). Antes dela: 🟢 EVENTS COMPLETED (2026-08-20) — **3 de 3 tasks**: EVENTS-001 (distribuições por exercício, da DMPL da CVM — fechou o `dy`), EVENTS-002 (data e natureza do evento societário, pelo arquivo de fim de dia da B3) e EVENTS-003 (a **magnitude**, pelo serviço aberto de eventos da B3, e o `adjusted_close` derivado dela — **destravou o pilar de Risco**). A wave **PRICE** (3 tasks) fechou antes, em 2026-08-19. Próxima: **Wave 11 — Dashboard**, a primeira wave com trabalho de frontend real
+- **Status**: 🟡 **WAVE 11 IN_PROGRESS** (2026-08-21) — 1 de 6 tasks: W11-001 deu valor de mercado às posições, o número que a tela de patrimônio precisa e o backend não produzia. Antes dela: 🟢 **WAVE 10 COMPLETED** (2026-08-21) — **3 de 3 tasks**: W10-001 (peso-alvo derivado do **mérito** e não do `final_score`, [ADR-027](decisions/ADR-027-target-weight-comes-from-merit.md)), W10-002 (tabela de desvio sobre a API) e W10-003 (o aporte que fecha os gaps, sem vender, [ADR-028](decisions/ADR-028-rebalancing-is-cash-flow-only.md)). Antes dela: 🟢 EVENTS COMPLETED (2026-08-20) — **3 de 3 tasks**: EVENTS-001 (distribuições por exercício, da DMPL da CVM — fechou o `dy`), EVENTS-002 (data e natureza do evento societário, pelo arquivo de fim de dia da B3) e EVENTS-003 (a **magnitude**, pelo serviço aberto de eventos da B3, e o `adjusted_close` derivado dela — **destravou o pilar de Risco**). A wave **PRICE** (3 tasks) fechou antes, em 2026-08-19. A **Wave 11 — Dashboard** está em curso, e é a primeira com trabalho de frontend real
 
 ---
 
@@ -417,7 +417,44 @@ Detalhes W10-003 (2026-08-21):
 ---
 
 ### Wave 11 — Dashboard & Main Interface
-Status: ⚪ NOT_STARTED
+Status: 🟡 IN_PROGRESS (1 de 6 tasks)
+
+- [x] **W11-001**: Valor de mercado e P&L não realizado nas posições 🟢 COMPLETED
+- [ ] **W11-002**: A série de evolução da carteira sobre a API ⚪ NOT_STARTED
+- [ ] **W11-003**: Fundação do frontend (rotas, react-query, cliente tipado, auth, layout) ⚪ NOT_STARTED
+- [ ] **W11-004**: Tela Dashboard ⚪ NOT_STARTED
+- [ ] **W11-005**: Tela Carteira ⚪ NOT_STARTED
+- [ ] **W11-006**: Tela Ativo ⚪ NOT_STARTED
+
+> **Duas tasks de backend antes das telas.** O roadmap §23 pede três telas, e duas delas pedem
+> números que o backend **não produz**: "patrimônio" (`quantity × preço`) e a **série** de
+> evolução — o comparativo com benchmark devolve só métricas resumidas. A regra 73 proíbe
+> calcular isso no frontend, então vem antes.
+
+Detalhes W11-001 (2026-08-21):
+
+- `app/domain/portfolio/valuation.py` (puro) + `latest_closes` em `market_data/service.py` (uma
+  query, não uma por ativo) + `GET /portfolios/{id}/positions` estendido, com `as_of`.
+- **`close`, nunca `adjusted_close`.** Ajuste é retroativo: uma posição de 2020 valorizada ao
+  preço ajustado vale uma fração do que as ações renderiam. O `market_data/series.py` já
+  separava os dois; esta task fica do lado certo da linha.
+- **A política de ausência é a terceira do projeto, e é de propósito.** `performance_index`
+  apaga o **dia inteiro** se um ativo não tem preço (série time-weighted com constituintes
+  diferentes é outra carteira); `recommendations/service.py` usa **custo basis** para não deixar
+  o pilar ausente. Uma tabela de posições lê linha a linha, então só a **linha** fica ausente —
+  e o nome do campo é o que impede a leitura errada: `valued_market_value`, não
+  `total_market_value`, com `unvalued_positions` e `unvalued_invested` dimensionando o buraco.
+- `unrealised_pnl` compara `valued_market_value` com `valued_invested` — **as mesmas linhas**.
+  Contra o custo total, a posição que ninguém conseguiu precificar apareceria como prejuízo.
+- 🔴 **A verificação contra o banco real pegou um erro que eu mesmo introduzi**: o `as_of` filtrava
+  os **preços** mas não o **ledger**, então valorizava as posições de hoje a preço de ontem e
+  chamava isso de histórico. Passou a truncar os dois.
+- 🔴 **E expôs uma lacuna pré-existente**, registrada em Future Work: o ledger não conhece evento
+  societário, então posição carregada através de desdobramento tem quantidade errada. Custo basis
+  nunca dependia disso; `quantity × price` depende.
+- Medido no banco real: 100 PETR4 a custo de R$ 28 valem **R$ 3.082** no fechamento de
+  2025-12-30 (+R$ 282); a mesma carteira `as_of` 2020-03-18 (o fundo da COVID) vale R$ 1.129.
+- 17 testes novos (11 de unidade, 6 de rota). `pytest` 815 → **832**.
 
 - [ ] **W11-001**: Dashboard Principal (Patrimônio, Rentabilidade, Benchmarks) ⚪ NOT_STARTED
 - [ ] **W11-002**: Interface de Gestão de Carteira e Histórico ⚪ NOT_STARTED
@@ -835,6 +872,7 @@ Nenhuma tarefa bloqueada no momento.
 ---
 
 ## Future Work
+- 🔴 **O ledger não conhece evento societário, e o valor de mercado tornou isso visível (descoberto na W11-001).** `compute_positions` reproduz o que foi negociado; um desdobramento ou grupamento muda a quantidade em custódia sem gerar transação, então uma posição carregada através de um evento fica com a quantidade **errada** até o investidor registrar a mudança à mão. Custo basis nunca dependia disso — `quantity × price` depende. As magnitudes já estão no banco desde a EVENTS-003 (`corporate_actions`), então a correção é aplicável: replay do ledger aplicando o fator às posições abertas na data-ex. Fora do escopo da W11-001 (regra 134), e deve vir antes de a tela de carteira ser levada a sério por quem detém papel com desdobramento.
 - ✅ ~~**`dy` a partir da DMVL/DMPL da CVM**~~ — **FEITO em 2026-08-19** (EVENTS-001): `5.04.06` + `5.04.07` na coluna `Patrimônio Líquido`, com `5.04.11` (prescritos) excluído e o sinal tratado como apresentação. Os 10 indicadores passaram a ter insumo real.
 - **Magnitude do evento societário** — o que a EVENTS-002 deliberadamente não entregou. A data e a natureza vêm de graça do arquivo da B3; o **fator** de desdobramento/grupamento e o **valor por pagamento** do provento exigem outra fonte, e são o que a série de retorno total consome. É a EVENTS-003, a task corrente.
 - **Persistir os eventos societários.** Hoje `get_corporate_events` varre o arquivo em cache a cada chamada — não há tabela, migration nem endpoint. Dimensionar isso é parte da EVENTS-003, e vale medir antes: são ~15 MB destilados por ano e uma varredura por ano civil.

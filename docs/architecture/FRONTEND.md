@@ -64,9 +64,11 @@ Ainda não estabelecidos em código; derivados do AGENTS.md:
 - Linguagem da UI: "setup detectado", "sinal quantitativo". Nunca "vai subir", "lucro garantido" (§56).
 - Dado defasado deve ser rotulado como tal, nunca apresentado como tempo real (§103/§104).
 
-## Problema conhecido
+## Baseline verificado (2026-08-21, abertura da W11)
 
-`npm run lint` está quebrado: o script invoca `eslint`, mas não há `eslint` nas `devDependencies` nem arquivo de configuração. Corrigir ou remover o script quando o frontend voltar a ser trabalhado.
+`npm run build` e `npm run lint` **passam limpos**. O `eslint.config.js` existe e o ESLint 10 está nas `devDependencies` desde a FIX-001 (2026-08-19) — este documento afirmava o contrário até a abertura da Wave 11, e o código é a fonte de verdade (CLAUDE.md §3).
+
+Build de referência: 1.484 módulos, `index.js` 154 kB (49 kB gzip).
 
 ## Comandos
 
