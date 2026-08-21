@@ -35,6 +35,7 @@ Actions themselves are inserted, never updated, matching how
 
 import logging
 from bisect import bisect_right
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -43,6 +44,7 @@ from sqlalchemy.orm import Session
 from app.data.models.assets import Asset, AssetPrice
 from app.data.models.assets import CorporateAction as StoredAction
 from app.domain.market_data.adjustment import adjusted_closes
+from app.domain.portfolio.service import ShareAdjustment
 from app.integrations.market_data.base import (
     CorporateActionProvider,
     CorporateEventProvider,
@@ -230,3 +232,42 @@ def _first_session_after(sessions: list[date], when: date) -> date | None:
         return None
     index = bisect_right(sessions, when)
     return sessions[index] if index < len(sessions) else None
+
+
+def share_adjustments(
+    db: Session,
+    asset_ids: Iterable[int],
+    as_of: date | None = None,
+) -> list[ShareAdjustment]:
+    """Every stored share action for `asset_ids`, oldest first.
+
+    Only rows that carry a `share_ratio`: a cash payout leaves the share
+    count alone, and it reaches the investor through the DIVIDEND side of
+    the ledger rather than by changing a holding.
+
+    Feeds `portfolio.service.compute_positions` and the two curves in
+    `portfolio.performance`, which cannot know a holding moved unless
+    somebody tells them (W13-001). Nothing after `as_of` is read, so a
+    position asked for as of a past date is not restated by an event that
+    had not happened yet (rule 108).
+    """
+    ids = list(asset_ids)
+    if not ids:
+        return []
+
+    query = db.query(StoredAction).filter(
+        StoredAction.asset_id.in_(ids),
+        StoredAction.share_ratio.is_not(None),
+    )
+    if as_of is not None:
+        query = query.filter(StoredAction.ex_date <= as_of)
+
+    return [
+        ShareAdjustment(
+            asset_id=action.asset_id,
+            ex_date=action.ex_date,
+            ratio=action.share_ratio,
+            label=action.label,
+        )
+        for action in query.order_by(StoredAction.ex_date, StoredAction.id)
+    ]

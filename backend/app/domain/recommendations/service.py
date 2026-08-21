@@ -44,6 +44,7 @@ from app.data.models.portfolio import Portfolio, Transaction
 from app.data.models.users import InvestorProfile
 from app.domain.benchmarks.catalog import IBOVESPA
 from app.domain.benchmarks.service import benchmark_price_points, risk_free_rate_for
+from app.domain.market_data.corporate_actions import share_adjustments
 from app.domain.market_data.series import adjusted_price_points
 from app.domain.portfolio.service import compute_positions
 from app.domain.recommendations.allocation import (
@@ -133,7 +134,8 @@ def build_exposure(db: Session, portfolio: Portfolio) -> PortfolioExposure:
     transactions = (
         db.query(Transaction).filter(Transaction.portfolio_id == portfolio.id).all()
     )
-    positions = compute_positions(transactions)
+    held_ids = {tx.asset_id for tx in transactions if tx.asset_id is not None}
+    positions = compute_positions(transactions, share_adjustments(db, held_ids))
 
     invested = {
         asset_id: position.invested_amount

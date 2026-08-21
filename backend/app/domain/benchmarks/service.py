@@ -39,6 +39,7 @@ from app.domain.benchmarks.comparison import (
 )
 from app.domain.benchmarks.data_quality import validate_benchmark_series
 from app.domain.benchmarks.series import annualised_rate, to_price_points
+from app.domain.market_data.corporate_actions import share_adjustments
 from app.domain.market_data.series import (
     adjusted_closes_by_asset,
     adjusted_price_points,
@@ -249,7 +250,12 @@ def compare_portfolio_with_benchmark(
             price_query = price_query.filter(AssetPrice.date <= end)
         prices = adjusted_closes_by_asset(price_query)
 
-    subject = performance_index(transactions, prices, as_of=end)
+    subject = performance_index(
+        transactions,
+        prices,
+        as_of=end,
+        adjustments=share_adjustments(db, asset_ids, end),
+    )
     return _compare(db, subject, definition, start, end)
 
 
@@ -311,8 +317,19 @@ def portfolio_series(
             price_query = price_query.filter(AssetPrice.date <= end)
         rows = price_query.all()
 
-    index = performance_index(transactions, adjusted_closes_by_asset(rows), as_of=end)
-    wealth = value_series(transactions, closes_by_asset(rows), as_of=end)
+    # The same actions, restated two different ways: the index
+    # onto today's share count, the wealth curve forward from each
+    # ex-date. See `portfolio.performance`.
+    actions = share_adjustments(db, asset_ids, end)
+    index = performance_index(
+        transactions,
+        adjusted_closes_by_asset(rows),
+        as_of=end,
+        adjustments=actions,
+    )
+    wealth = value_series(
+        transactions, closes_by_asset(rows), as_of=end, adjustments=actions
+    )
 
     benchmark_points: list[PricePoint] = []
     if definition is not None:

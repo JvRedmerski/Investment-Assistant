@@ -27,6 +27,7 @@ from app.domain.benchmarks.service import (
     compare_portfolio_with_benchmark,
     portfolio_series,
 )
+from app.domain.market_data.corporate_actions import share_adjustments
 from app.domain.market_data.service import latest_closes
 from app.domain.portfolio.schemas import (
     AssetPositionResponse,
@@ -211,7 +212,14 @@ def create_transaction(
             )
             .all()
         )
-        held_quantity = compute_asset_quantity(existing_transactions, payload.asset_id)
+        held_quantity = compute_asset_quantity(
+            existing_transactions,
+            payload.asset_id,
+            # Without this a holding that split cannot be sold in
+            # full: the guard would still be counting pre-split
+            # shares and refuse the quantity actually in custody.
+            share_adjustments(db, [payload.asset_id]),
+        )
         if payload.quantity > held_quantity:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -308,7 +316,8 @@ def get_portfolio_positions(
             < datetime.combine(as_of, time.min) + timedelta(days=1)
         )
     transactions = query.all()
-    positions = compute_positions(transactions)
+    held_ids = {tx.asset_id for tx in transactions if tx.asset_id is not None}
+    positions = compute_positions(transactions, share_adjustments(db, held_ids, as_of))
 
     tickers: dict[int, str] = {}
     if positions:

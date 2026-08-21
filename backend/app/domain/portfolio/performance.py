@@ -115,14 +115,51 @@ price would fabricate a close (rule 44). Treating the gap as a zero
 return would hide real market movement instead of leaving it out.
 Reporting nothing would discard the whole history after one gap. The
 honest fix is upstream: ingest the missing prices.
+
+## Share actions restate the ledger twice, in opposite directions
+
+A split moves a holding without a transaction, so both curves below have
+to account for it — and they need **different** accounts of it, because
+they price the holding differently. Getting this backwards produces a
+number that is wrong by the whole factor and still plots as a smooth
+line, which is the same failure mode as the currency mix this module's
+docstring already warns about.
+
+- `value_series` prices at the **raw close**, which is what printed on
+  the day. Its quantities must therefore be the ones held **on that
+  day**: a ratio applies going forward, from its ex-date onwards, exactly
+  as custody experienced it.
+
+- `performance_index` prices at **`adjusted_close`, which is quoted in
+  today's shares** — the whole point of adjustment is that it restates
+  history onto the current share count. Its quantities must be restated
+  the same way, so a purchase made before a 1:2 split counts as twice the
+  shares it bought against a price that has been halved. The two
+  cancel, and the position holds its value across the event.
+
+  Concretely: 100 shares bought at R$ 50 in 2020, split 1:2 in 2022.
+  `adjusted_close` for 2020 is ~R$ 25. Valuing 100 shares there gives
+  R$ 2.500 for a position that was worth R$ 5.000; valuing the restated
+  200 gives R$ 5.000. In this convention a split is a **no-op** — which
+  is why the index restates the flows and then walks them unchanged,
+  instead of applying the ratio as an event.
 """
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
 from app.data.models.portfolio import Transaction, TransactionTypeEnum
+from app.domain.portfolio.service import ShareAdjustment, replay_timeline
 from app.quant.returns import PricePoint
+
+#: Scales an as-traded share count for one asset on one day.
+#:
+#: The seam between the two conventions above: `performance_index` hands
+#: in a restatement onto today's shares, and `value_series` hands in
+#: nothing at all.
+ShareFactor = Callable[[int, date], Decimal]
 
 #: Starting level of the unit series.
 #:
@@ -158,6 +195,7 @@ def value_series(
     transactions: list[Transaction],
     closes: dict[int, dict[date, Decimal]],
     as_of: date | None = None,
+    adjustments: Sequence[ShareAdjustment] = (),
 ) -> list[ValuePoint]:
     """The portfolio's worth over time, oldest first.
 
@@ -186,7 +224,9 @@ def value_series(
         return []
 
     flows_by_date = _external_flows(ordered)
-    quantities_by_date = _quantities_after_each_day(ordered)
+    # Forward convention: the ratio applies from its ex-date on, because
+    # the raw close is quoted in the shares of its own day.
+    quantities_by_date = _quantities_after_each_day(ordered, adjustments)
     valuation_dates = _valuation_dates(closes, ordered[0], as_of)
     ledger_days = sorted(set(flows_by_date) | set(quantities_by_date))
 
@@ -218,6 +258,7 @@ def performance_index(
     prices: dict[int, dict[date, Decimal]],
     as_of: date | None = None,
     base: Decimal = DEFAULT_BASE,
+    adjustments: Sequence[ShareAdjustment] = (),
 ) -> list[PricePoint]:
     """The portfolio's time-weighted unit value, oldest first.
 
@@ -242,8 +283,12 @@ def performance_index(
     if not ordered:
         return []
 
-    flows_by_date = _external_share_flows(ordered)
-    quantities_by_date = _quantities_after_each_day(ordered)
+    # Final-share convention: every quantity is restated onto today's
+    # share count, the same terms `adjusted_close` is quoted in, and a
+    # split then needs no event of its own (see the module docstring).
+    restate = _final_share_factor(adjustments)
+    flows_by_date = _external_share_flows(ordered, restate)
+    quantities_by_date = _quantities_after_each_day(ordered, factor=restate)
 
     valuation_dates = _valuation_dates(prices, ordered[0], as_of)
     # Every day the ledger moved, in order. Walked with a pointer rather
@@ -299,6 +344,7 @@ def performance_index(
 
 def _external_share_flows(
     ordered: list[Transaction],
+    factor: ShareFactor | None = None,
 ) -> dict[date, dict[int, Decimal]]:
     """Holdings entering or leaving, **in shares**, by date and asset.
 
@@ -327,6 +373,8 @@ def _external_share_flows(
             # already inside `adjusted_close` (see the module docstring).
             continue
         day = tx.transaction_date.date()
+        if factor is not None:
+            shares *= factor(tx.asset_id, day)
         by_asset = flows.setdefault(day, {})
         by_asset[tx.asset_id] = by_asset.get(tx.asset_id, ZERO) + shares
     return flows
@@ -380,28 +428,76 @@ def _external_flows(ordered: list[Transaction]) -> dict[date, Decimal]:
 
 def _quantities_after_each_day(
     ordered: list[Transaction],
+    adjustments: Sequence[ShareAdjustment] = (),
+    factor: ShareFactor | None = None,
 ) -> dict[date, dict[int, Decimal]]:
     """Holdings as they stood at the end of each day the ledger moved.
 
-    Only days with activity get an entry; `performance_index` carries the
-    last known holdings forward across quiet days.
+    Only days with activity get an entry; the callers carry the last
+    known holdings forward across quiet days. A share action counts as
+    activity: the day a split lands, the holding changed even though
+    nobody traded, and a snapshot has to say so.
+
+    The two conventions of the module docstring are the two arguments,
+    and they are mutually exclusive by construction:
+
+    - `adjustments` applies each ratio **forward**, from its ex-date on,
+      which is what a raw-close valuation needs.
+    - `factor` restates every quantity onto **today's** share count,
+      which is what an adjusted-close valuation needs — and in those
+      terms a split changes nothing, so no event is applied.
     """
     snapshots: dict[date, dict[int, Decimal]] = {}
     running: dict[int, Decimal] = {}
 
-    for tx in ordered:
+    for event in replay_timeline(ordered, adjustments):
+        if isinstance(event, ShareAdjustment):
+            held = running.get(event.asset_id, ZERO)
+            if held > ZERO and event.ratio > ZERO:
+                running[event.asset_id] = held * event.ratio
+                snapshots[event.ex_date] = dict(running)
+            continue
+
+        tx = event
         if tx.asset_id is not None:
+            day = tx.transaction_date.date()
+            quantity = tx.quantity
+            if factor is not None:
+                quantity *= factor(tx.asset_id, day)
             if tx.type is TransactionTypeEnum.BUY:
-                running[tx.asset_id] = running.get(tx.asset_id, ZERO) + tx.quantity
+                running[tx.asset_id] = running.get(tx.asset_id, ZERO) + quantity
             elif tx.type is TransactionTypeEnum.SELL:
                 # Never let the ledger drive a holding negative, matching
                 # `compute_positions`: this stays a safe derivation of
                 # whatever ledger it is handed.
-                remaining = running.get(tx.asset_id, ZERO) - tx.quantity
+                remaining = running.get(tx.asset_id, ZERO) - quantity
                 running[tx.asset_id] = max(remaining, ZERO)
         snapshots[tx.transaction_date.date()] = dict(running)
 
     return snapshots
+
+
+def _final_share_factor(adjustments: Sequence[ShareAdjustment]) -> ShareFactor:
+    """The factor restating an as-traded share count into today's shares.
+
+    Every ratio that went ex **after** the trade, multiplied together. A
+    trade made after the last action restates by 1, which is why the
+    recent end of a series is untouched — and why an empty `adjustments`
+    reproduces the pre-W13-001 behaviour exactly.
+    """
+    by_asset: dict[int, list[ShareAdjustment]] = {}
+    for adjustment in adjustments:
+        if adjustment.ratio > ZERO:
+            by_asset.setdefault(adjustment.asset_id, []).append(adjustment)
+
+    def factor(asset_id: int, day: date) -> Decimal:
+        product = Decimal(1)
+        for adjustment in by_asset.get(asset_id, ()):
+            if adjustment.ex_date > day:
+                product *= adjustment.ratio
+        return product
+
+    return factor
 
 
 def _valuation_dates(
