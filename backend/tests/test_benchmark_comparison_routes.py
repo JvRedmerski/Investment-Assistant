@@ -353,7 +353,12 @@ def test_the_comparison_never_calls_an_external_source(client):
 
 
 def test_the_measured_window_is_reported_not_the_one_requested(client):
-    """The benchmark starts later than the asset; both windows are shown."""
+    """The benchmark starts later, so both sides start where it does.
+
+    The request asks for the whole window, and both series come back
+    measured over the part they share — anything else would make
+    `excess_return` the difference between two different periods.
+    """
     headers = _auth_headers(client, "cmp-window@example.com")
     _seed_asset(client, headers, "EMBR3", ASSET_LEVELS)
     app.dependency_overrides[get_benchmark_provider] = lambda: FakeBenchmark(
@@ -369,5 +374,5 @@ def test_the_measured_window_is_reported_not_the_one_requested(client):
         f"{ASSETS_URL}/EMBR3/benchmarks/IBOV", params=_window(), headers=headers
     ).json()
 
-    assert body["subject"]["start_date"] == DAYS[0].isoformat()
+    assert body["subject"]["start_date"] == DAYS[2].isoformat()
     assert body["benchmark"]["start_date"] == DAYS[2].isoformat()

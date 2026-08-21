@@ -2,12 +2,13 @@
 
 ## Task
 
-**W11-004 — Tela Dashboard.** Quarta das cinco tasks da **Wave 11 — Dashboard** (roadmap §23).
+**W11-005 — Tela Ativo.** Última das cinco tasks da **Wave 11 — Dashboard** (roadmap §23):
+cotação, fundamentos, histórico e score de um ativo.
 
 ## Status
 
-🟡 **Em andamento.** W11-001, W11-002 e W11-003 entregues. O frontend é uma aplicação real
-desde a W11-003, com a tela de Carteira funcionando ponta a ponta.
+🟡 **Em andamento.** Quatro das cinco tasks entregues. O Dashboard e a Carteira funcionam
+ponta a ponta contra o banco real.
 
 ---
 

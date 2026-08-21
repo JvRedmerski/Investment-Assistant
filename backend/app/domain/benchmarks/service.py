@@ -320,12 +320,18 @@ def portfolio_series(
             read_benchmark_values(db, definition, start, end), definition
         )
 
+    aligned = align(index, benchmark_points or None)
+
     return PortfolioSeries(
         value=wealth,
-        aligned=align(index, benchmark_points or None),
-        subject=summarise(index, Periodicity.DAILY, end),
+        aligned=aligned,
+        # Summarised over the window that is actually drawn, so the
+        # figure beside a chart describes the chart. Asking for a
+        # benchmark narrows both; asking for none leaves the whole
+        # history, since there is nothing to share a window with.
+        subject=summarise(list(aligned.subject), Periodicity.DAILY, end),
         benchmark=(
-            summarise(benchmark_points, definition.periodicity, end)
+            summarise(list(aligned.benchmark), definition.periodicity, end)
             if definition is not None
             else None
         ),

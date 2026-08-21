@@ -157,11 +157,12 @@ def test_sharpe_and_sortino_need_a_risk_free_rate():
     remotely close to the truth.
     """
     subject = _series("100", "102", "101", "104")
+    # As many benchmark points as subject points: both series are cut to
+    # the window they share, and Sharpe needs more than two observations.
+    benchmark = _series("100", "101", "102", "103")
 
-    without = compare(subject, _series("100", "101"), IBOVESPA)
-    with_rate = compare(
-        subject, _series("100", "101"), IBOVESPA, risk_free_rate=Decimal("0.1075")
-    )
+    without = compare(subject, benchmark, IBOVESPA)
+    with_rate = compare(subject, benchmark, IBOVESPA, risk_free_rate=Decimal("0.1075"))
 
     assert without.sharpe is None
     assert without.sortino is None
@@ -207,3 +208,30 @@ def test_nothing_after_as_of_is_read():
 
     assert result.subject.end_date == date(2026, 1, 2)
     assert result.subject.total_return == Decimal("0.1")
+
+
+def test_both_sides_are_measured_over_the_window_they_share():
+    """Otherwise `excess_return` subtracts two different periods.
+
+    The subject runs four days and doubles; the benchmark exists for the
+    last two, over which the subject went 150 -> 200. Measured over its
+    own window the subject returns 100% against the benchmark's 10%, and
+    an excess of 90 p.p. would describe nothing. Over the shared window
+    it returns 33.3% against 10%.
+
+    Measured on the real database before the fix: a portfolio held since
+    2021 against a CDI stored only from August 2025 reported an excess of
+    +251.5 p.p.
+    """
+    subject = _series("100", "120", "150", "200")
+    benchmark = [
+        PricePoint(date=subject[2].date, adjusted_close=Decimal("100")),
+        PricePoint(date=subject[3].date, adjusted_close=Decimal("110")),
+    ]
+
+    result = compare(subject, benchmark, IBOVESPA)
+
+    assert result.subject.start_date == subject[2].date
+    assert result.benchmark.start_date == subject[2].date
+    assert result.subject.total_return == Decimal(200) / Decimal(150) - 1
+    assert result.benchmark.total_return == Decimal("0.1")

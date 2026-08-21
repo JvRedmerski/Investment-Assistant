@@ -11,7 +11,7 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 
 ## Current Phase
 - **Phase**: wave **EVENTS** (eventos societários e proventos) em andamento — segunda wave **inserida fora da ordem do roadmap**, entre a W09 e a W10
-- **Status**: 🟡 **WAVE 11 IN_PROGRESS** (2026-08-21) — 3 de 5 tasks: W11-001 (valor de mercado), W11-002 (série de evolução, **corrigindo um erro de unidade que deixava o índice time-weighted negativo**) e W11-003 (**a primeira aplicação real de frontend do projeto**, com a tela de Carteira). Antes dela: 🟢 **WAVE 10 COMPLETED** (2026-08-21) — **3 de 3 tasks**: W10-001 (peso-alvo derivado do **mérito** e não do `final_score`, [ADR-027](decisions/ADR-027-target-weight-comes-from-merit.md)), W10-002 (tabela de desvio sobre a API) e W10-003 (o aporte que fecha os gaps, sem vender, [ADR-028](decisions/ADR-028-rebalancing-is-cash-flow-only.md)). Antes dela: 🟢 EVENTS COMPLETED (2026-08-20) — **3 de 3 tasks**: EVENTS-001 (distribuições por exercício, da DMPL da CVM — fechou o `dy`), EVENTS-002 (data e natureza do evento societário, pelo arquivo de fim de dia da B3) e EVENTS-003 (a **magnitude**, pelo serviço aberto de eventos da B3, e o `adjusted_close` derivado dela — **destravou o pilar de Risco**). A wave **PRICE** (3 tasks) fechou antes, em 2026-08-19. A **Wave 11 — Dashboard** está em curso, e é a primeira com trabalho de frontend real
+- **Status**: 🟡 **WAVE 11 IN_PROGRESS** (2026-08-21) — 3 de 5 tasks: W11-001 (valor de mercado), W11-002 (série de evolução, **corrigindo um erro de unidade que deixava o índice time-weighted negativo**) W11-003 (**a primeira aplicação real de frontend do projeto**) e W11-004 (**o Dashboard**, que expôs e corrigiu um comparativo que media duas janelas diferentes). Antes dela: 🟢 **WAVE 10 COMPLETED** (2026-08-21) — **3 de 3 tasks**: W10-001 (peso-alvo derivado do **mérito** e não do `final_score`, [ADR-027](decisions/ADR-027-target-weight-comes-from-merit.md)), W10-002 (tabela de desvio sobre a API) e W10-003 (o aporte que fecha os gaps, sem vender, [ADR-028](decisions/ADR-028-rebalancing-is-cash-flow-only.md)). Antes dela: 🟢 EVENTS COMPLETED (2026-08-20) — **3 de 3 tasks**: EVENTS-001 (distribuições por exercício, da DMPL da CVM — fechou o `dy`), EVENTS-002 (data e natureza do evento societário, pelo arquivo de fim de dia da B3) e EVENTS-003 (a **magnitude**, pelo serviço aberto de eventos da B3, e o `adjusted_close` derivado dela — **destravou o pilar de Risco**). A wave **PRICE** (3 tasks) fechou antes, em 2026-08-19. A **Wave 11 — Dashboard** está em curso, e é a primeira com trabalho de frontend real
 
 ---
 
@@ -417,12 +417,12 @@ Detalhes W10-003 (2026-08-21):
 ---
 
 ### Wave 11 — Dashboard & Main Interface
-Status: 🟡 IN_PROGRESS (3 de 5 tasks)
+Status: 🟡 IN_PROGRESS (4 de 5 tasks)
 
 - [x] **W11-001**: Valor de mercado e P&L não realizado nas posições 🟢 COMPLETED
 - [x] **W11-002**: A série de evolução da carteira sobre a API — e a correção de unidade que ela expôs no índice time-weighted 🟢 COMPLETED
 - [x] **W11-003**: Fundação do frontend + tela **Carteira** 🟢 COMPLETED
-- [ ] **W11-004**: Tela Dashboard ⚪ NOT_STARTED
+- [x] **W11-004**: Tela **Dashboard** — e a correção de janela que ela expôs no comparativo 🟢 COMPLETED
 - [ ] **W11-005**: Tela Ativo ⚪ NOT_STARTED
 
 > **Renumerada de 6 para 5 tasks.** A fundação sozinha não é demonstrável — não há tela para
@@ -540,6 +540,49 @@ Detalhes W11-003 (2026-08-21):
   respostas reais** de um backend no ar com o banco de desenvolvimento — o procedimento que o
   `IMPLEMENTATION_GUIDE` exige de provedor externo, aplicado ao contrato da própria API. Bundle
   154 kB → 304 kB (router + react-query + zod).
+
+Detalhes W11-004 (2026-08-21):
+
+- **A tela que o projeto inteiro existe para produzir.** Responde, nesta ordem: quanto eu tenho,
+  estou batendo o CDI, quanto risco carrego, do que é feita a carteira, e onde vai o próximo
+  R$ 1.000. Nenhuma aritmética na página além de converter fração em largura de barra (regra 73).
+- Gráficos em `components/charts.tsx`, sob a regra 74: **nada é interpolado** (`connectNulls=false`
+  — data que a carteira não pôde ser valorizada é um vão real, e inventar ponto é fabricar preço),
+  duas linhas só dividem eixo se dividem unidade, e todo gráfico carrega `<ChartCaption>` com
+  período, unidade, moeda, benchmark, fonte e atualização.
+- A curva de patrimônio vem com a **linha de aporte por baixo** — é o que distingue uma carteira
+  que dobrou por rendimento de uma que dobrou porque entrou dinheiro.
+- Composição em barras e não em pizza: pizza esconde justamente o número que importa, que é a
+  distância até o teto de concentração.
+- Os dois avisos de cobertura parcial chegam à tela: posições sem preço e a fatia da carteira sem
+  peso-alvo. Um patrimônio que cobre três de quatro posições, mostrado sem comentário, é o tipo
+  mais caro de número plausível.
+
+#### 🔴 A segunda correção que a verificação real forçou: o comparativo media duas janelas
+
+Com a tela montada, o painel "excesso sobre o CDI" mostrou **+251,5 p.p.**
+
+**Causa**: `compare` mede o sujeito na janela dele e o benchmark na dele, e subtrai. A carteira
+tinha 4,7 anos de histórico e o CDI armazenado começava em agosto de 2025 — 4,7 anos de ação
+contra quatro meses de juros. Cada lado reportava as próprias datas honestamente, e o número
+entre eles não descrevia nada.
+
+**Correção**: `compare` passou a recortar as duas séries para a janela compartilhada antes de
+medir qualquer coisa, usando o mesmo `align` que a W11-002 criou para o gráfico. Uma definição de
+"janela comum", usada pelo desenho e pelas métricas.
+
+| | antes | depois |
+|---|---|---|
+| excesso sobre o CDI | **+251,5 p.p.** | **+7,1 p.p.** |
+| retorno da carteira | 266,1% (4,7 anos) | 12,4% (a janela do CDI) |
+| volatilidade | 58,7% | 22,5% |
+| drawdown | -34,3% | -13,4% |
+
+E o efeito colateral que fecha a tela: **o número do painel passou a bater com o gráfico ao
+lado** — índice 100 → 112,38 e retorno 12,4% são agora a mesma medida.
+
+Dois testes mudaram, os dois porque a semântica antiga era a errada; um terceiro foi acrescentado
+fixando o defeito com números à mão. `pytest` 858 → **859**.
 
 - [ ] **W11-001**: Dashboard Principal (Patrimônio, Rentabilidade, Benchmarks) ⚪ NOT_STARTED
 - [ ] **W11-002**: Interface de Gestão de Carteira e Histórico ⚪ NOT_STARTED

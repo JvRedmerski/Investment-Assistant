@@ -26,12 +26,20 @@ formality:
    daily data are both estimates of the same annual quantity; the raw
    per-period numbers would not be comparable at all.
 
-4. **A chart aligns both series to one window and one base** (`align`).
-   The metrics above each measure a series over whatever window it has,
-   and report those dates so the difference is visible. A reader looking
-   at two lines does no such checking — the eye compares them directly —
-   so the drawing has to start both at the same date and the same level
-   or it lies without saying anything false.
+4. **Both series are cut to the window they share** (`align`), before
+   anything is measured. Without it `excess_return` subtracts two
+   returns over two different periods and reports the difference as
+   though it meant something.
+
+   That was not hypothetical. Measured on the real database, a portfolio
+   held since 2021 against a CDI series stored only from August 2025
+   reported an excess of **+251.5 p.p.** — 4.7 years of equity against
+   four months of interest. Both sides carried their own honest dates and
+   the number between them was still nonsense.
+
+   The same alignment is what makes the two lines drawable together: they
+   start on the same date at the same level, so a reader comparing them
+   by eye is comparing the same period.
 
 ## Beta only against an index, deliberately
 
@@ -138,6 +146,11 @@ def compare(
 ) -> BenchmarkComparison:
     """Set `subject` against `benchmark_series`.
 
+    Both series are cut to the window they share before anything is
+    measured, so every figure below describes one period. `subject` and
+    `benchmark` report that window's dates, which will be narrower than
+    what was passed in whenever one side has less history than the other.
+
     `periodicity` is the subject's own sampling; the benchmark is
     measured at the periodicity its catalog entry declares, since that is
     how often it exists.
@@ -148,8 +161,15 @@ def compare(
     computed against an assumed zero — a zero rate flatters every asset,
     and in Brazil it is not remotely close.
     """
-    subject_summary = summarise(subject, periodicity, as_of)
-    benchmark_summary = summarise(benchmark_series, definition.periodicity, as_of)
+    # One window, decided once, used by every figure below. Rebasing is
+    # harmless here: total return, CAGR, volatility and drawdown are all
+    # scale-invariant, so the levels can start wherever is convenient.
+    window = align(subject, benchmark_series)
+    paired_subject = list(window.subject)
+    paired_benchmark = list(window.benchmark)
+
+    subject_summary = summarise(paired_subject, periodicity, as_of)
+    benchmark_summary = summarise(paired_benchmark, definition.periodicity, as_of)
 
     return BenchmarkComparison(
         benchmark_code=definition.code,
@@ -163,12 +183,12 @@ def compare(
             subject_summary.total_return, benchmark_summary.total_return
         ),
         beta=(
-            beta(subject, benchmark_series, periodicity, as_of)
+            beta(paired_subject, paired_benchmark, periodicity, as_of)
             if definition.kind is BenchmarkKind.INDEX
             else None
         ),
-        sharpe=sharpe(subject, risk_free_rate, periodicity, as_of),
-        sortino=sortino(subject, risk_free_rate, periodicity, as_of),
+        sharpe=sharpe(paired_subject, risk_free_rate, periodicity, as_of),
+        sortino=sortino(paired_subject, risk_free_rate, periodicity, as_of),
         risk_free_rate=risk_free_rate,
     )
 

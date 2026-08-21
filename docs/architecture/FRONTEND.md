@@ -18,7 +18,9 @@ frontend/src/
 ├── hooks/
 │   ├── useAuth.tsx       sessão, token, login/registro/logout
 │   └── queries.ts        um hook react-query por endpoint
-├── components/ui.tsx     Card · Stat · Badge · ChartCaption · Spinner · ErrorNote · CoverageNote
+├── components/
+│   ├── ui.tsx            Card · Stat · Badge · ChartCaption · Spinner · ErrorNote · CoverageNote
+│   └── charts.tsx        WealthChart · PerformanceChart · CompositionBars (recharts)
 ├── layouts/AppLayout.tsx shell, navegação e o seletor de carteira (na URL)
 └── pages/                LoginPage · DashboardPage · PortfolioPage · AssetsPage
 ```
@@ -54,6 +56,8 @@ A **carteira selecionada vive na URL** (`?portfolio=`), não em estado global: t
 |---|---|
 | §73 — zero lógica financeira no frontend | nenhuma página faz aritmética; `lib/format.ts` só move vírgula |
 | §74 — gráfico declara período, unidade, benchmark, moeda, fonte, atualização | `<ChartCaption>` existe para isso não ser esquecido no terceiro gráfico |
+| §74 — nada de bonito e ambíguo | `connectNulls={false}` em toda série: vão na valorização é vão de verdade, e ligar os pontos inventaria preço (§44). Composição em barras, não pizza — pizza esconde a distância até o teto |
+| §75 — não otimizar prematuramente | o bundle passa de 500 kB por causa do recharts e o aviso do Vite fica de pé; dividir chunk é trabalho da W22 |
 | §103/§104 — dado defasado é rotulado | `format.staleness()` + `<CoverageNote>`; a tela de carteira mostra a data do preço mais antigo |
 | ADR-014 — ausência é ausência | todo formatador aceita `null` e devolve `—`; `<Stat>` mostra o motivo. **Nunca `?? 0`** |
 | §10 — contrato tipado, `zod` para dado externo | `types/api.ts`, validado em `lib/api.ts` |
