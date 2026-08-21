@@ -1,74 +1,69 @@
 # Frontend Architecture
 
 > Camada 2. Leia quando a task tocar o frontend.
-> Estado em 2026-08-19: **scaffold apenas**. Não há aplicação de produto ainda.
-
-## Aviso importante
-
-O que existe é uma landing page estática que exibe o status do backend e descreve a arquitetura planejada. O `README.md` e o `docs/PROJECT_STATUS.md` marcavam o frontend como "🟢 COMPLETED"; ambos foram corrigidos para **🟡 SCAFFOLD** em 2026-08-19, porque o rótulo anterior lia-se como produto entregue. A primeira wave de frontend de verdade é a **W11**.
-
-Nenhuma funcionalidade do backend (login, carteiras, transações, posições, preços) está exposta na UI.
+> Estado em 2026-08-21: **aplicação real**, desde a W11-003. Antes disso era só uma landing page estática.
 
 ## Estrutura real
 
 ```
-frontend/
-├── index.html
-├── src/
-│   ├── main.tsx            React 18 createRoot + StrictMode
-│   ├── App.tsx             página única, JSX estático + fetch de /health
-│   ├── index.css           Tailwind + classe utilitária .glass-card
-│   └── services/
-│       └── api.ts          API_URL + fetchHealth()
-├── vite.config.ts          alias `@` → ./src, host 0.0.0.0, porta 5173
-├── tailwind.config.js · postcss.config.js
-├── tsconfig.json · tsconfig.node.json
-├── package.json
-└── Dockerfile
+frontend/src/
+├── main.tsx              providers: QueryClient → BrowserRouter → AuthProvider
+├── App.tsx               tabela de rotas + RequireAuth
+├── index.css             Tailwind + .glass-card
+├── lib/
+│   ├── api.ts            ⭐ a única porta para o backend
+│   ├── format.ts         dinheiro, percentual, p.p., datas, defasagem (pt-BR)
+│   └── cn.ts             clsx + tailwind-merge
+├── types/api.ts          contratos como schemas zod, e os tipos inferidos deles
+├── hooks/
+│   ├── useAuth.tsx       sessão, token, login/registro/logout
+│   └── queries.ts        um hook react-query por endpoint
+├── components/ui.tsx     Card · Stat · Badge · ChartCaption · Spinner · ErrorNote · CoverageNote
+├── layouts/AppLayout.tsx shell, navegação e o seletor de carteira (na URL)
+└── pages/                LoginPage · DashboardPage · PortfolioPage · AssetsPage
 ```
 
-**Não existem** (previstos no AGENTS.md §6): `components/`, `pages/`, `hooks/`, `types/`, `utils/`, `layouts/`.
-
-## Roteamento
-
-Não existe. `react-router-dom` está no `package.json` mas não é importado por nenhum arquivo.
-
-## Gerenciamento de estado
-
-Não existe. `@tanstack/react-query` está instalado mas não é usado; `App.tsx` usa `useState` + `useEffect` diretamente.
+⚠️ **`.gitignore` tem `backend/lib/`, ancorado de propósito.** A entrada `lib/` do template Python casa em qualquer profundidade e estava engolindo `frontend/src/lib/` inteiro — o cliente de API não teria sido commitado. Descoberto na W11-003, antes do commit que o teria perdido. Negação não resolve: o git não desce em diretório excluído.
 
 ## Comunicação com a API
 
-`src/services/api.ts` é o único ponto de contato:
+`src/lib/api.ts` é o **único** ponto de contato, e faz quatro coisas que nenhum outro arquivo repete:
 
-```ts
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
-export async function fetchHealth(): Promise<HealthResponse>
-```
+1. prefixa a base URL (`VITE_API_URL`, default `http://localhost:8000/api/v1`);
+2. anexa o bearer token;
+3. desembrulha o envelope `{"error":{"code","message"}}` (regra 72) num `ApiError` **com o código**, que é no que o chamador ramifica — nunca na mensagem, que é prosa;
+4. **valida a resposta** contra um schema `zod`.
 
-`fetch` nativo, tipagem manual via interface, erro convertido em `Error` com mensagem em português. Não há interceptor, não há injeção de `Authorization`, não há tratamento do envelope `{"error":{"code","message"}}` do backend.
+**Por que validar tudo.** A regra 10 pede `unknown` + validação explícita em vez de cast. Um cast é uma promessa que o compilador acredita e ninguém confere: renomeie um campo no backend e a tela renderiza `undefined` onde deveria haver um número, em silêncio. É o mesmo argumento que o backend faz sobre dado externo ser hostil (regra 19) — a API é externa a este código também.
 
-## Dependências instaladas mas não utilizadas
+Erro de contrato tem classe própria (`ContractError`), distinta de `ApiError`: uma quer dizer *o backend recusou*, a outra *o backend e este cliente discordam sobre o formato da resposta*. Pedem correções diferentes.
 
-`react-router-dom`, `@tanstack/react-query`, `recharts`, `zod`, `clsx`, `tailwind-merge`.
-Elas indicam a intenção arquitetural registrada no AGENTS.md §5.1 — use-as quando a Wave 11 (Dashboard) começar, em vez de adicionar equivalentes.
+**Dinheiro continua `string`.** O backend serializa `Decimal` como string exatamente para não passar por float binário; converter para `number` aqui desfaria isso no único salto em que estava protegido. Os schemas mantêm `string` e `lib/format.ts` é o que transforma em texto legível.
 
-## Padrões esperados quando o frontend for construído (Wave 11+)
+## Estado e roteamento
 
-Ainda não estabelecidos em código; derivados do AGENTS.md:
+`@tanstack/react-query` com `staleTime` de 60 s e sem refetch no foco — todo dado vem de leitura do banco que o backend atualiza no próprio ritmo, e abrir tela nunca dispara chamada externa (regra 23). `retryPolicy` **não** repete resposta `4xx`: 404 e 401 são respostas, não falhas.
 
-- TypeScript estrito; evitar `any`, preferir `unknown` + validação explícita (§10).
-- Todo contrato de API tipado; usar `zod` para validar resposta externa (§10).
-- **Zero lógica financeira no frontend** (§73/§24) — nenhum cálculo de retorno, risco ou score. O frontend só apresenta o que o backend calculou.
-- Gráficos devem deixar explícitos período, unidade, benchmark, moeda, fonte e data de atualização (§74).
-- Linguagem da UI: "setup detectado", "sinal quantitativo". Nunca "vai subir", "lucro garantido" (§56).
-- Dado defasado deve ser rotulado como tal, nunca apresentado como tempo real (§103/§104).
+`react-router-dom` com todas as rotas atrás de `RequireAuth`, que espera `/auth/me` responder antes de decidir — piscar a tela de login para quem está logado é pior que um instante em branco.
 
-## Baseline verificado (2026-08-21, abertura da W11)
+A **carteira selecionada vive na URL** (`?portfolio=`), não em estado global: todo endpoint do projeto é escopado a uma carteira, então um link para uma tela carrega a carteira de que ele falava.
 
-`npm run build` e `npm run lint` **passam limpos**. O `eslint.config.js` existe e o ESLint 10 está nas `devDependencies` desde a FIX-001 (2026-08-19) — este documento afirmava o contrário até a abertura da Wave 11, e o código é a fonte de verdade (CLAUDE.md §3).
+## Regras que o frontend cumpre, e onde
 
-Build de referência: 1.484 módulos, `index.js` 154 kB (49 kB gzip).
+| regra | onde |
+|---|---|
+| §73 — zero lógica financeira no frontend | nenhuma página faz aritmética; `lib/format.ts` só move vírgula |
+| §74 — gráfico declara período, unidade, benchmark, moeda, fonte, atualização | `<ChartCaption>` existe para isso não ser esquecido no terceiro gráfico |
+| §103/§104 — dado defasado é rotulado | `format.staleness()` + `<CoverageNote>`; a tela de carteira mostra a data do preço mais antigo |
+| ADR-014 — ausência é ausência | todo formatador aceita `null` e devolve `—`; `<Stat>` mostra o motivo. **Nunca `?? 0`** |
+| §10 — contrato tipado, `zod` para dado externo | `types/api.ts`, validado em `lib/api.ts` |
+
+## Validação
+
+- `npm run build` e `npm run lint` limpos (ESLint 10, `--max-warnings 0`).
+- **Os 14 schemas foram validados contra respostas reais** de um backend rodando com o banco de
+  desenvolvimento — o mesmo procedimento que o `IMPLEMENTATION_GUIDE` exige de provedor externo,
+  aplicado ao contrato da própria API. Não há teste automatizado disso ainda; ver Future Work.
 
 ## Comandos
 
@@ -77,4 +72,5 @@ cd frontend
 npm install
 npm run dev      # http://localhost:5173
 npm run build    # tsc && vite build
+npm run lint
 ```

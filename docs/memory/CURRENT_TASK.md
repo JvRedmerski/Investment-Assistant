@@ -2,13 +2,12 @@
 
 ## Task
 
-**W11-003 — Fundação do frontend.** Terceira das seis tasks da **Wave 11 — Dashboard**
-(roadmap §23), e o ponto em que a wave finalmente toca React.
+**W11-004 — Tela Dashboard.** Quarta das cinco tasks da **Wave 11 — Dashboard** (roadmap §23).
 
 ## Status
 
-🟡 **Em andamento.** As duas tasks de backend (W11-001 e W11-002) estão entregues; nada de
-frontend começou.
+🟡 **Em andamento.** W11-001, W11-002 e W11-003 entregues. O frontend é uma aplicação real
+desde a W11-003, com a tela de Carteira funcionando ponta a ponta.
 
 ---
 

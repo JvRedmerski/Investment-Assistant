@@ -16,8 +16,13 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# Anchored to the backend on purpose. `lib/` and `lib64/` come from the
+# Python template and match at any depth, which silently swallowed the
+# frontend's `src/lib/` — the entire API client was untracked until
+# W11-003 noticed, and a negation cannot rescue it because git does not
+# descend into an excluded directory.
+backend/lib/
+backend/lib64/
 parts/
 sdist/
 var/

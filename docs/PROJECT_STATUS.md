@@ -11,7 +11,7 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 
 ## Current Phase
 - **Phase**: wave **EVENTS** (eventos societários e proventos) em andamento — segunda wave **inserida fora da ordem do roadmap**, entre a W09 e a W10
-- **Status**: 🟡 **WAVE 11 IN_PROGRESS** (2026-08-21) — 2 de 6 tasks: W11-001 deu valor de mercado às posições e W11-002 a série de evolução, **corrigindo de passagem um erro de unidade que deixava o índice time-weighted negativo**. Antes dela: 🟢 **WAVE 10 COMPLETED** (2026-08-21) — **3 de 3 tasks**: W10-001 (peso-alvo derivado do **mérito** e não do `final_score`, [ADR-027](decisions/ADR-027-target-weight-comes-from-merit.md)), W10-002 (tabela de desvio sobre a API) e W10-003 (o aporte que fecha os gaps, sem vender, [ADR-028](decisions/ADR-028-rebalancing-is-cash-flow-only.md)). Antes dela: 🟢 EVENTS COMPLETED (2026-08-20) — **3 de 3 tasks**: EVENTS-001 (distribuições por exercício, da DMPL da CVM — fechou o `dy`), EVENTS-002 (data e natureza do evento societário, pelo arquivo de fim de dia da B3) e EVENTS-003 (a **magnitude**, pelo serviço aberto de eventos da B3, e o `adjusted_close` derivado dela — **destravou o pilar de Risco**). A wave **PRICE** (3 tasks) fechou antes, em 2026-08-19. A **Wave 11 — Dashboard** está em curso, e é a primeira com trabalho de frontend real
+- **Status**: 🟡 **WAVE 11 IN_PROGRESS** (2026-08-21) — 3 de 5 tasks: W11-001 (valor de mercado), W11-002 (série de evolução, **corrigindo um erro de unidade que deixava o índice time-weighted negativo**) e W11-003 (**a primeira aplicação real de frontend do projeto**, com a tela de Carteira). Antes dela: 🟢 **WAVE 10 COMPLETED** (2026-08-21) — **3 de 3 tasks**: W10-001 (peso-alvo derivado do **mérito** e não do `final_score`, [ADR-027](decisions/ADR-027-target-weight-comes-from-merit.md)), W10-002 (tabela de desvio sobre a API) e W10-003 (o aporte que fecha os gaps, sem vender, [ADR-028](decisions/ADR-028-rebalancing-is-cash-flow-only.md)). Antes dela: 🟢 EVENTS COMPLETED (2026-08-20) — **3 de 3 tasks**: EVENTS-001 (distribuições por exercício, da DMPL da CVM — fechou o `dy`), EVENTS-002 (data e natureza do evento societário, pelo arquivo de fim de dia da B3) e EVENTS-003 (a **magnitude**, pelo serviço aberto de eventos da B3, e o `adjusted_close` derivado dela — **destravou o pilar de Risco**). A wave **PRICE** (3 tasks) fechou antes, em 2026-08-19. A **Wave 11 — Dashboard** está em curso, e é a primeira com trabalho de frontend real
 
 ---
 
@@ -417,14 +417,18 @@ Detalhes W10-003 (2026-08-21):
 ---
 
 ### Wave 11 — Dashboard & Main Interface
-Status: 🟡 IN_PROGRESS (2 de 6 tasks)
+Status: 🟡 IN_PROGRESS (3 de 5 tasks)
 
 - [x] **W11-001**: Valor de mercado e P&L não realizado nas posições 🟢 COMPLETED
 - [x] **W11-002**: A série de evolução da carteira sobre a API — e a correção de unidade que ela expôs no índice time-weighted 🟢 COMPLETED
-- [ ] **W11-003**: Fundação do frontend (rotas, react-query, cliente tipado, auth, layout) ⚪ NOT_STARTED
+- [x] **W11-003**: Fundação do frontend + tela **Carteira** 🟢 COMPLETED
 - [ ] **W11-004**: Tela Dashboard ⚪ NOT_STARTED
-- [ ] **W11-005**: Tela Carteira ⚪ NOT_STARTED
-- [ ] **W11-006**: Tela Ativo ⚪ NOT_STARTED
+- [ ] **W11-005**: Tela Ativo ⚪ NOT_STARTED
+
+> **Renumerada de 6 para 5 tasks.** A fundação sozinha não é demonstrável — não há tela para
+> provar que a corrente inteira (auth → query → schema → render) funciona. A W11-003 passou a
+> entregar a fundação **mais a tela de Carteira**, que é a menor coisa que exercita tudo e
+> consome exatamente o que a W11-001 produziu. A tela de Carteira saiu da antiga W11-005.
 
 > **Duas tasks de backend antes das telas.** O roadmap §23 pede três telas, e duas delas pedem
 > números que o backend **não produz**: "patrimônio" (`quantity × preço`) e a **série** de
@@ -507,6 +511,35 @@ verdadeiro.
   **100 → 358,23** em seis anos (+258%), consistente com o fator de retorno total de **3,43×**
   medido na EVENTS-003. O patrimônio vai de R$ 2.955 a R$ 12.328 sobre R$ 8.000 aportados.
 - 26 testes novos (14 de unidade, 10 de rota, 2 fixando a unidade do fluxo). `pytest` 832 → **858**.
+
+Detalhes W11-003 (2026-08-21):
+
+- **A primeira aplicação real de frontend do projeto.** Antes disso, uma landing page estática.
+  `main.tsx` monta QueryClient → BrowserRouter → AuthProvider; todas as rotas atrás de
+  `RequireAuth`, que espera `/auth/me` responder antes de decidir.
+- `src/lib/api.ts` é a **única** porta para o backend: base URL, bearer token, desembrulho do
+  envelope de erro num `ApiError` **com o código**, e **validação `zod` de toda resposta**.
+  Cast é promessa que o compilador acredita e ninguém confere; um campo renomeado no backend
+  renderizaria `undefined` numa tela sobre o dinheiro de alguém.
+- `ContractError` é distinto de `ApiError` de propósito: um é *o backend recusou*, o outro é *o
+  backend e este cliente discordam sobre o formato*. Pedem correções diferentes.
+- **Dinheiro continua `string`** até a formatação. O backend serializa `Decimal` como string
+  para não passar por float binário; converter para `number` aqui desfaria isso no único salto
+  em que estava protegido.
+- Tela de **Carteira** entregue: posições com valor de mercado, transações, e — o ponto — a
+  **ausência e a cobertura parcial aparecem**. Linha sem preço mostra traço e explicação; o
+  cabeçalho diz quantas posições o total deixa de fora e quanto custaram. Renderizar R$ 0,00 ali
+  seria um número plausível e errado sobre a poupança de alguém.
+- 🔴 **`.gitignore` estava engolindo o cliente de API inteiro.** A entrada `lib/`, vinda do
+  template Python, casa em qualquer profundidade e excluía `frontend/src/lib/`. Descoberto antes
+  do commit que o teria perdido. Ancorado em `backend/lib/` — negação não resolve, porque o git
+  não desce em diretório excluído.
+- `src/services/api.ts` (o `fetchHealth` da landing page) foi removido: sem referências e
+  substituído por `src/lib/api.ts`.
+- **Validação**: `npm run build` e `npm run lint` limpos; e os **14 schemas conferidos contra
+  respostas reais** de um backend no ar com o banco de desenvolvimento — o procedimento que o
+  `IMPLEMENTATION_GUIDE` exige de provedor externo, aplicado ao contrato da própria API. Bundle
+  154 kB → 304 kB (router + react-query + zod).
 
 - [ ] **W11-001**: Dashboard Principal (Patrimônio, Rentabilidade, Benchmarks) ⚪ NOT_STARTED
 - [ ] **W11-002**: Interface de Gestão de Carteira e Histórico ⚪ NOT_STARTED
@@ -924,6 +957,7 @@ Nenhuma tarefa bloqueada no momento.
 ---
 
 ## Future Work
+- **O frontend não tem teste automatizado nenhum** (a partir da W11-003). Os 14 schemas `zod` foram conferidos à mão contra um backend real, e isso não se repete sozinho: um campo renomeado no backend só aparece quando alguém abre a tela. Falta infraestrutura — `vitest` é uma dependência nova e portanto uma decisão (regra 92) — e o alvo mínimo é reexecutar aquela checagem de contrato contra um backend no ar. Pertence à W21 (suíte de testes), mas vale antes se o frontend crescer mais duas telas.
 - 🔴 **O ledger não conhece evento societário, e o valor de mercado tornou isso visível (descoberto na W11-001).** `compute_positions` reproduz o que foi negociado; um desdobramento ou grupamento muda a quantidade em custódia sem gerar transação, então uma posição carregada através de um evento fica com a quantidade **errada** até o investidor registrar a mudança à mão. Custo basis nunca dependia disso — `quantity × price` depende. As magnitudes já estão no banco desde a EVENTS-003 (`corporate_actions`), então a correção é aplicável: replay do ledger aplicando o fator às posições abertas na data-ex. Fora do escopo da W11-001 (regra 134), e deve vir antes de a tela de carteira ser levada a sério por quem detém papel com desdobramento.
 - ✅ ~~**`dy` a partir da DMVL/DMPL da CVM**~~ — **FEITO em 2026-08-19** (EVENTS-001): `5.04.06` + `5.04.07` na coluna `Patrimônio Líquido`, com `5.04.11` (prescritos) excluído e o sinal tratado como apresentação. Os 10 indicadores passaram a ter insumo real.
 - **Magnitude do evento societário** — o que a EVENTS-002 deliberadamente não entregou. A data e a natureza vêm de graça do arquivo da B3; o **fator** de desdobramento/grupamento e o **valor por pagamento** do provento exigem outra fonte, e são o que a série de retorno total consome. É a EVENTS-003, a task corrente.
