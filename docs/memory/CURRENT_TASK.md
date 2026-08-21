@@ -76,11 +76,21 @@ da BBAS3 dá 8,0 contra um degrau real de 2,02.
 ## Estado do ambiente (verificado 2026-08-20)
 
 - ✅ `pytest -q` → **750 passed** (era 701). `ruff check` e `black --check` limpos.
-- ✅ **Docker no ar nesta sessão** e o schema é **`012`** (`001`…`012_corporate_actions`), com
-  `alembic check` sem drift e downgrade testado.
-- No banco real: **PETR4, ITUB4, BBAS3 e MGLU3** com 1.495 pregões cada. `adjusted_close`
-  preenchido em 1.495 (PETR4, BBAS3), 198 (ITUB4) e 478 (MGLU3) — as truncagens são corretas e
-  explicadas por `unaccounted`.
+- ✅ Tudo commitado **e enviado** (`31ba72a`); árvore limpa, `main` em dia com `origin/main`.
+- 🔴 **Docker desligado** ao encerrar a sessão de 2026-08-20 — `docker compose up -d postgres`
+  antes de qualquer coisa que toque o banco. Com ele no ar, o schema é **`012`**
+  (`001`…`012_corporate_actions`), com `alembic check` sem drift e downgrade testado.
+- No banco real, **conferido em 2026-08-20** — quatro papéis com 1.495 pregões cada:
+
+  | papel | `adjusted_close` | `corporate_actions` |
+  |---|---|---|
+  | PETR4 | 1.495 | 62 |
+  | BBAS3 | 1.495 | 76 |
+  | ITUB4 | 198 | 102 |
+  | MGLU3 | 478 | 7 |
+
+  As truncagens de ITUB4 e MGLU3 são **corretas** e explicadas por `unaccounted` — não são
+  ingestão pela metade.
 - **Cache do COTAHIST em `backend/var/b3/`** (gitignored), 2020–2025 baixados. Ano frio: ~90 s.
 - Alembic do host precisa da URL sobrescrita:
   `DATABASE_URL="postgresql://investment_user:investment_pass_dev@localhost:5432/investment_assistant" .venv/Scripts/python.exe -m alembic upgrade head`

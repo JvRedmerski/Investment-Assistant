@@ -6,7 +6,7 @@
 
 ## Last Completed Work
 
-### EVENTS-003 — a série de retorno total existe ([ADR-026](../decisions/ADR-026-corporate-action-magnitude-and-the-completeness-rule.md))
+### EVENTS-003 — a série de retorno total existe (`31ba72a`, [ADR-026](../decisions/ADR-026-corporate-action-magnitude-and-the-completeness-rule.md))
 
 Última task da wave EVENTS, e a que fecha a trava de maior retorno do projeto. Faltava uma
 palavra — **magnitude** — e a task começou por decidir de onde ela viria.
@@ -85,9 +85,12 @@ drift, downgrade testado.
 
 - `pytest` → **750 passed** (701 → 750), verificado em 2026-08-20. `ruff check` e `black --check`
   limpos.
-- ✅ **Docker no ar**, schema **`012`**.
-- **Wave EVENTS 🟢 concluída**, 3/3. Nenhuma task com código pela metade.
-- No banco real: PETR4, ITUB4, BBAS3 e MGLU3, 1.495 pregões cada, com `adjusted_close` derivado.
+- ✅ Commitado e **enviado** (`31ba72a`); árvore limpa, `main` em dia com `origin/main`.
+- 🔴 **Docker desligado** ao encerrar — `docker compose up -d postgres` antes de tocar o banco.
+  Com ele no ar, schema **`012`**.
+- **Wave EVENTS 🟢 concluída**, 3/3. Nenhuma task com código pela metade, nada iniciado da W10.
+- No banco real: PETR4, ITUB4, BBAS3 e MGLU3, 1.495 pregões cada, com `adjusted_close` derivado
+  e `corporate_actions` populada (62/76/102/7). Ver a tabela em [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ## Important Details
 
