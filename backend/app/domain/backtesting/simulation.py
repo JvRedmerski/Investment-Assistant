@@ -192,6 +192,7 @@ def simulate(
                     cash_before=decisions[-1].cash_before,
                     orders=decisions[-1].orders,
                     fills=tuple(fills),
+                    closes=decisions[-1].closes,
                 )
             pending = []
 
@@ -224,7 +225,13 @@ def simulate(
             )
             orders = list(strategy(state))
             decisions.append(
-                Decision(day=day, cash_before=cash, orders=tuple(orders), fills=())
+                Decision(
+                    day=day,
+                    cash_before=cash,
+                    orders=tuple(orders),
+                    fills=(),
+                    closes=dict(state.closes),
+                )
             )
             pending = orders
 

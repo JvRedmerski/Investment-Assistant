@@ -71,7 +71,13 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
-from app.quant.returns import Periodicity, PricePoint, period_returns, usable_series
+from app.quant.returns import (
+    Periodicity,
+    PricePoint,
+    cagr,
+    period_returns,
+    usable_series,
+)
 
 #: Observations per year, by periodicity, for annualising dispersion.
 #:
@@ -304,6 +310,59 @@ def beta(
     if variance == 0:
         return None
     return covariance / variance
+
+
+def alpha(
+    series: list[PricePoint],
+    benchmark: list[PricePoint] | None = None,
+    risk_free_rate: Decimal | None = None,
+    periodicity: Periodicity = Periodicity.DAILY,
+    as_of: date | None = None,
+) -> Decimal | None:
+    """Return earned beyond what the market exposure alone would explain.
+
+    `alpha = R - [ Rf + beta * (Rm - Rf) ]`
+
+    Jensen's alpha, as an **annual** fraction: `R` and `Rm` are the
+    subject's and the benchmark's CAGR, `Rf` the annual risk-free rate,
+    and `beta` the sensitivity measured by `beta` above.
+
+    ## Not the same figure as excess return, and the difference is the point
+
+    `benchmarks.comparison.excess_return` is a plain difference: it says
+    the subject beat the index by so many points and asks nothing about
+    how. A portfolio of high-beta assets beats a rising index almost by
+    construction, and that is not skill — it is leverage on the same
+    market move. Alpha charges the subject for exactly the return its
+    beta already entitled it to, and reports what is left.
+
+    The corollary matters for reading a backtest: a *positive* excess
+    return with a *negative* alpha means the strategy went up because the
+    market did, and by less than its risk exposure should have delivered.
+
+    Both series are measured over whatever window they are given, so the
+    caller must hand over two series already cut to the period they
+    share — `compare` aligns them before calling. Passing mismatched
+    windows compares two different periods, which rule 28 forbids.
+
+    `None` when beta cannot be estimated, when either series is too short
+    to annualise (see `cagr`), or when the risk-free rate is absent. Never
+    zero for any of those: a missing alpha is not a zero alpha (ADR-014).
+    """
+    if risk_free_rate is None:
+        return None
+
+    sensitivity = beta(series, benchmark, periodicity, as_of)
+    if sensitivity is None:
+        return None
+
+    subject_return = cagr(series, as_of)
+    benchmark_return = cagr(benchmark or [], as_of)
+    if subject_return is None or benchmark_return is None:
+        return None
+
+    expected = risk_free_rate + sensitivity * (benchmark_return - risk_free_rate)
+    return subject_return - expected
 
 
 def sharpe(

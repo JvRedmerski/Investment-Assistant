@@ -112,12 +112,20 @@ class Decision:
     Kept for the audit trail (rule 112). A backtest result that cannot
     say *when* it decided what is not reproducible in any useful sense —
     it is a number with a story attached.
+
+    `closes` is the price map the strategy was handed, and it is what
+    makes slippage a **measurement** rather than an assumed rate: the
+    order was decided against these prices and filled against the next
+    session's, so the difference is the cost of the gap between the two,
+    for this run, on these days. A fixed basis-point assumption would be
+    a number the backtest invented about itself.
     """
 
     day: date
     cash_before: Decimal
     orders: tuple[Order, ...]
     fills: tuple[Fill, ...]
+    closes: Mapping[int, Decimal] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

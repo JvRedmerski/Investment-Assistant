@@ -19,6 +19,7 @@ from app.quant.returns import DAYS_PER_YEAR, Periodicity, PricePoint
 from app.quant.risk import (
     MIN_OBSERVATIONS,
     PERIODS_PER_YEAR,
+    alpha,
     beta,
     downside_deviation,
     max_drawdown,
@@ -511,3 +512,87 @@ def test_sortino_ignores_observations_after_as_of():
     result = sortino(series, risk_free_rate=Decimal(0), as_of=date(2026, 1, 8))
 
     assert result == SQRT_252
+
+
+# -- alpha ------------------------------------------------------------
+
+
+def _annual(*prices: str) -> list[PricePoint]:
+    """Four observations spanning exactly 365 days, so CAGR is the total.
+
+    2024 is a leap year, so 1 January to 31 December is 365 days and the
+    annualisation exponent is exactly 1 — which is what lets every alpha
+    below be an equality against a number worked out by hand.
+    """
+    days = [date(2024, 1, 1), date(2024, 5, 1), date(2024, 9, 1), date(2024, 12, 31)]
+    return [
+        PricePoint(date=day, adjusted_close=Decimal(price))
+        for day, price in zip(days, prices)
+    ]
+
+
+def test_alpha_of_a_series_against_itself_is_exactly_zero():
+    """Beta is 1 and the two returns are the same, so nothing is left over.
+
+    True whatever the risk-free rate is, which is the arithmetic saying
+    that tracking the index earns no alpha by definition.
+    """
+    series = _annual("100", "110", "110", "99")
+
+    assert alpha(series, series, Decimal("0.05")) == 0
+
+
+def test_alpha_at_a_beta_of_one_is_the_return_difference():
+    """Benchmark -1% and subject +32% over the year, both beta 1.
+
+    The subject's returns are the benchmark's plus a constant 0.1, and a
+    constant shift leaves every deviation from the mean untouched — so
+    covariance and variance are unchanged and beta is exactly 1. With no
+    extra market sensitivity to pay for, alpha is the whole 33 points.
+    """
+    benchmark = _annual("100", "110", "110", "99")
+    subject = _annual("100", "120", "132", "132")
+
+    assert beta(subject, benchmark) == Decimal(1)
+    assert alpha(subject, benchmark, Decimal("0.05")) == Decimal("0.33")
+
+
+def test_a_positive_excess_return_can_still_be_a_negative_alpha():
+    """The reading alpha exists for, and the one excess return hides.
+
+    The subject beat the benchmark by 2.97 points — and did it at twice
+    the benchmark's sensitivity, which at a 5% risk-free rate entitled it
+    to 12.8%. It delivered 11.87%, so it under-earned its own risk by
+    0.93 points.
+
+    Benchmark returns [+10%, -10%, +10%]; the subject's are twice those
+    less a constant 1%, which doubles every deviation and therefore makes
+    beta exactly 2.
+    """
+    benchmark = _annual("100", "110", "99", "108.9")
+    subject = _annual("100", "119", "94.01", "111.8719")
+
+    assert beta(subject, benchmark) == Decimal(2)
+    assert alpha(subject, benchmark, Decimal("0.05")) == Decimal("-0.009281")
+
+
+def test_alpha_is_none_without_a_risk_free_rate():
+    """A zero rate would flatter every strategy, and in Brazil it is far off."""
+    series = _annual("100", "110", "110", "99")
+
+    assert alpha(series, series, None) is None
+
+
+def test_alpha_is_none_without_a_benchmark():
+    series = _annual("100", "110", "110", "99")
+
+    assert alpha(series, None, Decimal("0.05")) is None
+
+
+def test_alpha_is_none_over_a_window_too_short_to_annualise():
+    """Beta is defined over three days; a rate of return is not."""
+    benchmark = _series("100", "110", "99", "108.9")
+    subject = _series("100", "120", "96", "115.2")
+
+    assert beta(subject, benchmark) == Decimal(2)
+    assert alpha(subject, benchmark, Decimal("0.05")) is None
