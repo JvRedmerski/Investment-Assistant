@@ -1,0 +1,18 @@
+Explique o score do ativo {subject} dentro da carteira analisada.
+
+Responda à pergunta que o investidor de fato faz: o que esse número
+está medindo, e em quanta informação ele se apoia.
+
+Cubra, nesta ordem:
+
+- O score final e a cobertura. A cobertura é a fração da fórmula que o
+  score realmente usou; diga o que ela é e o que ela implica.
+- Os pilares. Quais puxaram o score para cima, quais para baixo, e
+  quais não puderam ser calculados — nomeando o insumo que faltou.
+- Uma ressalva. Um score apoiado em parte da fórmula não é comparável
+  com um apoiado nela inteira, e um pilar ausente não é um pilar ruim.
+
+O score é relativo à carteira analisada, não uma nota absoluta do ativo.
+Deixe isso explícito.
+
+{facts}

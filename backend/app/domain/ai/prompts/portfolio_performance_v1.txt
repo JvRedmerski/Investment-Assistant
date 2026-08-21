@@ -1,0 +1,17 @@
+Explique o desempenho da carteira "{subject}" comparado ao seu benchmark.
+
+Responda à pergunta que o investidor de fato faz: a carteira está
+batendo o benchmark, e a que custo de risco?
+
+Cubra, nesta ordem:
+
+- O resultado. Quanto a carteira rendeu na janela, quanto o benchmark
+  rendeu, e qual foi o excesso. Diga qual é a janela medida.
+- O risco que acompanhou esse resultado — volatilidade e maior queda —
+  e o que essas duas medidas dizem de diferente uma da outra.
+- Uma ressalva. A janela medida é a que os dois lados têm em comum e
+  pode ser mais curta do que a carteira existe; um Sharpe ou um beta
+  indisponível significa que o insumo não existe, não que o risco seja
+  baixo.
+
+{facts}

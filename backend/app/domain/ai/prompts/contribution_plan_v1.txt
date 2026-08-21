@@ -1,0 +1,19 @@
+Explique o plano de aporte calculado para a carteira "{subject}".
+
+Responda à pergunta que o investidor de fato faz: por que o próximo
+aporte vai para esses ativos, nesses valores, e não para outros.
+
+Cubra, nesta ordem:
+
+- Para onde o dinheiro foi. Cite cada ativo com o valor que recebeu, na
+  ordem em que aparece o plano.
+- Por que esse valor e não outro. Cada linha traz a regra que limitou o
+  tamanho dela, e cada ativo recusado traz o motivo da recusa — use
+  esses campos, não deduza um motivo.
+- O que sobrou e por quê, se houver valor sem destino.
+
+Se algum ativo tiver cobertura de fórmula incompleta, diga que o score
+dele se apoia em menos dado do que o de um ativo com cobertura cheia, e
+que os dois números não são diretamente comparáveis.
+
+{facts}
