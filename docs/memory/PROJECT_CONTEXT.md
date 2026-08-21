@@ -64,15 +64,27 @@ O produto final deve responder: *Como está minha carteira? Estou batendo o CDI?
   evento que a B3 não reporta
   ([ADR-026](../decisions/ADR-026-corporate-action-magnitude-and-the-completeness-rule.md)).
 
+- **Para onde a carteira deveria ir, e o que fazer com o aporte para chegar lá.** O peso-alvo
+  sai do **mérito** — o score sem o pilar que lê a própria carteira —, porque um alvo feito do
+  `final_score` **recua conforme a carteira se aproxima dele** (medido: PETR4 escorrega de 76,72
+  para 65,47 só por ser detida até 20%, com os quatro pilares de mérito constantes). Concentração
+  não some: vira **teto**, que é onde ela não se auto-referencia
+  ([ADR-027](../decisions/ADR-027-target-weight-comes-from-merit.md)).
+
+  O plano que fecha os gaps **nunca vende** — corrige por diluição, com o aporte mensal — e
+  raciocina sobre a carteira que o aporte **cria**, não sobre a de hoje. As duas leituras podem
+  discordar sobre o mesmo ativo, de propósito
+  ([ADR-028](../decisions/ADR-028-rebalancing-is-cash-flow-only.md)).
+
 ### Em desenvolvimento
-- **Nenhuma wave em andamento.** A próxima é a **Wave 10 — Rebalanceamento**, de volta à ordem
-  do roadmap. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
+- **Nenhuma wave em andamento.** A próxima é a **Wave 11 — Dashboard**, a primeira com trabalho
+  de frontend real. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ### Planejado (não existe código)
-Rebalanceamento → Dashboard → AI Engine → Backtesting/Walk-forward → Day Trade (intraday, setups, risco, paper trading) → Observabilidade/Segurança/CI-CD/Deploy.
+Dashboard → AI Engine → Backtesting/Walk-forward → Day Trade (intraday, setups, risco, paper trading) → Observabilidade/Segurança/CI-CD/Deploy.
 Ver [../planning/ROADMAP.md](../planning/ROADMAP.md).
 
-**O frontend continua sendo apenas scaffold** — nenhuma dessas capacidades está exposta em tela. A primeira wave de frontend real é a W11.
+**O frontend continua sendo apenas scaffold** — nenhuma dessas capacidades está exposta em tela. A primeira wave de frontend real é a W11, que é a próxima.
 
 ## Stack real (o que está de fato em uso)
 

@@ -361,6 +361,72 @@ direito**, não uma medição.
 
 ---
 
+## Wave 10 — Rebalanceamento (2026-08-21) 🟢
+
+De volta à ordem do roadmap. A wave inteira era **uma pergunta**: o roadmap §22 e a regra 34 pedem
+`current_weight`, `target_weight` e `weight_gap`, e não dizem de onde sai o alvo. Peso atual é
+ledger, gap é subtração.
+
+### W10-001 — o alvo sai do mérito ([ADR-027](../decisions/ADR-027-target-weight-comes-from-merit.md))
+
+`targets.py` (puro) e `scoring.merit`. **A resposta óbvia foi medida e reprovada antes de virar
+código**: alvo proporcional ao `final_score` não converge, porque o score lê a carteira que o
+alvo deveria mirar.
+
+| peso detido de PETR4 | `final_score` | quality | valuation | growth | risk | diversification |
+|---|---|---|---|---|---|---|
+| 0% | **76,72** | 97,8 | 93,5 | 76,7 | 28,3 | 100,0 |
+| 10% | 71,10 | 97,8 | 93,5 | 76,7 | 28,3 | 62,5 |
+| 20% | **65,47** | 97,8 | 93,5 | 76,7 | 28,3 | 25,0 |
+
+Nada mudou na empresa. Um alvo feito desse número **recua conforme a carteira se aproxima**, e a
+distância reportada não é distância até coisa alguma. O alvo passou a sair do **mérito** e a
+concentração virou **teto** — os mesmos limites da W09, lidos da mesma `AllocationPolicy`.
+
+Distribuição por *water-filling*, e **o teto setorial é testado antes do teto por ativo**: um erro
+de ordem encontrado traçando o algoritmo à mão punha três papéis de um setor a 20% cada, com o
+setor em 60% contra um limite de 40% nunca consultado.
+
+Medido no banco real: PETR4 com mérito **72,61** e alvo **0,20** aparado pelo teto, com **0,80
+`unassigned`**; ITUB4, que marca **92,47 com cobertura 0,40**, **não recebe alvo** — sob a regra do
+mérito ela tem um pilar só.
+
+### W10-002 — a tabela de desvio sobre a API
+
+`portfolio_targets` + `GET /portfolios/{id}/rebalance`, ordenada mais-underweight-primeiro. A
+construção de candidatos virou `_candidates`, compartilhada com o plano de aporte.
+
+**O que só o teste ponta a ponta mostra**: sem demonstrativos *nenhum* ativo recebe alvo, e baixar
+`min_coverage` não resolve — o que falta não é o piso, é um segundo pilar de mérito.
+
+### W10-003 — o aporte que fecha os gaps ([ADR-028](../decisions/ADR-028-rebalancing-is-cash-flow-only.md))
+
+`rebalancing.py` + `GET /portfolios/{id}/rebalance-plan`. Ordena por **gap** (o plano de aporte
+ordena por score) e cada alocação para em `target * base - held`. **Nada vende.**
+
+🔴 **O teste contra o banco real pegou uma falha de desenho que teste unitário nenhum pegaria**,
+porque os 18 unitários verdes tinham sido escritos sob a mesma premissa errada: o portão de
+elegibilidade lia o peso **antes** do aporte enquanto o dimensionamento inteiro já rodava sobre
+`invested + contribution`.
+
+| | primeira versão | corrigida |
+|---|---|---|
+| PETR4 alocada | R$ 0 (`ABOVE_TARGET`) | **R$ 140** (`TARGET_WEIGHT`) |
+| distância a percorrer | 0 → **0,0636** | 0 → **0** |
+
+PETR4 a 25% contra alvo de 20% era recusada por estar *acima*; com os R$ 1.000 parados em caixa a
+base virava R$ 2.200 e ela caía para **13,6%** — mais abaixo do alvo do que estava acima, por ter
+sido recusada por estar acima dele.
+
+### Balanço
+
+- `pytest` **750 → 815**. Nenhuma migration: nada da wave é gravado (regra 16).
+- Dois ADRs: 027 (de onde vem o alvo) e 028 (rebalancear é dirigir aporte, e em que base).
+- **A wave não precisou de nenhuma fonte externa nova.** Foi a primeira desde a W07 assim, e é
+  consequência de as três anteriores terem fechado os insumos.
+
+---
+
 ## Marcos de infraestrutura de conhecimento
 
 - **2026-08-17** — Sistema de memória persistente criado: `CLAUDE.md` na raiz + `docs/{memory,architecture,decisions,planning,history}/`, com 11 ADRs extraídos do código e do histórico de decisões.

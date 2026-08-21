@@ -2,14 +2,37 @@
 
 > Camada 1 da memória: **onde o projeto está**, em uma página.
 > Ledger detalhado task-a-task (histórico completo, notas de implementação, decisões datadas): [../PROJECT_STATUS.md](../PROJECT_STATUS.md).
-> Última verificação contra o código: **2026-08-20**.
+> Última verificação contra o código: **2026-08-21**.
 
 ## Current Phase
 
-**Wave EVENTS concluída** (2026-08-19 → 2026-08-20): eventos societários e proventos.
-Segunda wave **inserida fora da ordem do roadmap**, entre a W09 e a W10, pelo mesmo critério da
-PRICE. **3 de 3 tasks entregues.** 10 de 33 waves do roadmap concluídas (W00–W09), mais a PRICE
-e esta. **A próxima é a Wave 10 — Rebalanceamento**, de volta à ordem do roadmap.
+**Wave 10 — Rebalanceamento concluída** (2026-08-21), **3 de 3 tasks**. De volta à ordem do
+roadmap depois de duas waves inseridas fora dela (PRICE e EVENTS). **11 de 33 waves do roadmap
+concluídas** (W00–W10), mais as duas inseridas. **A próxima é a Wave 11 — Dashboard**, e ela é a
+primeira com trabalho de frontend real.
+
+✅ **A carteira sabe para onde deveria ir, e o que fazer com o aporte para chegar lá.** A wave
+inteira era uma pergunta que nem o roadmap §22 nem a regra 34 respondem: **de onde vem o
+`target_weight`**.
+
+⚠️ **A resposta óbvia foi medida e reprovada antes de virar código.** Alvo proporcional ao
+`final_score` não converge, porque o score lê a carteira que o alvo deveria mirar: variando só
+quanto a carteira detém de PETR4, de 0% a 20%, ele escorrega de **76,72 para 65,47** enquanto os
+quatro pilares de mérito ficam constantes. O que cai é Diversificação. Um alvo feito desse número
+**recua conforme a carteira se aproxima dele**. O alvo passou a sair do **mérito** — Quality,
+Valuation, Growth, Risk — e a concentração virou **teto** em vez de termo
+([ADR-027](../decisions/ADR-027-target-weight-comes-from-merit.md)).
+
+⚠️ **`/rebalance` e `/rebalance-plan` podem discordar sobre o mesmo ativo, e os dois estão
+certos.** A tabela mede a carteira de hoje; o plano mede a carteira que o aporte cria. Um papel
+exatamente no alvo hoje **é comprado mesmo assim**, porque o aporte vai diluí-lo. Essa base foi
+uma correção, não um desenho de primeira: o portão de elegibilidade lia o peso pré-aporte
+enquanto todo o dimensionamento já rodava sobre a base pós-aporte, e **o teste contra o banco
+real** pegou — PETR4 saiu de R$ 0 recusados para **R$ 140** alocados
+([ADR-028](../decisions/ADR-028-rebalancing-is-cash-flow-only.md)).
+
+**Nada do rebalanceamento vende**, e isso é decisão registrada, não omissão: todos os itens que a
+regra 34 manda priorizar são de compra, e venda realiza IR numa carteira cuja tese é capitalizar.
 
 ✅ **A série de retorno total existe** (EVENTS-003). Era a trava de maior retorno do projeto e
 estava reduzida a uma palavra: **magnitude**. Ela veio do **serviço aberto de eventos corporativos
@@ -50,11 +73,11 @@ CDI e IPCA **não** são afetados: vêm do Banco Central (SGS), aberto e sem cot
 
 | | |
 |---|---|
-| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine · W08 Benchmark Engine · W09 Recommendation Engine · **PRICE Open Price History** (inserida) · **EVENTS Corporate Actions & Distributions** (inserida) |
-| **In Progress** | — nenhuma. Próxima: **Wave 10 — Rebalanceamento**, ver [CURRENT_TASK.md](CURRENT_TASK.md) |
+| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine · W08 Benchmark Engine · W09 Recommendation Engine · **W10 Rebalancing** · **PRICE Open Price History** (inserida) · **EVENTS Corporate Actions & Distributions** (inserida) |
+| **In Progress** | — nenhuma. Próxima: **Wave 11 — Dashboard**, a primeira com frontend real; ver [CURRENT_TASK.md](CURRENT_TASK.md) |
 | **Blocked** | — nenhuma |
 
-Baseline atual: `pytest` → **750 passed** (backend/.venv), verificado em 2026-08-20. `ruff check .` e `black --check .` limpos no repositório inteiro; `alembic check` sem drift na última execução (2026-08-19, com o banco no ar); `npm run lint` e `npm run build` funcionando.
+Baseline atual: `pytest` → **815 passed** (backend/.venv), verificado em 2026-08-21. `ruff check .` e `black --check .` limpos no repositório inteiro; `alembic check` sem drift na última execução (2026-08-19, com o banco no ar); `npm run lint` e `npm run build` funcionando.
 
 ## Completed Work (nível wave)
 

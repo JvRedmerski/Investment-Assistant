@@ -237,3 +237,84 @@ class PortfolioTargetsResponse(BaseModel):
     overweight_gap: Decimal
     untracked_weight: Decimal
     targets: list[AssetTargetResponse]
+
+
+class RebalanceAllocationResponse(BaseModel):
+    """One line of the rebalancing plan (AGENTS.md rule 34).
+
+    `current_weight` and `weight_gap` are as the drift table reported
+    them, against the portfolio **before** the contribution.
+    `weight_after` and `gap_after` are against it after — they do not
+    simply differ by `amount / base_value`, because putting money in also
+    grows the denominator.
+
+    `needed` is what closing the gap outright would take, so "why only
+    R$ 200?" is answerable from the line itself, and `limited_by` names
+    the rule that decided the amount.
+    """
+
+    ticker: str
+    asset_id: int
+    name: str
+    sector: str | None
+    amount: Decimal
+    rank: int
+    merit_score: Decimal | None
+    current_weight: Decimal
+    target_weight: Decimal
+    weight_gap: Decimal
+    needed: Decimal
+    limited_by: str
+    weight_after: Decimal
+    gap_after: Decimal
+    detail: str
+
+
+class RebalanceSkippedResponse(BaseModel):
+    """One asset the plan did not fund, and the rule that stopped it."""
+
+    ticker: str
+    asset_id: int
+    name: str
+    reason: str
+    detail: str
+    current_weight: Decimal
+    target_weight: Decimal
+    weight_gap: Decimal
+
+
+class RebalancePlanResponse(BaseModel):
+    """How this contribution closes the gaps (rule 34).
+
+    ⚠️ **Nothing here sells.** Every item rule 34 asks the recommendation
+    to prioritise is buy-side, and an overweight position is closed by
+    dilution over later contributions rather than by trimming — a sale
+    realises tax on a portfolio whose thesis is compounding, and pays
+    brokerage on both legs to move money the next contribution moves for
+    free. An asset above its target therefore appears in `skipped` with
+    `ABOVE_TARGET`, and it will keep appearing there for a while.
+
+    `allocated + unallocated == contribution` always.
+
+    `underweight_after` is **not** guaranteed to be below
+    `underweight_before`: money the limits leave unplaced stays as cash
+    inside `base_value` and dilutes every weight, including those already
+    on target. Both are reported because that is the only way it shows.
+
+    Four versions are recorded (rule 30): the scores consumed, the target
+    model, these rules, and the policy echoed in full.
+    """
+
+    portfolio_id: int
+    rules_version: str
+    model_version: str
+    formula_version: str
+    policy: AllocationPolicyResponse
+    contribution: Decimal
+    allocated: Decimal
+    unallocated: Decimal
+    base_value: Decimal
+    underweight_before: Decimal
+    underweight_after: Decimal
+    allocations: list[RebalanceAllocationResponse]
+    skipped: list[RebalanceSkippedResponse]

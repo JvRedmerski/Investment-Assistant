@@ -201,11 +201,21 @@ class Exclusion(str, Enum):
     BELOW_MINIMUM_TICKET = "BELOW_MINIMUM_TICKET"
     MAX_POSITIONS_REACHED = "MAX_POSITIONS_REACHED"
     CONTRIBUTION_EXHAUSTED = "CONTRIBUTION_EXHAUSTED"
+    # Only the rebalancing plan reaches these two: they are verdicts
+    # about a target, and the contribution plan does not consult one.
+    WITHIN_BAND = "WITHIN_BAND"
+    ABOVE_TARGET = "ABOVE_TARGET"
 
 
 class Limit(str, Enum):
-    """Which rule decided the size of an allocation."""
+    """Which rule decided the size of an allocation.
 
+    Shared with `rebalancing.py`, which adds one of its own: closing a
+    gap stops at the target, a ceiling the contribution plan has no
+    notion of.
+    """
+
+    TARGET_WEIGHT = "TARGET_WEIGHT"
     ASSET_WEIGHT = "ASSET_WEIGHT"
     SECTOR_WEIGHT = "SECTOR_WEIGHT"
     POSITION_SHARE = "POSITION_SHARE"
@@ -342,7 +352,7 @@ def allocate_contribution(
     if contribution <= 0:
         raise ValueError("A contribution must be a positive amount.")
 
-    contribution = _floor_to_centavo(contribution)
+    contribution = floor_to_centavo(contribution)
     base = invested + contribution
 
     eligible: list[Candidate] = []
@@ -369,7 +379,7 @@ def allocate_contribution(
         sector: policy.max_sector_weight * base - amount
         for sector, amount in sector_amounts.items()
     }
-    position_cap = _floor_to_centavo(contribution * policy.max_share_per_position)
+    position_cap = floor_to_centavo(contribution * policy.max_share_per_position)
 
     allocations: list[Allocation] = []
     remaining = contribution
@@ -401,9 +411,9 @@ def allocate_contribution(
                 _skip(
                     candidate,
                     Exclusion.ASSET_LIMIT_REACHED,
-                    f"Already at {_percent(candidate.held_amount / base)} of the "
+                    f"Already at {percent(candidate.held_amount / base)} of the "
                     f"portfolio, at or above the "
-                    f"{_percent(policy.max_asset_weight)} ceiling.",
+                    f"{percent(policy.max_asset_weight)} ceiling.",
                 )
             )
             continue
@@ -420,7 +430,7 @@ def allocate_contribution(
                     candidate,
                     Exclusion.SECTOR_LIMIT_REACHED,
                     f"Sector {sector} is at or above the "
-                    f"{_percent(policy.max_sector_weight)} ceiling.",
+                    f"{percent(policy.max_sector_weight)} ceiling.",
                 )
             )
             continue
@@ -429,7 +439,7 @@ def allocate_contribution(
             asset_room if room_in_sector is None else min(asset_room, room_in_sector)
         )
         allowance = min(headroom, position_cap, remaining)
-        amount = _floor_to_centavo(allowance)
+        amount = floor_to_centavo(allowance)
 
         if amount < policy.min_ticket:
             skipped.append(
@@ -456,7 +466,7 @@ def allocate_contribution(
                 final_score=candidate.score.final_score or ZERO,
                 coverage=candidate.score.coverage,
                 coverage_tier=_coverage_tier(candidate.score.coverage, policy),
-                headroom=_floor_to_centavo(headroom),
+                headroom=floor_to_centavo(headroom),
                 limited_by=_binding_limit(
                     allowance, asset_room, room_in_sector, position_cap
                 ),
@@ -510,16 +520,16 @@ def ineligibility(
         return (
             Exclusion.COVERAGE_BELOW_MINIMUM,
             (
-                f"The score rests on {_percent(score.coverage)} of the "
-                f"formula, below the {_percent(policy.min_coverage)} minimum."
+                f"The score rests on {percent(score.coverage)} of the "
+                f"formula, below the {percent(policy.min_coverage)} minimum."
             ),
         )
     if score.final_score < policy.min_score:
         return (
             Exclusion.SCORE_BELOW_MINIMUM,
             (
-                f"Scored {_round(score.final_score)}, below the "
-                f"{_round(policy.min_score)} minimum."
+                f"Scored {round_score(score.final_score)}, below the "
+                f"{round_score(policy.min_score)} minimum."
             ),
         )
     if policy.require_sector and candidate.sector is None:
@@ -575,8 +585,12 @@ def _skip(candidate: Candidate, reason: Exclusion, detail: str) -> Skipped:
     )
 
 
-def _floor_to_centavo(value: Decimal) -> Decimal:
+def floor_to_centavo(value: Decimal) -> Decimal:
     """Money, rounded **down** to the centavo.
+
+    Public because `rebalancing.py` sizes orders in the same currency
+    under the same rule, and a second copy of a rounding decision is a
+    second chance to round the other way.
 
     Down, never nearest: rounding up could push an allocation past a
     ceiling by a centavo, and a plan that violates its own limits in the
@@ -586,9 +600,9 @@ def _floor_to_centavo(value: Decimal) -> Decimal:
     return value.quantize(CENTAVO, rounding=ROUND_DOWN)
 
 
-def _percent(fraction: Decimal) -> str:
+def percent(fraction: Decimal) -> str:
     return f"{(fraction * 100).quantize(Decimal('0.1'))}%"
 
 
-def _round(score: Decimal) -> Decimal:
+def round_score(score: Decimal) -> Decimal:
     return score.quantize(Decimal("0.1"))

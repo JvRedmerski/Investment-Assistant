@@ -11,7 +11,7 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 
 ## Current Phase
 - **Phase**: wave **EVENTS** (eventos societários e proventos) em andamento — segunda wave **inserida fora da ordem do roadmap**, entre a W09 e a W10
-- **Status**: 🟡 **WAVE 10 IN_PROGRESS** (2026-08-21) — 1 de 3 tasks: W10-001 entregou o peso-alvo, derivado do **mérito** e não do `final_score` ([ADR-027](decisions/ADR-027-target-weight-comes-from-merit.md)). Antes dela: 🟢 EVENTS COMPLETED (2026-08-20) — **3 de 3 tasks**: EVENTS-001 (distribuições por exercício, da DMPL da CVM — fechou o `dy`), EVENTS-002 (data e natureza do evento societário, pelo arquivo de fim de dia da B3) e EVENTS-003 (a **magnitude**, pelo serviço aberto de eventos da B3, e o `adjusted_close` derivado dela — **destravou o pilar de Risco**). A wave **PRICE** (3 tasks) fechou antes, em 2026-08-19. A **Wave 10 — Rebalanceamento** está em curso, de volta à ordem do roadmap
+- **Status**: 🟢 **WAVE 10 COMPLETED** (2026-08-21) — **3 de 3 tasks**: W10-001 (peso-alvo derivado do **mérito** e não do `final_score`, [ADR-027](decisions/ADR-027-target-weight-comes-from-merit.md)), W10-002 (tabela de desvio sobre a API) e W10-003 (o aporte que fecha os gaps, sem vender, [ADR-028](decisions/ADR-028-rebalancing-is-cash-flow-only.md)). Antes dela: 🟢 EVENTS COMPLETED (2026-08-20) — **3 de 3 tasks**: EVENTS-001 (distribuições por exercício, da DMPL da CVM — fechou o `dy`), EVENTS-002 (data e natureza do evento societário, pelo arquivo de fim de dia da B3) e EVENTS-003 (a **magnitude**, pelo serviço aberto de eventos da B3, e o `adjusted_close` derivado dela — **destravou o pilar de Risco**). A wave **PRICE** (3 tasks) fechou antes, em 2026-08-19. Próxima: **Wave 11 — Dashboard**, a primeira wave com trabalho de frontend real
 
 ---
 
@@ -329,11 +329,11 @@ Definition of Done da wave EVENTS: **atendida**. `dy` tem fonte, a data e a natu
 ---
 
 ### Wave 10 — Portfolio Rebalancing Engine
-Status: 🟡 IN_PROGRESS (2 de 3 tasks)
+Status: 🟢 COMPLETED (2026-08-21) — 3 de 3 tasks
 
 - [x] **W10-001**: Peso-alvo e *drift* — `targets.py`, `scoring.merit` ([ADR-027](decisions/ADR-027-target-weight-comes-from-merit.md)) 🟢 COMPLETED
 - [x] **W10-002**: Carregamento e endpoint da tabela de desvio (`GET /portfolios/{id}/rebalance`) 🟢 COMPLETED
-- [ ] **W10-003**: O aporte que fecha os gaps — plano de rebalanceamento por fluxo de caixa ⚪ NOT_STARTED
+- [x] **W10-003**: O aporte que fecha os gaps — `rebalancing.py` + `GET /portfolios/{id}/rebalance-plan` ([ADR-028](decisions/ADR-028-rebalancing-is-cash-flow-only.md)) 🟢 COMPLETED
 
 > **Renumeração deliberada.** O plano original tinha duas tasks: "target weights e weight gaps"
 > e "restrições quantitativas para perfil conservador". A segunda **já estava entregue** quando a
@@ -380,6 +380,39 @@ Detalhes W10-002 (2026-08-21):
   mérito. O plano de aporte podia ser aberto por esse parâmetro; a tabela de desvio não pode, e
   o teste `test_lowering_the_coverage_floor_does_not_conjure_a_target` fixa isso.
 - 12 testes novos de rota. `pytest` 775 → **787**.
+
+Detalhes W10-003 (2026-08-21):
+
+- `rebalancing.py` (puro) + `plan_rebalance` no service + `GET /portfolios/{id}/rebalance-plan`.
+  Ordena por gap — não por score, que é a ordem do plano de aporte —, e cada alocação para em
+  `target * base - held`, nunca além.
+- **Nada vende** ([ADR-028](decisions/ADR-028-rebalancing-is-cash-flow-only.md) §1). Todos os
+  itens que a regra 34 manda priorizar são de compra; venda realiza IR numa carteira cuja tese é
+  capitalizar e paga corretagem nas duas pontas para mover dinheiro que o aporte seguinte move de
+  graça. Ativo acima do alvo volta em `skipped` com `ABOVE_TARGET`, e vai continuar voltando.
+- 🔴 **O teste contra o banco real pegou uma falha de desenho que teste unitário nenhum pegaria**,
+  porque os unitários tinham sido escritos sob a mesma premissa errada. O portão de elegibilidade
+  lia o peso **antes** do aporte enquanto todo o dimensionamento já rodava sobre
+  `invested + contribution`. Com PETR4 a R$ 300 e MGLU3 a R$ 900:
+
+  | | primeira versão | corrigida |
+  |---|---|---|
+  | PETR4 alocada | R$ 0 (`ABOVE_TARGET`) | **R$ 140** (`TARGET_WEIGHT`) |
+  | distância a percorrer | 0 → **0,0636** | 0 → **0** |
+
+  PETR4 a 25% contra alvo de 20% era recusada por estar *acima*; com os R$ 1.000 parados em caixa
+  a base virava R$ 2.200 e a posição caía para **13,6%** — mais abaixo do alvo do que estava
+  acima, por ter sido recusada por estar acima dele. Portão, banda e ordenação passaram para a
+  base pós-aporte.
+- Consequência de produto, registrada: **a tabela de desvio e o plano podem discordar sobre o
+  mesmo ativo**, de propósito — um papel no alvo hoje é comprado mesmo assim, porque o aporte vai
+  diluí-lo. As duas leituras vêm em cada linha (`weight_gap` e `needed`).
+- `max_share_per_position` **não** se aplica aqui, e o motivo está no ADR §5: ele protege contra
+  ranking ruidoso, e este plano fecha distância medida até um destino já aparado pelos tetos.
+- Helpers de dinheiro e formatação (`floor_to_centavo`, `percent`, `round_score`) viraram públicos
+  em `allocation.py` e são compartilhados pelos três módulos — uma segunda cópia de uma decisão de
+  arredondamento é uma segunda chance de arredondar para o outro lado.
+- 18 testes de unidade + 8 de rota. `pytest` 787 → **815**.
 
 ---
 

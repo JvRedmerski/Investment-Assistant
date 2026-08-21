@@ -53,6 +53,10 @@ from app.domain.recommendations.allocation import (
     Candidate,
     allocate_contribution,
 )
+from app.domain.recommendations.rebalancing import (
+    RebalancePlan,
+    rebalance_contribution,
+)
 from app.domain.recommendations.scoring import (
     AssetScore,
     compose,
@@ -324,12 +328,38 @@ def portfolio_targets(
     only as the denominator of `current_weight` (ADR-027). The same
     load, read for opposite purposes.
     """
-    exposure = build_exposure(db, portfolio)
-    scored = score_universe(db, portfolio, start=start, as_of=as_of, exposure=exposure)
+    return _exposure_and_targets(db, portfolio, start, as_of, policy)[1]
 
-    return compute_targets(
-        _candidates(exposure, scored),
-        invested=exposure.total_invested,
+
+def plan_rebalance(
+    db: Session,
+    portfolio: Portfolio,
+    contribution: Decimal | None = None,
+    start: date | None = None,
+    as_of: date | None = None,
+    policy: AllocationPolicy = DEFAULT_POLICY,
+) -> RebalancePlan:
+    """The contribution that closes the gaps, for one portfolio (rule 34).
+
+    Builds the drift table and hands it to
+    `rebalancing.rebalance_contribution`, which is pure. Nothing is
+    decided here; this only loads.
+
+    `contribution` defaults to the owner's `monthly_contribution`, the
+    same fallback `plan_contribution` uses — the two plans are two
+    answers about the *same* money, and letting them assume different
+    amounts would make them incomparable.
+    """
+    exposure, targets = _exposure_and_targets(db, portfolio, start, as_of, policy)
+
+    return rebalance_contribution(
+        targets,
+        sector_amounts=exposure.amounts_by_sector(),
+        contribution=(
+            contribution
+            if contribution is not None
+            else monthly_contribution_for(db, portfolio)
+        ),
         policy=policy,
     )
 
@@ -353,6 +383,29 @@ def monthly_contribution_for(db: Session, portfolio: Portfolio) -> Decimal:
 
 
 # -- helpers ---------------------------------------------------------
+
+
+def _exposure_and_targets(
+    db: Session,
+    portfolio: Portfolio,
+    start: date | None,
+    as_of: date | None,
+    policy: AllocationPolicy,
+) -> tuple[PortfolioExposure, PortfolioTargets]:
+    """One load, shared by the drift table and the plan that closes it.
+
+    The exposure comes back alongside the targets because the plan needs
+    it for the sector amounts, and loading it twice would let the gaps
+    and the ceiling that limits closing them read two portfolios.
+    """
+    exposure = build_exposure(db, portfolio)
+    scored = score_universe(db, portfolio, start=start, as_of=as_of, exposure=exposure)
+    targets = compute_targets(
+        _candidates(exposure, scored),
+        invested=exposure.total_invested,
+        policy=policy,
+    )
+    return exposure, targets
 
 
 def _candidates(

@@ -37,12 +37,16 @@ from app.domain.recommendations.schemas import (
     ContributionPlanResponse,
     PortfolioScoresResponse,
     PortfolioTargetsResponse,
+    RebalanceAllocationResponse,
+    RebalancePlanResponse,
+    RebalanceSkippedResponse,
     SkippedCandidateResponse,
     SubScoreResponse,
 )
 from app.domain.recommendations.scoring import SCORING_FORMULA_VERSION
 from app.domain.recommendations.service import (
     plan_contribution,
+    plan_rebalance,
     portfolio_targets,
     score_universe,
 )
@@ -567,6 +571,119 @@ def get_portfolio_rebalance(
                 ],
             )
             for row in targets.targets
+        ],
+    )
+
+
+@router.get("/{portfolio_id}/rebalance-plan", response_model=RebalancePlanResponse)
+def get_rebalance_plan(
+    portfolio_id: int,
+    amount: Decimal | None = Query(
+        None,
+        gt=0,
+        description=(
+            "How much to allocate. Defaults to the investor profile's "
+            "monthly contribution, or R$ 1.000 when no profile exists."
+        ),
+    ),
+    max_asset_weight: Decimal | None = Query(None, gt=0, le=1),
+    max_sector_weight: Decimal | None = Query(None, gt=0, le=1),
+    max_positions: int | None = Query(None, ge=1),
+    min_ticket: Decimal | None = Query(None, ge=0),
+    min_coverage: Decimal | None = Query(None, ge=0, le=1),
+    min_score: Decimal | None = Query(None, ge=0, le=100),
+    rebalance_band: Decimal | None = Query(None, ge=0, le=1),
+    require_sector: bool | None = Query(None),
+    start: date | None = None,
+    as_of: date | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RebalancePlanResponse:
+    """Where this month's money goes to close the gaps (rule 34).
+
+    The companion to `/rebalance`, which says how far the portfolio is
+    from its targets. This says what to do about it with the contribution
+    actually arriving, funding the largest gap first and stopping each
+    allocation at the target rather than past it.
+
+    ⚠️ **Nothing here sells.** Rule 34's priorities are all buy-side, and
+    an overweight position is closed by dilution over later
+    contributions: a sale realises tax on a portfolio whose thesis is
+    compounding, and pays brokerage on both legs to move money the next
+    contribution moves for free. Assets above target come back in
+    `skipped` with `ABOVE_TARGET`.
+
+    Distinct from `/contribution-plan`, which ranks by score to answer
+    "where does new money do the most good". This ranks by gap to answer
+    "what is furthest from where it should be". Same policy, two orders.
+
+    Nothing is stored: the plan is derived from the ledger, the scores
+    and the policy, exactly as positions are (rule 16).
+
+    Reads only stored data (rule 23); prices, benchmarks and indicators
+    must have been synced first.
+    """
+    portfolio = _get_owned_portfolio(db, portfolio_id, current_user)
+
+    policy = _policy_with(
+        max_asset_weight=max_asset_weight,
+        max_sector_weight=max_sector_weight,
+        max_positions=max_positions,
+        min_ticket=min_ticket,
+        min_coverage=min_coverage,
+        min_score=min_score,
+        rebalance_band=rebalance_band,
+        require_sector=require_sector,
+    )
+
+    plan = plan_rebalance(
+        db, portfolio, contribution=amount, start=start, as_of=as_of, policy=policy
+    )
+
+    return RebalancePlanResponse(
+        portfolio_id=portfolio.id,
+        rules_version=plan.rules_version,
+        model_version=plan.model_version,
+        formula_version=plan.formula_version,
+        policy=_policy_response(plan.policy),
+        contribution=plan.contribution,
+        allocated=plan.allocated,
+        unallocated=plan.unallocated,
+        base_value=plan.base_value,
+        underweight_before=plan.underweight_before,
+        underweight_after=plan.underweight_after,
+        allocations=[
+            RebalanceAllocationResponse(
+                ticker=item.ticker,
+                asset_id=item.asset_id,
+                name=item.name,
+                sector=item.sector,
+                amount=item.amount,
+                rank=item.rank,
+                merit_score=item.merit_score,
+                current_weight=item.current_weight,
+                target_weight=item.target_weight,
+                weight_gap=item.weight_gap,
+                needed=item.needed,
+                limited_by=item.limited_by.value,
+                weight_after=item.weight_after,
+                gap_after=item.gap_after,
+                detail=item.detail,
+            )
+            for item in plan.allocations
+        ],
+        skipped=[
+            RebalanceSkippedResponse(
+                ticker=item.ticker,
+                asset_id=item.asset_id,
+                name=item.name,
+                reason=item.reason.value,
+                detail=item.detail,
+                current_weight=item.current_weight,
+                target_weight=item.target_weight,
+                weight_gap=item.weight_gap,
+            )
+            for item in plan.skipped
         ],
     )
 

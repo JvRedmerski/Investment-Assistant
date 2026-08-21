@@ -398,3 +398,171 @@ def test_an_empty_portfolio_is_entirely_underweight(client):
     assert Decimal(row["weight_gap"]) == MAX_ASSET_WEIGHT
     assert row["status"] == "UNDER"
     assert Decimal(table["untracked_weight"]) == 0
+
+
+# -- the plan that closes the gaps -------------------------------------
+
+
+def _plan(client, headers, portfolio_id, **params):
+    response = client.get(
+        f"{PORTFOLIOS_URL}/{portfolio_id}/rebalance-plan",
+        params={**_window_params(), **params},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _placed(plan):
+    return {item["ticker"]: Decimal(item["amount"]) for item in plan["allocations"]}
+
+
+def _skipped(plan):
+    return {item["ticker"]: item["reason"] for item in plan["skipped"]}
+
+
+def test_the_plan_requires_authentication(client):
+    assert client.get(f"{PORTFOLIOS_URL}/1/rebalance-plan").status_code == 401
+
+
+def test_another_users_portfolio_has_no_plan(client):
+    owner = _auth_headers(client, "rp-owner@example.com")
+    portfolio_id = _portfolio(client, owner)
+
+    intruder = _auth_headers(client, "rp-intruder@example.com")
+    response = client.get(
+        f"{PORTFOLIOS_URL}/{portfolio_id}/rebalance-plan", headers=intruder
+    )
+
+    assert response.status_code == 404
+
+
+@pytest.fixture
+def underweight(client):
+    """R$ 100 in a rated name and R$ 900 in an unrated one."""
+    headers = _auth_headers(client, "rp-plan@example.com")
+    _seed_benchmarks(client, headers)
+    rated = _seed_asset(client, headers, "AAAA3", sector="Energia")
+    unrated = _seed_asset(client, headers, "BBBB3", sector="Bancos", statements=False)
+    portfolio_id = _portfolio(client, headers)
+    _buy(client, headers, portfolio_id, rated, "1", "100")
+    _buy(client, headers, portfolio_id, unrated, "9", "100")
+    return headers, portfolio_id
+
+
+def test_the_plan_funds_the_gap_up_to_the_target(underweight, client):
+    """R$ 1.000 arriving on a R$ 1.000 portfolio makes the base R$ 2.000.
+
+    AAAA3 targets 20% of that — R$ 400 — and already holds R$ 100, so
+    R$ 300 closes it exactly. The remaining R$ 700 has nowhere to go:
+    the only other name in the universe has no target at all.
+    """
+    headers, portfolio_id = underweight
+
+    plan = _plan(client, headers, portfolio_id)
+
+    assert Decimal(plan["base_value"]) == 2000
+    assert _placed(plan) == {"AAAA3": Decimal("300.00")}
+    line = plan["allocations"][0]
+    assert line["limited_by"] == "TARGET_WEIGHT"
+    assert Decimal(line["needed"]) == Decimal("300.00")
+    assert Decimal(line["weight_gap"]) == Decimal("0.100000")
+    assert Decimal(line["weight_after"]) == Decimal("0.20")
+    assert Decimal(line["gap_after"]) == 0
+    assert Decimal(plan["allocated"]) + Decimal(plan["unallocated"]) == Decimal(
+        plan["contribution"]
+    )
+
+
+def test_the_plan_never_sells_what_it_cannot_rate(underweight, client):
+    """90% of the portfolio has no target, and the answer is not "sell"."""
+    headers, portfolio_id = underweight
+
+    plan = _plan(client, headers, portfolio_id)
+
+    assert _skipped(plan)["BBBB3"] == "NO_MERIT_SCORE"
+    assert all(Decimal(item["amount"]) > 0 for item in plan["allocations"])
+
+
+def test_the_distance_left_is_reported_alongside_the_distance_before(
+    underweight, client
+):
+    """Rule 30: the plan says what it achieved, not only what it did."""
+    headers, portfolio_id = underweight
+
+    plan = _plan(client, headers, portfolio_id)
+
+    assert Decimal(plan["underweight_before"]) == Decimal("0.100000")
+    assert Decimal(plan["underweight_after"]) == 0
+
+
+def test_a_smaller_contribution_runs_out_before_the_target(underweight, client):
+    """R$ 100 into a R$ 1.100 base: the target wants R$ 120, cash has 100."""
+    headers, portfolio_id = underweight
+
+    plan = _plan(client, headers, portfolio_id, amount="100")
+
+    line = plan["allocations"][0]
+    assert Decimal(line["amount"]) == Decimal("100.00")
+    assert Decimal(line["needed"]) == Decimal("120.00")
+    assert line["limited_by"] == "CONTRIBUTION_REMAINING"
+
+
+def test_the_sector_ceiling_bites_through_an_unrated_holding(seeded, client):
+    """The `seeded` portfolio is 100% Energia, R$ 800 of it unrateable.
+
+    AAAA3 is under its target once the contribution dilutes it, and is
+    still refused: its sector is already far past the 40% ceiling, and
+    the unrated name holding it there has no target of its own to stop.
+    """
+    headers, portfolio_id = seeded
+
+    plan = _plan(client, headers, portfolio_id)
+
+    assert plan["allocations"] == []
+    assert _skipped(plan)["AAAA3"] == "SECTOR_LIMIT_REACHED"
+    assert Decimal(plan["unallocated"]) == Decimal(plan["contribution"])
+
+
+@pytest.fixture
+def on_target_today(client):
+    """AAAA3 held at exactly its 20% target, in a sector of its own."""
+    headers = _auth_headers(client, "rp-dilution@example.com")
+    _seed_benchmarks(client, headers)
+    rated = _seed_asset(client, headers, "AAAA3", sector="Energia")
+    unrated = _seed_asset(client, headers, "BBBB3", sector="Bancos", statements=False)
+    portfolio_id = _portfolio(client, headers)
+    _buy(client, headers, portfolio_id, rated, "2", "100")
+    _buy(client, headers, portfolio_id, unrated, "8", "100")
+    return headers, portfolio_id
+
+
+def test_a_position_on_target_today_is_still_bought_when_the_money_dilutes_it(
+    on_target_today, client
+):
+    """The drift table and the plan disagree, and both are right.
+
+    AAAA3 is R$ 200 of R$ 1.000: exactly its 20% target, so `/rebalance`
+    calls it on target. The R$ 1.000 contribution doubles the base, and
+    the same R$ 200 is 10% of R$ 2.000 — so the plan buys R$ 200 more to
+    put it back where it belongs.
+    """
+    headers, portfolio_id = on_target_today
+
+    table = _rebalance(client, headers, portfolio_id)
+    assert _rows(table)["AAAA3"]["status"] == "ON_TARGET"
+
+    plan = _plan(client, headers, portfolio_id)
+    assert _placed(plan) == {"AAAA3": Decimal("200.00")}
+    assert plan["allocations"][0]["limited_by"] == "TARGET_WEIGHT"
+    assert Decimal(plan["allocations"][0]["weight_after"]) == Decimal("0.20")
+
+
+def test_the_plan_records_all_three_versions(underweight, client):
+    headers, portfolio_id = underweight
+
+    plan = _plan(client, headers, portfolio_id)
+
+    assert plan["rules_version"]
+    assert plan["model_version"]
+    assert plan["formula_version"]

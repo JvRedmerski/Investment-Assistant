@@ -101,6 +101,8 @@ from app.domain.recommendations.allocation import (
     AllocationPolicy,
     Candidate,
     Exclusion,
+    percent,
+    round_score,
 )
 from app.domain.recommendations.scoring import (
     SCORING_FORMULA_VERSION,
@@ -166,6 +168,11 @@ class AssetTarget:
     sector: str | None
     merit_score: Decimal | None
     merit_coverage: Decimal
+    #: Cost basis held in this asset, in BRL. Carried alongside
+    #: `current_weight` rather than recovered from it: the weight is
+    #: quantised for reading, and a plan that has to turn a target back
+    #: into money must not do it through a rounded fraction.
+    held_amount: Decimal
     current_weight: Decimal
     target_weight: Decimal
     weight_gap: Decimal
@@ -425,6 +432,7 @@ def _row(
         sector=candidate.sector,
         merit_score=assessment.value,
         merit_coverage=assessment.coverage,
+        held_amount=candidate.held_amount,
         current_weight=current,
         target_weight=target,
         weight_gap=target - current,
@@ -460,6 +468,7 @@ def _excluded_row(
         sector=candidate.sector,
         merit_score=assessment.value,
         merit_coverage=assessment.coverage,
+        held_amount=candidate.held_amount,
         current_weight=current,
         target_weight=ZERO,
         weight_gap=-current,
@@ -495,16 +504,16 @@ def _ineligibility(
         return (
             Exclusion.COVERAGE_BELOW_MINIMUM,
             (
-                f"Merit rests on {_percent(assessment.coverage)} of its "
-                f"pillars, below the {_percent(policy.min_coverage)} minimum."
+                f"Merit rests on {percent(assessment.coverage)} of its "
+                f"pillars, below the {percent(policy.min_coverage)} minimum."
             ),
         )
     if assessment.value < policy.min_score:
         return (
             Exclusion.SCORE_BELOW_MINIMUM,
             (
-                f"Merit of {_round(assessment.value)}, below the "
-                f"{_round(policy.min_score)} minimum."
+                f"Merit of {round_score(assessment.value)}, below the "
+                f"{round_score(policy.min_score)} minimum."
             ),
         )
     if policy.require_sector and candidate.sector is None:
@@ -544,32 +553,24 @@ def _reached(limited_by: TargetLimit, target: Decimal, policy: AllocationPolicy)
     if limited_by is TargetLimit.ASSET_WEIGHT:
         return (
             f"Merit alone would have targeted more; trimmed to the "
-            f"{_percent(policy.max_asset_weight)} per-asset ceiling."
+            f"{percent(policy.max_asset_weight)} per-asset ceiling."
         )
     if limited_by is TargetLimit.SECTOR_WEIGHT:
         return (
             f"Trimmed to this asset's share of the "
-            f"{_percent(policy.max_sector_weight)} sector ceiling."
+            f"{percent(policy.max_sector_weight)} sector ceiling."
         )
     if limited_by is TargetLimit.PORTFOLIO_FULL:
         return "The ceilings already account for the whole portfolio."
-    return f"Merit's proportional share of the portfolio: {_percent(target)}."
+    return f"Merit's proportional share of the portfolio: {percent(target)}."
 
 
 def _floor_weight(value: Decimal) -> Decimal:
     """A weight, rounded **down**.
 
-    Down, never nearest, for the reason `_floor_to_centavo` gives about
+    Down, never nearest, for the reason `floor_to_centavo` gives about
     money: rounding up could put a target a hair past a ceiling, and a
     target that violates its own limit in the last decimal still violates
     it. The residue lands in `unassigned`, where it is visible.
     """
     return value.quantize(WEIGHT_STEP, rounding=ROUND_DOWN)
-
-
-def _percent(fraction: Decimal) -> str:
-    return f"{(fraction * 100).quantize(Decimal('0.1'))}%"
-
-
-def _round(score: Decimal) -> Decimal:
-    return score.quantize(Decimal("0.1"))

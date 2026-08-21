@@ -2,145 +2,125 @@
 
 ## Last Updated
 
-2026-08-20
+2026-08-21
 
 ## Last Completed Work
 
-### EVENTS-003 — a série de retorno total existe (`31ba72a`, [ADR-026](../decisions/ADR-026-corporate-action-magnitude-and-the-completeness-rule.md))
+### Wave 10 — Rebalanceamento, 3/3 (`461eca7`, `fd2b56e`, mais o commit da W10-003)
 
-Última task da wave EVENTS, e a que fecha a trava de maior retorno do projeto. Faltava uma
-palavra — **magnitude** — e a task começou por decidir de onde ela viria.
+De volta à ordem do roadmap depois de duas waves inseridas fora dela. A wave inteira era uma
+pergunta que nem o roadmap §22 nem a regra 34 respondem: **de onde vem o `target_weight`**. Peso
+atual é ledger, gap é subtração; o alvo era tudo.
 
-**A fonte apareceu medindo, e não estava na lista.** O `CURRENT_TASK.md` enumerava três
-candidatas (contagem de ações da CVM, provento por pagamento de fonte a decidir, fornecedor
-pago). A quarta é o **serviço aberto de eventos corporativos da própria B3**, que publica reais
-por ação num provento e fator num desdobramento, sem token e sem cota — o mesmo critério que
-escolheu a CVM (ADR-020) e o COTAHIST (ADR-023).
+### W10-001 — o alvo sai do mérito ([ADR-027](../decisions/ADR-027-target-weight-comes-from-merit.md))
 
-**Nada foi codificado antes de conferir contra dado real:**
+**A resposta óbvia foi medida e reprovada antes de qualquer código.** Alvo proporcional ao
+`final_score` não converge, porque o score lê a carteira que o alvo deveria mirar:
 
-| verificação | resultado |
-|---|---|
-| Datas contra o contador `DISMES`, sinal **independente** da EVENTS-002 | **157/157** em janela (PETR3, PETR4, VALE3, ITUB4, BBAS3) |
-| Fatores contra o degrau de preço em cache | **49/50**; o único fora é a IRBR3 a R$ 0,93, onde o degrau não mede nada |
+| peso detido de PETR4 | `final_score` | quality | valuation | growth | risk | diversification |
+|---|---|---|---|---|---|---|
+| 0% | **76,72** | 97,8 | 93,5 | 76,7 | 28,3 | 100,0 |
+| 20% | **65,47** | 97,8 | 93,5 | 76,7 | 28,3 | 25,0 |
 
-**A junção é o ISIN, e descobrir isso foi o momento decisivo.** A B3 repete um evento de contagem
-uma vez por ISIN que o emissor já teve — o 1:2 da BBAS3 chega três vezes. Compondo tudo, o acordo
-era 32/50; e **todo** desacordo era uma **potência exata** da resposta certa (2³ na BBAS3, 4³ na
-BPAC11, 10³ na CPLE3, 1,1³ na UNIP3). Foi esse padrão que apontou duplicação em vez de fator
-errado. Filtrando por `CODISI`: 49/50.
+Nada mudou na empresa — os quatro pilares de mérito são constantes. Um alvo feito desse número
+**recua conforme a carteira se aproxima**, e o gap reportado não é distância até coisa alguma.
 
-**Duas armadilhas de unidade, ambas já vistas neste projeto sob outro nome.** `factor` é
-porcentagem em `DESDOBRAMENTO`/`BONIFICACAO` e **razão crua** em `GRUPAMENTO`, sob um campo só; e
-`valueCash` é cotado por `quotedPerShares`, que é **1000 em 332 de 2.305 linhas** — o erro de mil
-vezes que o `FATCOT` e o `ESCALA_MOEDA` já tinham tentado.
+O alvo passou a sair do **mérito** (`scoring.merit`: Quality, Valuation, Growth, Risk
+renormalizados) e a concentração virou **teto** em vez de termo — os mesmos `max_asset_weight` e
+`max_sector_weight` da W09, lidos da mesma `AllocationPolicy`.
 
-### A parte difícil não foi a aritmética, foi decidir quando ela pode rodar
+**Um erro de ordem apareceu traçando o algoritmo à mão, não nos testes**: com o teto por ativo
+checado antes do setorial, três papéis de um setor congelam a 20% cada e põem o setor em **60%**,
+contra um limite de 40% nunca consultado.
 
-Um ajuste feito com *parte* das ações não é uma série mais curta — é uma **errada e plausível**.
-Então `adjusted_close` só é derivado onde toda sessão que a bolsa contou como ex tem ação
-dimensionada.
+Medido no banco real: PETR4 com mérito **72,61** (contra `final_score` 76,72, inflado pela
+Diversificação de carteira vazia), alvo **0,20** aparado pelo teto, **0,80 `unassigned`**. ITUB4,
+que marca **92,47 com cobertura 0,40** — o maior número do universo, feito só dos dois pilares
+que nunca faltam —, **não recebe alvo**: sob a regra do mérito ela tem um pilar só.
 
-**E a completude não pode ser julgada pelo serviço de eventos, porque ele omite.** A ITUB4 foi ex
-em **2025-03-18** com o marcador `EB` do arquivo e degrau de **-8,60%**, e o serviço não reporta
-ação nenhuma ali. Quem julga é o contador da B3.
+### W10-002 — a tabela de desvio sobre a API
 
-**A exceção do `ATZ` foi decisão do dono do projeto, não do implementador.** Sob a regra estrita,
-PETR4 ficaria com **28** de 1.495 pregões ajustáveis, VALE3 com 47, MGLU3 com 7 — a wave não
-destravaria nada, porque quase todo incremento não dimensionado carrega `ATZ` (*atualização*), em
-que nada sai do titular. Medido: **151 incrementos, degrau mediano 1,0028**, e **6 exceções
-nomeadas** (dois BDRs, uma cota de fundo, três ações em queda de 15–20%). A pergunta foi
-apresentada com esses números e a decisão foi abrir a exceção. Está no ADR-026 §6, marcada como o
-único ponto da task em que uma leitura foi preferida por conveniência de cobertura.
+`portfolio_targets` + `GET /portfolios/{id}/rebalance`. A construção de candidatos virou
+`_candidates`, compartilhada com `plan_contribution`.
 
-### Medido no banco real, depois do sync
+**Um fato que só o teste ponta a ponta mostra**: sem demonstrativos *nenhum* ativo recebe alvo, e
+**baixar `min_coverage` não resolve** — o que falta não é o piso, é um segundo pilar de mérito.
 
-| papel | ajustado | leitura |
+### W10-003 — o aporte que fecha os gaps ([ADR-028](../decisions/ADR-028-rebalancing-is-cash-flow-only.md))
+
+`rebalancing.py` + `plan_rebalance` + `GET /portfolios/{id}/rebalance-plan`. Ordena por **gap**
+(o plano de aporte ordena por score) e cada alocação para em `target * base - held`.
+
+**Nada vende.** Todos os itens que a regra 34 manda priorizar são de compra; venda realiza IR
+numa carteira cuja tese é capitalizar e paga corretagem nas duas pontas para mover dinheiro que o
+aporte seguinte move de graça. Ativo acima do alvo volta em `skipped` com `ABOVE_TARGET`.
+
+🔴 **O teste contra o banco real pegou uma falha de desenho que teste unitário nenhum pegaria** —
+porque os unitários tinham sido escritos sob a mesma premissa errada. O portão de elegibilidade
+lia o peso **antes** do aporte, enquanto o dimensionamento inteiro já rodava sobre
+`invested + contribution`:
+
+| | primeira versão | corrigida |
 |---|---|---|
-| **PETR4** | 1.495/1.495 | 62 proventos. Volatilidade **41,8%**, drawdown **-63,4%** com fundo em **2020-03-18** — a COVID. Pior sessão ajustada **idêntica** à crua (-29,7% em 2020-03-09): nenhum evento vazou |
-| **BBAS3** | 1.495/1.495 | desdobramento 1:2 desfeito; pior sessão 17,1% |
-| **ITUB4** | 198/1.495 | **truncada corretamente** em `[2021-10-04, 2025-03-18]` |
-| **MGLU3** | 478/1.495 | truncada na subscrição; **grupamento 1:10 desfeito** — 13,5%, não +896% |
+| PETR4 alocada | R$ 0 (`ABOVE_TARGET`) | **R$ 140** (`TARGET_WEIGHT`) |
+| distância a percorrer | 0 → **0,0636** | 0 → **0** |
 
-O fator de retorno total da PETR4 é 3,43× em seis anos (8,94 → 30,82 ajustado contra 30,70 →
-30,82 cru), consistente com ~R$ 39/ação de provento acumulado sobre um papel de ~R$ 30.
-
-**750 testes** (era 701); migration `012` aplicada em PostgreSQL 16 real, `alembic check` sem
-drift, downgrade testado.
-
----
-
-### EVENTS-001 e EVENTS-002 (2026-08-19)
-
-- **EVENTS-001** (`f330a4c`, [ADR-024](../decisions/ADR-024-refill-fills-null-columns.md)) —
-  proventos por exercício da DMPL da CVM, que fecharam o `dy`. A armadilha que a task expôs vale
-  mais que a coluna: período gravado é congelado com os campos que o código conhecia no dia
-  (ADR-013), então os seis exercícios já no banco ficariam vazios **para sempre**. Daí
-  `?refill=true`, que preenche coluna `NULL` e só ela.
-- **EVENTS-002** (`a4700d2`, [ADR-025](../decisions/ADR-025-corporate-events-come-from-the-distribution-counter.md)) —
-  data e natureza pelo contador `DISMES`, nunca pelo marcador do `ESPECI`, que é janela de
-  exibição de ~8 pregões e ainda decai (`EDJ` → `EJ`, 132 sessões em 2024).
+PETR4 a 25% contra alvo de 20% era recusada por estar *acima*; com os R$ 1.000 parados em caixa a
+base virava R$ 2.200 e ela caía para **13,6%** — mais abaixo do alvo do que estava acima, **por
+ter sido recusada por estar acima dele**.
 
 ## Current State
 
-- `pytest` → **750 passed** (701 → 750), verificado em 2026-08-20. `ruff check` e `black --check`
-  limpos.
-- ✅ Commitado e **enviado** (`31ba72a`); árvore limpa, `main` em dia com `origin/main`.
-- 🔴 **Docker desligado** ao encerrar — `docker compose up -d postgres` antes de tocar o banco.
-  Com ele no ar, schema **`012`**.
-- **Wave EVENTS 🟢 concluída**, 3/3. Nenhuma task com código pela metade, nada iniciado da W10.
-- No banco real: PETR4, ITUB4, BBAS3 e MGLU3, 1.495 pregões cada, com `adjusted_close` derivado
-  e `corporate_actions` populada (62/76/102/7). Ver a tabela em [CURRENT_TASK.md](CURRENT_TASK.md).
+- `pytest` → **815 passed** (750 → 815), verificado em 2026-08-21. `ruff check` e `black --check`
+  limpos no repositório inteiro.
+- ✅ Commitado; árvore limpa.
+- 🔴 **Docker ligado** nesta sessão. Schema **`012_corporate_actions`**, e a Wave 10 **não criou
+  migration** — nada dela é gravado (regra 16, ADR-002).
+- **Wave 10 🟢 concluída**, 3/3. Nada iniciado da W11.
 
 ## Important Details
 
-### O que o pilar de Risco passou a ter, e o que ele ainda não tem
-
-Tem insumo real para papel com eventos completos. **Não** tem para papel cujos eventos ninguém
-dimensionou — e isso é o desenho, com a lacuna voltando **nomeada e datada** em `unaccounted`.
-Continua faltando **subscrição**: a B3 a publica numa lista própria, com percentual e preço de
-exercício, e dimensioná-la exige um **modelo do valor do direito**, não uma medição. Foi o que
-cortou a MGLU3.
-
 ### O engano fácil de cometer aqui
 
-`adjusted_close` **não é recomputado**. O preenchimento só toca coluna nula (ADR-024), então uma
-correção tardia da B3 sobre data já ajustada não é reaplicada. Recomputar exige limpar a coluna
-antes — operação manual deliberada.
+**A tabela de desvio e o plano podem discordar sobre o mesmo ativo, e os dois estão certos.**
+`/rebalance` mede a carteira de hoje; `/rebalance-plan` mede a carteira que o aporte cria. Um
+papel exatamente no alvo hoje **é comprado mesmo assim**, porque o aporte vai diluí-lo. As duas
+leituras vêm em cada linha do plano (`weight_gap` e `needed`), e o teste
+`test_a_position_on_target_today_is_still_bought_when_the_money_dilutes_it` fixa isso.
 
-E um papel recém-cadastrado **não** ganha risco só com o backfill de preço: o
-`corporate-actions/sync` tem que rodar depois.
+O outro: **`merit_score` não é `final_score`**, e a diferença é o ponto da wave inteira.
 
-### Lições de método desta task
+### Lições de método desta wave
 
-- **A alternativa certa pode não estar na lista.** As três candidatas registradas eram razoáveis
-  e todas piores do que uma quarta que só apareceu porque a pergunta "o que a própria bolsa
-  publica?" foi feita de novo.
-- **Um padrão no erro vale mais que o erro.** O acordo de 32/50 não dizia nada; que **todo**
-  desacordo fosse uma potência exata do valor certo dizia tudo — e apontou para a chave de
-  junção, não para a fórmula.
-- **Medir o que se perde, não só o que se acerta.** A varredura do `ATZ` só é confiável porque
-  contou também as 6 exceções, em vez de parar no número que confirmava a hipótese.
-- **Quando a decisão é de produto, ela é do dono.** A exceção do `ATZ` não era uma leitura mais
-  correta da fonte, era uma escolha entre cobertura e rigor, com números dos dois lados.
+- **Medir a hipótese óbvia antes de codificá-la.** A tabela do `final_score` custou dez minutos e
+  matou o desenho inteiro que teria sido escrito por padrão.
+- **Traçar o algoritmo à mão pega o que o teste não pega**, porque o teste é escrito pela mesma
+  cabeça que escreveu o código. O erro de ordem dos tetos veio daí.
+- **Rodar contra o banco real e olhar os números** — o passo que o `IMPLEMENTATION_GUIDE` cobra
+  para provedor externo — vale igual para lógica pura. A falha de base do portão passou por 18
+  testes unitários verdes porque eles compartilhavam a premissa errada.
+- **Quando os testes falham depois de uma correção, conferir de que lado está o erro.** Três
+  falharam aqui e os três eram cenários escritos sob a premissa antiga, não regressões.
 
 ## Pending Work
 
-**Wave 10 — Rebalanceamento**, na ordem do roadmap. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
+**Wave 11 — Dashboard**, a primeira wave com trabalho de frontend real. Ver
+[CURRENT_TASK.md](CURRENT_TASK.md), que lista o que a W11 vai esbarrar — a começar por **não
+existir valor de mercado em lugar nenhum**: tudo hoje é custo basis.
 
 ## Next Step
 
-Ler [CURRENT_TASK.md](CURRENT_TASK.md) e
-[../planning/ROADMAP.md](../planning/ROADMAP.md) para a Wave 10. O score que ela consome está
-completo pela primeira vez.
+Ler [CURRENT_TASK.md](CURRENT_TASK.md) e [../planning/ROADMAP.md](../planning/ROADMAP.md) para a
+W11, e [../architecture/FRONTEND.md](../architecture/FRONTEND.md) antes de tocar em React.
 
 ## Relevant Files
 
-- `backend/app/integrations/market_data/b3_corporate_actions.py` — o adaptador e suas medições
-- `backend/app/integrations/market_data/base.py` — as quatro ABCs
-- `backend/app/integrations/market_data/schemas.py` — `CorporateAction`, `SecurityIdentity`, `CorporateEventKind.NOMINAL_UPDATE`
-- `backend/app/domain/market_data/adjustment.py` — aritmética + regra de completude
-- `backend/app/domain/market_data/corporate_actions.py` — ingestão e ex-date
-- `backend/migrations/versions/012_corporate_actions.py`
-- `backend/tests/test_b3_corporate_actions.py`, `test_price_adjustment.py`, `test_corporate_action_routes.py`
-- `docs/decisions/ADR-026-corporate-action-magnitude-and-the-completeness-rule.md`
+- `backend/app/domain/recommendations/targets.py` — o modelo de alvo e a regra de *water-filling*
+- `backend/app/domain/recommendations/rebalancing.py` — o plano, e a base pós-aporte
+- `backend/app/domain/recommendations/scoring.py` — `merit` / `Merit` / `MERIT_PILLARS`
+- `backend/app/domain/recommendations/allocation.py` — a política compartilhada e os helpers
+  públicos (`floor_to_centavo`, `percent`, `round_score`)
+- `backend/app/domain/recommendations/service.py` — `portfolio_targets`, `plan_rebalance`
+- `backend/tests/test_target_weights.py`, `test_rebalance_plan.py`, `test_rebalance_routes.py`
+- `docs/decisions/ADR-027-target-weight-comes-from-merit.md`,
+  `docs/decisions/ADR-028-rebalancing-is-cash-flow-only.md`
