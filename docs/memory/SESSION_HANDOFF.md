@@ -6,7 +6,7 @@
 
 ## Last Completed Work
 
-### Wave 10 — Rebalanceamento, 3/3 (`461eca7`, `fd2b56e`, mais o commit da W10-003)
+### Wave 10 — Rebalanceamento, 3/3 (`461eca7`, `fd2b56e`, `260b88d`)
 
 De volta à ordem do roadmap depois de duas waves inseridas fora dela. A wave inteira era uma
 pergunta que nem o roadmap §22 nem a regra 34 respondem: **de onde vem o `target_weight`**. Peso
