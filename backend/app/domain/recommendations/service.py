@@ -42,6 +42,7 @@ from app.data.models.assets import Asset, AssetPrice
 from app.data.models.fundamentals import FinancialIndicator
 from app.data.models.portfolio import Portfolio, Transaction
 from app.data.models.users import InvestorProfile
+from app.domain.backtesting.availability import latest_readable_period
 from app.domain.benchmarks.catalog import IBOVESPA
 from app.domain.benchmarks.service import benchmark_price_points, risk_free_rate_for
 from app.domain.market_data.corporate_actions import share_adjustments
@@ -171,6 +172,7 @@ def score_asset(
     as_of: date | None = None,
     benchmark: list[PricePoint] | None = None,
     risk_free_rate: Decimal | None = None,
+    publication_lag_months: int = 0,
 ) -> AssetScore:
     """Score one asset against one portfolio's exposure.
 
@@ -184,7 +186,7 @@ def score_asset(
         risk_free_rate = risk_free_rate_for(db, start, as_of)
 
     series = _price_series(db, asset, start, as_of)
-    indicator = _latest_indicator(db, asset, as_of)
+    indicator = _latest_indicator(db, asset, as_of, publication_lag_months)
 
     return compose(
         [
@@ -446,17 +448,35 @@ def _price_series(
 
 
 def _latest_indicator(
-    db: Session, asset: Asset, as_of: date | None
+    db: Session,
+    asset: Asset,
+    as_of: date | None,
+    publication_lag_months: int = 0,
 ) -> FinancialIndicator | None:
-    """The most recent indicator set dated on or before `as_of`.
+    """The most recent indicator set readable on `as_of`.
 
     Never a later one, however much more complete it might be: a score
     for a past date that reads a statement published after it is
     look-ahead (rule 108).
+
+    `publication_lag_months` goes one step further, and is what rule 109
+    asks of a backtest: a fiscal year ending 31 December is not public
+    on 1 January, it is filed months later. The lag pushes the cutoff
+    back so a past date reads only what had actually been filed by then.
+
+    It defaults to zero, which leaves the live scoring path exactly as it
+    was. The backtest passes the real lag; see
+    `app.domain.backtesting.availability` for why the two differ and for
+    the gap that remains.
     """
     query = db.query(FinancialIndicator).filter(FinancialIndicator.asset_id == asset.id)
     if as_of is not None:
-        query = query.filter(FinancialIndicator.reference_date <= as_of)
+        cutoff = (
+            latest_readable_period(as_of, publication_lag_months)
+            if publication_lag_months
+            else as_of
+        )
+        query = query.filter(FinancialIndicator.reference_date <= cutoff)
     return query.order_by(FinancialIndicator.reference_date.desc()).first()
 
 
