@@ -6,7 +6,7 @@
 
 ## Last Completed Work
 
-### Wave 12 — AI Engine, 3/3
+### Wave 12 — AI Engine, 3/3 (`c7643af`, `47ee85a`, `6d0b315`)
 
 A wave que transformou "a IA não calcula" de promessa em mecanismo. O
 [ADR-009](../decisions/ADR-009-quant-deterministic-ai-explains.md) decidiu isso em
