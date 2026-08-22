@@ -202,3 +202,220 @@ class BacktestResponse(BaseModel):
     wealth: list[WealthPointResponse]
     trades: TradeStatisticsResponse
     sources: list[str]
+
+
+# -- walk-forward validation (W14-004) --------------------------------
+
+
+class WalkForwardSchemeResponse(BaseModel):
+    """How the history was cut, and how far the cut travelled.
+
+    The three segments are the same length by construction, so one figure
+    describes all of them: a shorter test segment would measure a younger
+    portfolio, and the degradation below would be part strategy and part
+    portfolio age with no way to tell which (`folds`).
+    """
+
+    segment_months: int
+    step_months: int
+
+
+class WalkForwardSettingsResponse(BaseModel):
+    """Everything the walk-forward was parameterised by (rule 113).
+
+    `policy` is the **base** the grid varies from, not the policy that
+    was run: it is the grid's first candidate, and every other candidate
+    differs from it in exactly one field.
+    """
+
+    start: date
+    end: date
+    strategy: str
+    contribution: Decimal
+    day_of_month: int
+    publication_lag_months: int
+    costs: CostModelResponse
+    policy: AllocationPolicyResponse
+    scheme: WalkForwardSchemeResponse
+    objective: str
+    shortlist: int
+
+
+class SegmentResponse(BaseModel):
+    """One period a candidate was measured over, both ends inclusive."""
+
+    start: date
+    end: date
+
+
+class SegmentMetricsResponse(BaseModel):
+    """What one segment's time-weighted index says (rule 63).
+
+    Every figure may be `null`, and `null` means *not computable on this
+    series* — never zero. `cagr` is absent on a segment shorter than
+    `MIN_ANNUALISATION_DAYS`, and `sharpe`/`sortino` are absent whenever
+    no CDI has been ingested for the segment, since this project takes
+    exactly one risk-free rate and does not assume it to be zero.
+    """
+
+    observations: int
+    total_return: Decimal | None
+    cagr: Decimal | None
+    volatility: Decimal | None
+    max_drawdown: Decimal | None
+    sharpe: Decimal | None
+    sortino: Decimal | None
+
+
+class SegmentOutcomeResponse(BaseModel):
+    """One policy over one segment: the series, and what it cost.
+
+    `objective` is the single figure the fold ranked on, lifted out of
+    `metrics` so it is readable without knowing which objective was
+    asked for. `null` there means the candidate was **not ranked** — not
+    ranked last.
+    """
+
+    metrics: SegmentMetricsResponse
+    objective: Decimal | None
+    trades: int
+    fees: Decimal
+    slippage: Decimal
+    contributed: Decimal
+    final_value: Decimal | None
+
+
+class PolicyCandidateResponse(BaseModel):
+    """One policy the walk-forward could select, and the question it asks.
+
+    `question` is part of the result rather than documentation of it. A
+    candidate that cannot be stated as a question somebody would ask
+    before seeing any number is a swept parameter, and rule 60 exists to
+    keep those out.
+    """
+
+    name: str
+    question: str
+    policy: AllocationPolicyResponse
+
+
+class CandidateRunResponse(BaseModel):
+    """One candidate's result over one segment.
+
+    The policy is not repeated here — `candidates` at the top of the
+    response carries each one once, and `name` is what joins them.
+    """
+
+    name: str
+    outcome: SegmentOutcomeResponse
+
+
+class FoldResponse(BaseModel):
+    """One `Train → Validate → Test`, and what survived it.
+
+    ⚠️ **`degradation` is the figure to read**, not `out_of_sample` on
+    its own: it is what the winner scored on validation less what it
+    scored on test, so a positive value means the choice did worse on
+    history it had not seen. That is what overfitting looks like from the
+    outside.
+
+    `refusal` at `OBJECTIVE_UNAVAILABLE` means no candidate could be
+    scored — on the default objective, that no CDI covers the segment.
+    The runs still happened and are still listed: a fold that could not
+    choose is not a fold that did not run.
+    """
+
+    index: int
+    train: SegmentResponse
+    validation: SegmentResponse
+    test: SegmentResponse
+    trained: list[CandidateRunResponse]
+    shortlist: list[str]
+    validated: list[CandidateRunResponse]
+    selected: str | None
+    tested: SegmentOutcomeResponse | None
+    in_sample: Decimal | None
+    out_of_sample: Decimal | None
+    degradation: Decimal | None
+    refusal: str | None
+
+
+class WalkForwardPartitionResponse(BaseModel):
+    """How many folds the replayable window held, or why it held none.
+
+    `required_months` and `available_months` travel with the refusal
+    because *"why did my walk-forward return nothing?"* has to be
+    answerable from the result — the same reason `window.bounded_by`
+    exists.
+    """
+
+    folds: int
+    required_months: int
+    available_months: int
+    refusal: str | None
+
+
+class WalkForwardStabilityResponse(BaseModel):
+    """What the folds agree on, or the named reason they cannot say.
+
+    ⚠️ **Every aggregate is `null` with a single fold**, and `refusal` is
+    `SINGLE_FOLD`. A mean of one observation and a spread of zero would
+    read as *perfectly stable*, which is the opposite of what one
+    observation supports. The fold's own out-of-sample figure is still
+    reported — only the aggregate is withheld.
+
+    `selection_rate` is the fraction of measured folds the most selected
+    candidate won. A walk-forward that picks a different winner every
+    time has found noise, not a parameter (rule 60).
+    """
+
+    folds: int
+    measured_folds: int
+    selections: dict[str, int]
+    most_selected: str | None
+    selection_rate: Decimal | None
+    out_of_sample_mean: Decimal | None
+    out_of_sample_min: Decimal | None
+    out_of_sample_max: Decimal | None
+    out_of_sample_stdev: Decimal | None
+    degradation_mean: Decimal | None
+    positive_folds: int | None
+    refusal: str | None
+
+
+class WalkForwardResponse(BaseModel):
+    """One walk-forward: what was tried, what was chosen, what held up.
+
+    Rules 61 and 62, as a response. The history is cut into
+    `Train → Validate → Test`, the cut moves, and the strategy is judged
+    on stability across repetitions rather than on one better number.
+
+    ⚠️ **The figure that answers the wave's question is
+    `stability.degradation_mean`**, not the returns. A strategy whose
+    out-of-sample results track its in-sample ones has parameters that
+    describe something; one whose results collapse has parameters that
+    described the sample they were chosen on.
+
+    ⚠️ **Every segment run starts from an empty portfolio.** That is what
+    makes candidates comparable to each other and in-sample comparable to
+    out-of-sample, and it means a segment measures the strategy
+    *accumulating* rather than running on a mature portfolio.
+
+    `window` is the replayable span, which may be far shorter than the one
+    requested — a total-return series exists only where the price
+    adjustment is complete (ADR-032), and `bounded_by` names the asset
+    that decided it. `partition.refusal` at `WINDOW_TOO_SHORT` means that
+    span could not hold three segments; the answer is to ingest the
+    missing corporate actions, never to shorten the segments until they
+    fit.
+    """
+
+    settings: WalkForwardSettingsResponse
+    grid_version: str
+    window: BacktestWindowResponse
+    universe: list[str]
+    excluded: list[ExcludedAssetResponse]
+    candidates: list[PolicyCandidateResponse]
+    partition: WalkForwardPartitionResponse
+    folds: list[FoldResponse]
+    stability: WalkForwardStabilityResponse

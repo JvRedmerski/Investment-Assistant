@@ -105,6 +105,7 @@ Unidades dos indicadores: margens, crescimento, ROE, ROIC e DY são **frações*
 | Método | Rota | Nota |
 |---|---|---|
 | GET | `""` | replaya **uma das estratégias do próprio projeto** sobre o histórico. `strategy=contribution-plan` (ordena por score) ou `rebalance-plan` (ordena por distância até o alvo); `start` obrigatório, `end` default hoje; `amount` default = `monthly_contribution` do perfil (senão R$ 1.000); `day_of_month` é alvo, não data — cai na primeira sessão **em ou depois** dele. `tickers` restringe o universo, `benchmark` mede contra o catálogo. Custos (`brokerage`, `brokerage_rate`, `exchange_rate`) e toda a política de alocação são sobrescrevíveis e voltam em `settings`. Lê **só** do banco; nada é gravado |
+| GET | `/walk-forward` | valida os **parâmetros** fora da amostra (regras 61/62). A janela replayável é cortada em `Train → Validate → Test` — os três do **mesmo** tamanho (`segment_months`, default 12) — e o corte anda `step_months` por vez. Cada candidato é medido no treino, a shortlist é remedida na validação, e **só o vencedor** roda no teste: nada medido no teste alcança uma seleção. Os candidatos são uma **grade declarada** (`candidates[]`, com a pergunta que cada um responde e `grid_version`), um parâmetro por vez a partir da política que você passou — nunca produto cartesiano (regra 60). `objective=sharpe` (default) ou `total-return`. Aceita os mesmos overrides de custo e política de `""`. Lê **só** do banco; nada é gravado |
 
 ⚠️ **Três leituras obrigatórias antes de qualquer número dessa resposta.**
 
@@ -128,6 +129,29 @@ Unidades dos indicadores: margens, crescimento, ROE, ROIC e DY são **frações*
 `GET`, e não `POST`, porque nada é gravado (regra 16): rodar duas vezes com os mesmos parâmetros
 é a mesma requisição duas vezes, não dois recursos. Erros: 400 `UNKNOWN_STRATEGY`, 400
 `INVALID_WINDOW`, 404 `EMPTY_UNIVERSE`, 404 `BENCHMARK_NOT_FOUND`.
+
+⚠️ **E mais três antes de citar qualquer número do `/walk-forward`.**
+
+1. **A figura que responde a pergunta é `stability.degradation_mean`**, não os retornos.
+   Estratégia cujo out-of-sample acompanha o in-sample tem parâmetro que descreve alguma coisa;
+   a que desaba tem parâmetro que descrevia a amostra em que foi escolhido.
+   `stability.selection_rate` é a outra metade: walk-forward que escolhe vencedor diferente a
+   cada fold achou ruído, não parâmetro.
+2. **Com um fold só, todo agregado vem `null`** e `stability.refusal` é `SINGLE_FOLD`. Média de
+   uma observação e dispersão zero leriam como *perfeitamente estável*. O out-of-sample daquele
+   fold continua reportado — só o agregado é retido.
+3. **Todo segmento parte de carteira vazia**, que é o que torna candidatos comparáveis entre si
+   e o in-sample comparável ao out-of-sample. O custo: um segmento mede a estratégia
+   **acumulando**, não rodando sobre carteira madura.
+
+`partition.refusal = WINDOW_TOO_SHORT` significa que a janela replayável não coube em três
+segmentos, com `required_months` e `available_months` dizendo por quanto. A correção é a
+montante — ingerir os eventos societários que truncam a série de retorno total
+([ADR-032](../decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md)) —
+**nunca** encurtar os segmentos até caberem. `fold.refusal = OBJECTIVE_UNAVAILABLE` significa
+que nenhum candidato pôde ser pontuado: no objetivo padrão, que não há CDI cobrindo o segmento.
+Objetivo fora do enum → 422. ⚠️ **A rota roda muitos backtests** (um por candidato no treino,
+um por candidato da shortlist na validação, e um no teste, por fold).
 
 ### Benchmarks — `/api/v1/benchmarks` (todos autenticados)
 | Método | Rota | Nota |

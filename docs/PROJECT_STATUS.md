@@ -727,7 +727,7 @@ que fixture nenhum acha.
 - [x] **W14-001**: A partição train/validation/test, pura e determinística 🟢 COMPLETED
 - [x] **W14-002**: A grade de políticas candidatas e o objetivo de seleção 🟢 COMPLETED
 - [x] **W14-003**: O serviço walk-forward — seleção in-sample, medição out-of-sample, estabilidade 🟢 COMPLETED
-- [ ] **W14-004**: `GET /api/v1/backtests/walk-forward` ⚪ NOT_STARTED
+- [x] **W14-004**: `GET /api/v1/backtests/walk-forward` 🟢 COMPLETED
 - [ ] **W14-005**: Rodar contra o banco real e corrigir o que ele achar ⚪ NOT_STARTED
 
 #### Notas de implementação
@@ -808,6 +808,22 @@ de medição.
 Estabilidade é entre folds, e com **um** fold ela é `SINGLE_FOLD` com os agregados ausentes —
 média de um e desvio zero leriam como *perfeitamente estável*, que é o oposto do que uma
 observação sustenta. O vencedor daquele fold continua reportado; só o agregado é retido.
+
+**W14-004 — a rota, no mesmo router e não num novo.** `GET /api/v1/backtests/walk-forward`,
+`GET` pelo mesmo motivo do irmão: nada é gravado (regra 16). As duas respondem perguntas
+diferentes — `""` pergunta *o que a estratégia teria feito*, `/walk-forward` pergunta *se os
+parâmetros teriam se sustentado* — e por isso compartilham o universo, os custos e a política,
+que viraram três helpers (`_ensure_strategy`, `_closing_date`, `_required_universe`) em vez de
+dois envelopes de erro escritos duas vezes. `_policy_response` também saiu de dentro do
+`_response`: o walk-forward ecoa uma política por candidato, e uma segunda transcrição da mesma
+dataclass é chance de os dois endpoints descreverem-na diferente.
+O objetivo é tipado como enum na assinatura, então valor fora do conjunto é 422 pelo schema e
+aparece no OpenAPI como conjunto fechado — não há checagem manual a manter em sincronia. Os
+schemas foram para `backtesting/schemas.py`, que é a camada Pydantic em 13 de 13 módulos.
+Uma escolha de tamanho de resposta que vale registrar: `CandidateRunResponse` **não** repete a
+política. Ela aparece uma vez em `candidates[]`, e `name` é o que junta — com 7 candidatos ×
+(1 treino + 3 validação) por fold, repetir dez campos de política por linha seria triplicar a
+resposta sem acrescentar um fato.
 
 ---
 
