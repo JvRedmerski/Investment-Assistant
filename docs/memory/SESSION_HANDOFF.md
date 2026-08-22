@@ -6,7 +6,7 @@
 
 ## Last Completed Work
 
-### Wave 14 — Walk-Forward Validation, 5/5 (`8e3d820`, `ca60909`, `f806ab0`, `df8cec3`, e o commit da W14-005)
+### Wave 14 — Walk-Forward Validation, 5/5 (`8e3d820`, `ca60909`, `f806ab0`, `df8cec3`, `29c182b`)
 
 O roadmap previa uma task. Foram cinco, e as quatro a mais não são subdivisão: a partição é
 uma coisa, **o que se ajusta** é outra, medir out-of-sample é uma terceira, e rodar contra o
