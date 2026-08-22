@@ -97,6 +97,11 @@ class WalkForwardScheme:
         return self.segment_months * 3
 
 
+#: The scheme a caller gets by asking for none: a year each, moving a
+#: year at a time.
+DEFAULT_SCHEME = WalkForwardScheme()
+
+
 @dataclass(frozen=True)
 class Segment:
     """One period a strategy may be measured over, both ends inclusive."""
@@ -151,7 +156,7 @@ class Partition:
 def partition(
     window_start: date,
     window_end: date,
-    scheme: WalkForwardScheme = WalkForwardScheme(),
+    scheme: WalkForwardScheme = DEFAULT_SCHEME,
 ) -> Partition:
     """Cut `[window_start, window_end]` into as many folds as it holds.
 

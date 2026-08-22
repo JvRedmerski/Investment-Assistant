@@ -153,6 +153,34 @@ class WealthPoint:
 
 
 @dataclass(frozen=True)
+class TestableUniverse:
+    """What of an offered universe can be replayed, and over what span.
+
+    Split out of `run_backtest` so the walk-forward can lay its folds over
+    the same span a single run would have used (W14-003). A partition
+    built on the *requested* window would put train segments in history
+    where the total-return series does not exist yet, and every fold
+    before `start` would measure an empty portfolio — not a bad result, a
+    result about nothing.
+
+    `start` is the resolved opening: the requested one, or the first date
+    every asset is measurable from when that is later. `bounded_by` is
+    already gated the way `BacktestWindow` needs it — named only when
+    something beyond the trading calendar moved the opening.
+
+    `last_session` is the latest stored bar across the testable assets,
+    which is what a caller needs to stop a fold landing entirely past the
+    end of the data.
+    """
+
+    assets: tuple[Asset, ...]
+    excluded: tuple[tuple[str, str], ...]
+    bounded_by: str | None
+    start: date
+    last_session: date | None
+
+
+@dataclass(frozen=True)
 class BacktestWindow:
     """The period asked for, the period run, and what shortened it."""
 
@@ -203,20 +231,16 @@ def run_backtest(
         raise ValueError(f"Unknown strategy: {settings.strategy}")
 
     rows = _price_rows(db, assets, settings.end)
-    testable, excluded, bounded_by, complete_from = _testable_universe(assets, rows)
+    scope = testable_universe(db, assets, settings.start, settings.end, rows=rows)
+    testable, excluded = list(scope.assets), scope.excluded
+    start = scope.start
 
-    start = max(settings.start, complete_from) if complete_from else settings.start
-    # Compared against the first session the universe actually has, not
-    # against the date asked for: a request starting on 1 January always
-    # runs from the 2nd, and naming an asset for that would report a data
-    # problem where there is only a holiday.
-    natural = _first_session_from(rows, testable, settings.start)
     window = BacktestWindow(
         requested_start=settings.start,
         requested_end=settings.end,
         start=start,
         end=settings.end,
-        bounded_by=bounded_by if natural is not None and start > natural else None,
+        bounded_by=scope.bounded_by,
     )
 
     if not testable or start > settings.end:
@@ -364,6 +388,47 @@ def _cash_actions(
 
 
 # -- what can be tested, and from when --------------------------------
+
+
+def testable_universe(
+    db: Session,
+    assets: Sequence[Asset],
+    start: date,
+    end: date,
+    rows: Sequence[AssetPrice] | None = None,
+) -> TestableUniverse:
+    """Which of `assets` can be replayed, and over what span.
+
+    The window resolution `run_backtest` performs, reachable on its own
+    so the walk-forward can partition the same span rather than a second
+    opinion of it (W14-003). Two callers deriving the opening date
+    separately is how they would come to disagree about which history
+    exists — the same reasoning that keeps alpha gated on the beta
+    `compare` reached rather than on a second reading of the benchmark.
+
+    `rows` is accepted so a caller that already loaded the bars does not
+    pay for them twice.
+    """
+    bars = list(rows) if rows is not None else _price_rows(db, assets, end)
+    testable, excluded, bounded_by, complete_from = _testable_universe(assets, bars)
+
+    opening = max(start, complete_from) if complete_from else start
+    # Compared against the first session the universe actually has, not
+    # against the date asked for: a request starting on 1 January always
+    # runs from the 2nd, and naming an asset for that would report a data
+    # problem where there is only a holiday.
+    natural = _first_session_from(bars, testable, start)
+
+    ids = {asset.id for asset in testable}
+    sessions = [bar.date for bar in bars if bar.asset_id in ids]
+
+    return TestableUniverse(
+        assets=tuple(testable),
+        excluded=excluded,
+        bounded_by=(bounded_by if natural is not None and opening > natural else None),
+        start=opening,
+        last_session=max(sessions) if sessions else None,
+    )
 
 
 def _testable_universe(

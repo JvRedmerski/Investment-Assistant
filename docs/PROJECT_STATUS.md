@@ -726,7 +726,7 @@ que fixture nenhum acha.
 
 - [x] **W14-001**: A partição train/validation/test, pura e determinística 🟢 COMPLETED
 - [x] **W14-002**: A grade de políticas candidatas e o objetivo de seleção 🟢 COMPLETED
-- [ ] **W14-003**: O serviço walk-forward — seleção in-sample, medição out-of-sample, estabilidade ⚪ NOT_STARTED
+- [x] **W14-003**: O serviço walk-forward — seleção in-sample, medição out-of-sample, estabilidade 🟢 COMPLETED
 - [ ] **W14-004**: `GET /api/v1/backtests/walk-forward` ⚪ NOT_STARTED
 - [ ] **W14-005**: Rodar contra o banco real e corrigir o que ele achar ⚪ NOT_STARTED
 
@@ -778,6 +778,36 @@ silencioso para uma segunda figura tornaria duas execuções do mesmo comando in
 conforme o que estivesse no banco. CAGR é medido e **nunca** é objetivo: dentro de um fold os
 três segmentos têm o mesmo tamanho por construção, então anualizar não muda ordenação nenhuma
 — seria o mesmo objetivo com outro nome.
+
+**W14-003 — nada medido no teste alcança uma seleção, e é só isso que faz o número valer.**
+Treino pergunta a grade inteira (sete execuções, uma pergunta cada); validação pergunta só a
+shortlist, sobre história que a ordenação não viu — existe porque o melhor candidato de um
+período é muito frequentemente o melhor **ajuste àquele período**, e um passo à frente é o
+teste mais barato de se a resposta sobrevive. Teste roda o vencedor e mais ninguém. Shortlist
+de três: o bastante para o vencedor do treino não se confirmar sozinho, pouco o bastante para
+a validação continuar sendo conferência e não segunda varredura.
+Nenhuma medição nova entra aqui: cada segmento é um `run_backtest` sobre o mesmo universo, com
+outra política e outro intervalo, então um fold é medido **pelo mesmo código que mede a
+carteira do investidor** — que é a razão inteira de a W13 ter recusado uma segunda
+contabilidade. `testable_universe` saiu de dentro do `run_backtest` para que a partição caia
+sobre **o mesmo intervalo** que uma execução única usaria; duas resoluções separadas da janela
+é como as duas passariam a discordar sobre qual história existe.
+**Todo segmento parte de carteira vazia**, e é por isso que os três têm o mesmo tamanho: a
+execução não herda nada, então a única coisa que difere entre candidatos — e entre in-sample e
+out-of-sample — é a política e o período. ⚠️ O custo é real e está dito: um segmento mede a
+estratégia **acumulando**, não rodando sobre carteira madura. Carregar a carteira através da
+fronteira consertaria isso e quebraria a comparação: o segmento de teste herdaria o que o
+candidato vencedor por acaso comprou, e os dois lados deixariam de ser o mesmo experimento.
+A figura que interessa é a **degradação**: o que o vencedor marcou na validação menos o que
+marcou no teste. Estratégia cujo out-of-sample acompanha o in-sample tem parâmetro que descreve
+alguma coisa; a que desaba tem parâmetro que descrevia a amostra. E empate vai para a política
+**já em produção** — `sorted` é estável e a grade põe o baseline primeiro, então variante nunca
+desloca o que está rodando por empatar com ele. Candidato sem valor de objetivo é **ausente da
+ordenação**, não último: tratá-lo como pior nota deixaria um candidato ser batido por uma falha
+de medição.
+Estabilidade é entre folds, e com **um** fold ela é `SINGLE_FOLD` com os agregados ausentes —
+média de um e desvio zero leriam como *perfeitamente estável*, que é o oposto do que uma
+observação sustenta. O vencedor daquele fold continua reportado; só o agregado é retido.
 
 ---
 
