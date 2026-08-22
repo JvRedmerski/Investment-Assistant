@@ -290,6 +290,12 @@ retorno, chame `adjusted_price_points` / `adjusted_closes_by_asset`; não monte 
 
 A resiliência HTTP não é reescrita por provedor: `integrations/http.py` (`RetryingJsonClient`) concentra timeout, retry limitado, backoff e throttle, recebendo as classes de exceção de cada integração. Um provedor concreto escreve apenas URL e parsing. ([ADR-012](../decisions/ADR-012-shared-http-transport.md))
 
+Desde a W15 ele aceita também um `error_mapper` **opcional**: um callable consultado antes do
+mapeamento padrão, para o caso em que o status sozinho lê errado a resposta. Existe porque a
+Brapi recusa intervalo intraday com HTTP 400 e um corpo que nomeia um limite de plano — mapeado
+só pelo status isso vira "provedor inalcançável", que é falso duas vezes. Omitir o parâmetro
+mantém o comportamento anterior byte a byte.
+
 ### A camada que explica, e o que ela é proibida de fazer
 
 `app/domain/ai/` é a Wave 12, e o desenho inteiro dela existe para tornar
@@ -364,11 +370,18 @@ DTO Pydantic na fronteira (tipos/obrigatoriedade) **e** validador de qualidade d
 | `TickerNotFoundError` | 404 | `MARKET_DATA_TICKER_NOT_FOUND` |
 | `MarketDataUnavailableError` | 503 | `MARKET_DATA_UNAVAILABLE` |
 | `InvalidMarketDataResponseError` | 502 | `MARKET_DATA_INVALID_RESPONSE` |
+| `IntradayNotAvailableError` | **400** | `INTRADAY_NOT_AVAILABLE` |
 | `FundamentalsNotFoundError` | 404 | `FUNDAMENTALS_NOT_FOUND` |
 | `FundamentalsUnavailableError` | 503 | `FUNDAMENTALS_UNAVAILABLE` |
 | `InvalidFundamentalsResponseError` | 502 | `FUNDAMENTALS_INVALID_RESPONSE` |
 
 Retry é **limitado** e só para falhas transitórias (timeout, erro de conexão, HTTP 429/5xx) com backoff exponencial; 4xx falha imediatamente. Nunca retry infinito. (AGENTS.md §22)
+
+⚠️ **`IntradayNotAvailableError` é 400 e não 503 de propósito.** O fornecedor respondeu, e a
+resposta não muda em retry: é limite de plano, liberado **por ticker**. `503 SERVICE_UNAVAILABLE`
+diria "tente de novo mais tarde" sobre algo que não vai ceder. É a mesma leitura que já põe
+`HistoryWindowTooLargeError` em 400 ([ADR-022](../decisions/ADR-022-provider-plan-limits-are-refused-locally.md)):
+quem tem de mudar é o pedido, ou o plano.
 
 ### 4. Dinheiro é `Decimal`
 Colunas monetárias são `NUMERIC(18,6)` (constante `MONEY` em `data/models/portfolio.py` e `assets.py`); schemas usam `Decimal`; cálculos somam `Decimal`, nunca `float`. (AGENTS.md §17, [ADR-003](../decisions/ADR-003-decimal-money.md))
@@ -403,7 +416,7 @@ Rejeições de qualidade de dados são logadas (`logger.warning`) e contabilizad
 
 Tudo em `core/config.py` (`pydantic-settings`, `env_file=".env"`, `case_sensitive=True`, `extra="ignore"`), exposto como singleton `settings`. Nunca leia `os.environ` diretamente; nunca hardcode secret.
 
-Grupos: app (`APP_NAME`, `APP_ENV`, `API_V1_STR`, `SECRET_KEY`, `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`) · banco (`DATABASE_URL`, `POSTGRES_*`) · CORS · market data (`MARKET_DATA_PROVIDER`, `BRAPI_TOKEN`, `BRAPI_BASE_URL`, `MARKET_DATA_TIMEOUT_SECONDS`, `MARKET_DATA_MAX_RETRIES`, `MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS`) · fundamentals (`FUNDAMENTALS_PROVIDER`, `FUNDAMENTALS_TIMEOUT_SECONDS`, `FUNDAMENTALS_MAX_RETRIES`, `FUNDAMENTALS_MIN_REQUEST_INTERVAL_SECONDS` — knobs próprios porque a cadência é diferente, ainda que o fornecedor e o rate limit sejam os mesmos) · IA (`AI_PROVIDER` — `gemini` | `ollama` | `none` —, `GEMINI_API_KEY`, `GEMINI_BASE_URL`, `GEMINI_MODEL`, `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `AI_TIMEOUT_SECONDS`, `AI_MAX_RETRIES`, `AI_MIN_REQUEST_INTERVAL_SECONDS`, `AI_TEMPERATURE`, `AI_MAX_OUTPUT_TOKENS`). **Nenhuma dessas pode mudar um número em lugar nenhum** (ADR-009): o pior que um valor errado aqui faz é deixar a explicação indisponível.
+Grupos: app (`APP_NAME`, `APP_ENV`, `API_V1_STR`, `SECRET_KEY`, `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`) · banco (`DATABASE_URL`, `POSTGRES_*`) · CORS · market data (`MARKET_DATA_PROVIDER`, `BRAPI_TOKEN`, `BRAPI_BASE_URL`, `MARKET_DATA_TIMEOUT_SECONDS`, `MARKET_DATA_MAX_RETRIES`, `MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS`) · fundamentals (`FUNDAMENTALS_PROVIDER`, `FUNDAMENTALS_TIMEOUT_SECONDS`, `FUNDAMENTALS_MAX_RETRIES`, `FUNDAMENTALS_MIN_REQUEST_INTERVAL_SECONDS` — knobs próprios porque a cadência é diferente, ainda que o fornecedor e o rate limit sejam os mesmos) · intraday (`INTRADAY_PROVIDER` — seletor próprio, não um reuso de `MARKET_DATA_PROVIDER`: servir cotação e servir vela de um minuto são capacidades diferentes, com limites diferentes) · IA (`AI_PROVIDER` — `gemini` | `ollama` | `none` —, `GEMINI_API_KEY`, `GEMINI_BASE_URL`, `GEMINI_MODEL`, `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `AI_TIMEOUT_SECONDS`, `AI_MAX_RETRIES`, `AI_MIN_REQUEST_INTERVAL_SECONDS`, `AI_TEMPERATURE`, `AI_MAX_OUTPUT_TOKENS`). **Nenhuma dessas pode mudar um número em lugar nenhum** (ADR-009): o pior que um valor errado aqui faz é deixar a explicação indisponível.
 
 ## Testes
 
