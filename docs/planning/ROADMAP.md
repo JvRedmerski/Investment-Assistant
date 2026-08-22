@@ -7,10 +7,14 @@ Legenda: 🟢 concluída · 🟡 em progresso · ⚪ não iniciada
 
 ## Estado geral
 
-**13 / 33 concluídas** (W00–W12), **mais duas waves inseridas fora da ordem** — ver abaixo.
-Fronteira atual: a **Wave 14 — Walk-Forward Validation**. A W13 fechou em 2026-08-21 com 6 tasks (o roadmap previa 2): o backtest **fala ledger**, então mede com o mesmo código que mede a carteira do investidor, e replaya **a** estratégia do projeto em vez de uma reimplementação dela. Registro anterior: a **Wave 13 — Backtesting**. As W10, W11 e W12 fecharam em 2026-08-21: a W11
-tirou o frontend do estado de scaffold e a W12 trouxe a camada que explica — e que por contrato
-não calcula (ver [CURRENT_TASK.md](../memory/CURRENT_TASK.md)).
+**15 / 33 concluídas** (W00–W14), **mais duas waves inseridas fora da ordem** — ver abaixo.
+Fronteira atual: a **Wave 15 — Day Trade Data**, que abre o módulo intraday. A W14 fechou em
+2026-08-22 com 5 tasks (o roadmap previa 1): a validação out-of-sample, e o veredicto de que os
+parâmetros da estratégia **não são estáveis** sobre a história que existe hoje. Antes dela a W13,
+também em 5 tasks a mais do que o previsto: o backtest **fala ledger**, então mede com o mesmo
+código que mede a carteira do investidor, e replaya **a** estratégia do projeto em vez de uma
+reimplementação dela. As W10, W11 e W12 fecharam em 2026-08-21: a W11 tirou o frontend do estado
+de scaffold e a W12 trouxe a camada que explica — e que por contrato não calcula.
 
 ## Waves inseridas fora da ordem
 
@@ -64,7 +68,17 @@ o último dos 10 indicadores sem insumo.
 |---|---|---|---|---|
 | W12 | **AI Engine** — `AIProvider` (Gemini/Ollama/none), fact pack e explicações auditáveis | 🟢 — 3 tasks ([ADR-029](../decisions/ADR-029-ai-provider-speaks-rest.md), [ADR-030](../decisions/ADR-030-fact-pack-and-the-hallucination-guard.md)) | W09 | §24 |
 | W13 | **Backtesting de carteira** — simulação histórica de aportes + métricas | 🟢 — 6 tasks ([ADR-031](../decisions/ADR-031-a-statement-is-readable-only-after-the-filing-deadline.md), [ADR-032](../decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md)) | W07, W09 | §25 |
-| **W14** | Walk-forward — janelas móveis, validação out-of-sample | ⚪ **próxima** | W13 | §26 |
+| W14 | Walk-forward — janelas móveis, validação out-of-sample | 🟢 — 5 tasks ([ADR-034](../decisions/ADR-034-the-grid-is-a-hypothesis-set-not-a-search-space.md), [ADR-035](../decisions/ADR-035-equal-segments-from-an-empty-portfolio.md)) | W13 | §26 |
+
+✅ **A W14 é a wave que consegue dizer que a estratégia não passou** (2026-08-22). Treino ordena,
+validação escolhe, **teste só reporta** — nada medido no teste alcança uma seleção, que é a única
+razão de um número out-of-sample significar alguma coisa. A grade é **conjunto de hipóteses** (um
+campo por candidato, com a pergunta escrita ao lado), nunca produto cartesiano. Rodada contra o
+banco real sobre PETR4+BBAS3: o vencedor mudou a cada fold, o fold 2 escolheu por **0,2 p.p.** e
+perdeu **90 pontos** fora da amostra, e a política que o projeto entrega não foi escolhida em fold
+nenhum. **Os parâmetros não são estáveis** — e esse é o produto da wave, não a sua falha.
+⚠️ Com os quatro ativos acompanhados a janela replayável é de **nove meses**, então o esquema
+padrão **recusa**. Ampliar isso é ingerir os eventos societários que faltam, não relaxar a regra.
 
 ✅ **A W12 fez da regra "a IA não calcula" um mecanismo** (2026-08-21): o modelo recebe um
 **fact pack** — valores já calculados, já arredondados na string que a tela mostra — e um guard
@@ -80,7 +94,7 @@ Não compartilha scores nem estratégias com o motor de longo prazo (AGENTS.md �
 
 | Wave | Objetivo | Status | Depende de | Spec |
 |---|---|---|---|---|
-| W15 | Ingestão intraday (1m/5m/15m) | ⚪ | W05 | §27 |
+| **W15** | Ingestão intraday (1m/5m/15m) | ⚪ **próxima** | W05 | §27 |
 | W16 | Indicadores (VWAP, EMA 9/21, RSI, ATR, RVOL) e setups (Breakout, Pullback, VWAP) | ⚪ | W15 | §28 |
 | W17 | Risk Engine — sizing, stop, R/R, circuit breaker diário | ⚪ | W16 | §29 |
 | W18 | Dashboard de Day Trade | ⚪ | W16, W17 | §30 |

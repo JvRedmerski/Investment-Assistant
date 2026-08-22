@@ -143,6 +143,17 @@ Unidades dos indicadores: margens, crescimento, ROE, ROIC e DY são **frações*
 3. **Todo segmento parte de carteira vazia**, que é o que torna candidatos comparáveis entre si
    e o in-sample comparável ao out-of-sample. O custo: um segmento mede a estratégia
    **acumulando**, não rodando sobre carteira madura.
+4. **O objetivo mede o dinheiro que foi aplicado, não o que foi dado.** Ele lê o índice
+   time-weighted, que avalia posição e não caixa
+   ([ADR-019](../decisions/ADR-019-portfolio-return-is-time-weighted.md)). Medido no banco real:
+   um segmento de 2023 sobre PETR4+BBAS3 terminou com **R$ 3.239,88 em posição e R$ 9.892,81 em
+   caixa** sobre R$ 12.000 aportados — índice **+101,38%**, dinheiro **+9,44%**. Os dois estão
+   certos e respondem perguntas diferentes; `outcome.contributed` e `outcome.final_value` vêm
+   lado a lado para a segunda leitura ficar a uma subtração.
+5. **Candidato que não preencheu ordem nenhuma não é ranqueado.** Índice achatado em 100 dá
+   retorno exatamente zero, e zero ganharia de todo candidato que aplicou e perdeu.
+   `outcome.unrankable = NO_POSITION_TAKEN` é o que diz isso — achado sobre a política, não
+   lacuna de dado.
 
 `partition.refusal = WINDOW_TOO_SHORT` significa que a janela replayável não coube em três
 segmentos, com `required_months` e `available_months` dizendo por quanto. A correção é a

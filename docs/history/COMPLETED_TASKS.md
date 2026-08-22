@@ -695,6 +695,65 @@ Nenhum era alcançável por fixture:
 
 ---
 
+## Wave 14 — Walk-Forward Validation 🟢
+
+> A wave que consegue dizer que a estratégia **não** passou. 5 tasks (o roadmap previa 1).
+
+- **W14-001** — a partição `Train → Validate → Test`, pura e determinística, com o corte movendo
+- **W14-002** — a grade de políticas candidatas e o objetivo de seleção
+- **W14-003** — o serviço: treino ordena, validação escolhe, teste só reporta
+- **W14-004** — `GET /api/v1/backtests/walk-forward`
+- **W14-005** — rodar contra o banco real, e corrigir o que ele achou
+
+### O ponto da wave, em uma frase
+
+**Nada medido no teste alcança uma seleção.** Treino pergunta à grade inteira, validação pergunta
+só à shortlist sobre história que a ordenação não viu, e teste roda o vencedor e mais ninguém.
+É a regra 61 inteira, e é a única razão de um número out-of-sample significar alguma coisa.
+
+### As duas decisões que sustentam isso
+
+1. **A grade é um conjunto de hipóteses, não um espaço de busca**
+   ([ADR-034](../decisions/ADR-034-the-grid-is-a-hypothesis-set-not-a-search-space.md)). Sete
+   candidatos, cada um diferindo da política do chamador em **exatamente um campo**, cada um com
+   a pergunta que responde escrita ao lado. O produto cartesiano dos mesmos três eixos seria
+   dezoito — varredura vestida de walk-forward. Empate vai para a política **já em produção**.
+2. **Os três segmentos têm o mesmo tamanho e cada um parte de carteira vazia**
+   ([ADR-035](../decisions/ADR-035-equal-segments-from-an-empty-portfolio.md)). A estratégia
+   constrói carteira por aporte mensal, então o tamanho do segmento muda o que ele mede: um teste
+   mais curto reportaria degradação que é em parte só carteira mais nova. Confundidor removido
+   **por construção**, não corrigido depois.
+
+### O defeito que só rodar contra o banco real achou
+
+Candidato que **não preencheu ordem nenhuma** era pontuado em **zero** — e zero ganha de todo
+candidato que aplicou e perdeu dinheiro. Uma política que não financiou nada venceria qualquer ano
+de queda, na força de um índice achatado em 100 por construção. Agora é `NO_POSITION_TAKEN`:
+não-ranqueável, não pontuado em zero.
+
+### O veredicto, que é o produto da wave
+
+PETR4+BBAS3, três folds anuais: o vencedor **mudou a cada fold** (`selection_rate` 0,50), o fold 2
+escolheu por **0,2 ponto percentual** e perdeu **90 pontos** de retorno fora da amostra, e a
+`default` — a política que o projeto entrega — não foi selecionada em fold nenhum. **Os parâmetros
+não são estáveis** sobre a história que existe hoje.
+
+### Balanço
+
+- `pytest` **1.063 → 1.129**. Nenhuma migration: nada da wave é gravado (regra 16).
+- **Nenhuma dependência adicionada.**
+- Dois ADRs novos ([034](../decisions/ADR-034-the-grid-is-a-hypothesis-set-not-a-search-space.md),
+  [035](../decisions/ADR-035-equal-segments-from-an-empty-portfolio.md)).
+- ⚠️ **O universo acompanhado não suporta o esquema padrão**: nove meses de janela replayável
+  contra 36 exigidos, `bounded_by: ITUB4`. A resposta é `WINDOW_TOO_SHORT`, e a correção é a
+  montante — ingerir os eventos societários que faltam.
+- ⚠️ **O objetivo mede o dinheiro aplicado, não o dado** (índice time-weighted não vê caixa).
+  Nomeado no código, na API e em *Future Work*; corrigi-lo com uma segunda definição de retorno
+  seria pior do que nomear a lacuna.
+- ⚠️ **Nenhuma tela lê um walk-forward** — backend-only, como a W13.
+
+---
+
 ## Marcos de infraestrutura de conhecimento
 
 - **2026-08-17** — Sistema de memória persistente criado: `CLAUDE.md` na raiz + `docs/{memory,architecture,decisions,planning,history}/`, com 11 ADRs extraídos do código e do histórico de decisões.

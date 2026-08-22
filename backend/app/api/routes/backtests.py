@@ -306,6 +306,20 @@ def run_strategy_walk_forward(
     out-of-sample, and it means each segment measures the strategy
     *accumulating* rather than running on a mature portfolio.
 
+    ⚠️ **The objective measures the money that was deployed, not the money
+    that was given.** It reads the time-weighted index, which values
+    positions and not cash (ADR-019), so a policy that invested a tenth of
+    the contributions and doubled it outranks one that invested most of
+    them and gained a third. `outcome.contributed` and
+    `outcome.final_value` are reported side by side so the money reading
+    is one subtraction away.
+
+    ⚠️ **A candidate that never filled an order does not rank.** Its index
+    is flat at 100 by construction, so its total return is exactly zero —
+    and zero would beat every candidate that invested and lost.
+    `outcome.unrankable` at `NO_POSITION_TAKEN` is what says so, and it is
+    a finding about the policy rather than a gap in the data.
+
     ⚠️ **This runs many backtests** — one per candidate on train, one per
     shortlisted candidate on validation, and one on test, for every fold.
     Nothing is fetched and nothing is stored (rules 16 and 23), but the
@@ -677,4 +691,5 @@ def _outcome_response(outcome: SegmentOutcome) -> SegmentOutcomeResponse:
         slippage=outcome.slippage,
         contributed=outcome.contributed,
         final_value=outcome.final_value,
+        unrankable=outcome.unrankable,
     )

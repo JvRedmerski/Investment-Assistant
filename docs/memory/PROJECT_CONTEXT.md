@@ -125,15 +125,33 @@ O produto final deve responder: *Como está minha carteira? Estou batendo o CDI?
   Custo é modelado e **slippage é medido** — o intervalo entre decidir e preencher, somado do que
   aconteceu, em vez de uma taxa inventada.
 
+- **A validação que sabe dizer que a estratégia não passou.** O walk-forward corta a janela
+  replayável em `Train → Validate → Test` e move o corte. Treino pergunta à grade inteira,
+  validação pergunta só à shortlist sobre história que a ordenação não viu, e teste roda o
+  vencedor e mais ninguém — **nada medido no teste alcança uma seleção**, que é a única razão de
+  um número out-of-sample significar alguma coisa. A grade é um **conjunto de hipóteses**: um
+  campo por candidato, com a pergunta que responde escrita ao lado, nunca produto cartesiano
+  ([ADR-034](../decisions/ADR-034-the-grid-is-a-hypothesis-set-not-a-search-space.md)). Os três
+  segmentos têm o **mesmo tamanho** e cada um parte de carteira vazia, porque a idade da carteira
+  seria confundidor da própria comparação
+  ([ADR-035](../decisions/ADR-035-equal-segments-from-an-empty-portfolio.md)). Nada de novo é
+  medido: cada segmento é um backtest, então um fold é medido com o mesmo código que mede a
+  carteira do investidor.
+
+  **E o que ela mediu foi que os parâmetros não são estáveis.** Sobre PETR4 e BBAS3, três folds
+  anuais, o vencedor mudou a cada fold, um deles foi escolhido por 0,2 ponto percentual e perdeu
+  90 pontos fora da amostra, e a política que o projeto entrega não foi escolhida em fold nenhum.
+  Uma wave de validação que só sabe dizer "passou" não valida nada.
+
 ### Em desenvolvimento
-- **Nenhuma wave em andamento.** A próxima é a **Wave 14 — Walk-Forward Validation**. Ver
-  [CURRENT_TASK.md](CURRENT_TASK.md), que também lista a verificação pendente da W12.
+- **Nenhuma wave em andamento.** A próxima é a **Wave 15 — Day Trade Data**, que abre o módulo
+  intraday. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ### Planejado (não existe código)
-Walk-forward → Day Trade (intraday, setups, risco, paper trading) → Observabilidade/Segurança/CI-CD/Deploy.
+Day Trade (intraday, setups, risco, paper trading) → Observabilidade/Segurança/CI-CD/Deploy.
 Ver [../planning/ROADMAP.md](../planning/ROADMAP.md).
 
-As capacidades acima estão **expostas em tela** desde a W11. O que continua sem interface: **backtesting e IA, que existem no backend e não em tela** (as duas waves são backend-only por decisão; o roadmap põe `/backtests` na W22), e day trade, que ainda não existe em lugar nenhum.
+As capacidades acima estão **expostas em tela** desde a W11. O que continua sem interface: **backtesting, walk-forward e IA, que existem no backend e não em tela** (as três waves são backend-only por decisão; o roadmap põe `/backtests` na W22), e day trade, que ainda não existe em lugar nenhum.
 
 ## Stack real (o que está de fato em uso)
 
@@ -167,7 +185,7 @@ PostgreSQL  ←  Alembic migrations
 
 Domínios conceituais (AGENTS.md §4):
 `Market Data → Quant Engine → Portfolio Engine → Recommendation Engine → AI Engine (só explicação)`.
-Os cinco existem desde a W12; desde a W13 há um sexto, o **Backtesting Engine**, que não é uma nova contabilidade — é o replay que consome os outros.
+Os cinco existem desde a W12; desde a W13 há um sexto, o **Backtesting Engine**, que não é uma nova contabilidade — é o replay que consome os outros. A W14 acrescentou o **walk-forward** dentro dele, pela mesma razão: não é um segundo motor, é o mesmo backtest rodado sobre partições de janela.
 
 ## Documentos-âncora do projeto
 

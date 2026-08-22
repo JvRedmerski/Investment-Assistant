@@ -273,7 +273,13 @@ class SegmentOutcomeResponse(BaseModel):
     `objective` is the single figure the fold ranked on, lifted out of
     `metrics` so it is readable without knowing which objective was
     asked for. `null` there means the candidate was **not ranked** — not
-    ranked last.
+    ranked last — and `unrankable` names which of the two reasons applied.
+
+    ⚠️ **`NO_POSITION_TAKEN` is a finding, not a gap.** A policy that
+    never filled an order has an index flat at 100 by construction, so
+    `metrics.total_return` is exactly zero — and zero would outrank every
+    candidate that invested and lost money. The figure measured an empty
+    portfolio, so it does not rank; `trades` at zero is what says so.
     """
 
     metrics: SegmentMetricsResponse
@@ -283,6 +289,7 @@ class SegmentOutcomeResponse(BaseModel):
     slippage: Decimal
     contributed: Decimal
     final_value: Decimal | None
+    unrankable: str | None
 
 
 class PolicyCandidateResponse(BaseModel):
@@ -321,8 +328,10 @@ class FoldResponse(BaseModel):
 
     `refusal` at `OBJECTIVE_UNAVAILABLE` means no candidate could be
     scored — on the default objective, that no CDI covers the segment.
-    The runs still happened and are still listed: a fold that could not
-    choose is not a fold that did not run.
+    `NO_POSITION_TAKEN` means something else entirely and is a finding
+    about the policy: every candidate funded nothing over this segment.
+    The runs still happened and are still listed either way — a fold that
+    could not choose is not a fold that did not run.
     """
 
     index: int

@@ -20,7 +20,7 @@ backend/
 │   │   ├── <área>/             schemas.py (Pydantic) + service.py (regra de negócio)
 │   │   ├── recommendations/    + scoring.py e allocation.py — puros, no molde do app/quant/
 │   │   ├── ai/                 facts · formatting · prompting · guard · service + prompts/*.txt (versionados)
-│   │   └── backtesting/        simulation · metrics · availability (puros) + universe · service (I/O)
+│   │   └── backtesting/        simulation · metrics · availability · folds · grid · objectives (puros) + universe · service · walkforward (I/O)
 │   ├── quant/                  returns.py · risk.py — puro, sem I/O, tudo em Decimal
 │   ├── integrations/
 │   │   ├── http.py             RetryingJsonClient — transporte compartilhado (retry/throttle)
@@ -87,6 +87,27 @@ pontuado, o que basta para um score exibido hoje e **não** para um backtest: ex
 em 31 de dezembro não é público em 1º de janeiro. `backtesting/availability.py` traz o prazo da
 CVM (três meses) como parâmetro, e ele é **zero por padrão** no caminho vivo — só o backtest
 passa o valor real ([ADR-031](../decisions/ADR-031-a-statement-is-readable-only-after-the-filing-deadline.md)).
+
+### O walk-forward escolhe onde nunca é julgado
+
+`backtesting/folds.py` corta a janela replayável em `Train → Validate → Test` e move o corte;
+`grid.py` declara quais políticas podem ser tentadas; `objectives.py` diz quanto vale um
+segmento. Os três são puros. `walkforward.py` é o I/O que os junta, e **não mede nada de novo**:
+cada segmento é um `run_backtest` sobre o mesmo universo com outra política e outro intervalo,
+de modo que um fold é medido pelo mesmo código que mede a carteira do investidor — a mesma razão
+de a W13 não ter uma segunda contabilidade. `testable_universe` saiu de dentro do `run_backtest`
+para que a partição caia sobre **o mesmo intervalo** que uma execução única usaria.
+
+Treino pergunta à grade inteira; validação pergunta só à shortlist, sobre história que a
+ordenação não viu; teste roda o vencedor e mais ninguém. **Nada medido no teste alcança uma
+seleção** — é a regra 61 inteira. E a grade é um **conjunto de hipóteses**: um campo por
+candidato, com a pergunta que ele responde escrita ao lado, nunca produto cartesiano
+([ADR-034](../decisions/ADR-034-the-grid-is-a-hypothesis-set-not-a-search-space.md)).
+
+Os três segmentos têm o **mesmo tamanho** e cada um parte de **carteira vazia**: a estratégia
+constrói carteira por aporte mensal, então o tamanho do segmento muda o que ele mede, e a idade
+da carteira seria confundidor da própria comparação que a wave faz
+([ADR-035](../decisions/ADR-035-equal-segments-from-an-empty-portfolio.md)).
 
 ## Fluxo de uma requisição
 

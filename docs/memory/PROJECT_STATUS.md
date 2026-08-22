@@ -6,9 +6,34 @@
 
 ## Current Phase
 
-**Wave 13 — Backtesting concluída** (2026-08-21), **6 de 6 tasks**. **14 de 33 waves do roadmap
-concluídas** (W00–W13), mais as duas inseridas fora da ordem (PRICE e EVENTS). **A próxima é a
-Wave 14 — Walk-Forward Validation.**
+**Wave 14 — Walk-Forward Validation concluída** (2026-08-22), **5 de 5 tasks**. **15 de 33 waves
+do roadmap concluídas** (W00–W14), mais as duas inseridas fora da ordem (PRICE e EVENTS).
+**A próxima é a Wave 15 — Day Trade Data**, que abre o módulo intraday.
+
+✅ **A W14 é a wave que consegue dizer que a estratégia não passou.** Treino pergunta à grade
+inteira, validação pergunta só à shortlist sobre história que a ordenação não viu, e teste roda
+o vencedor e mais ninguém: **nada medido no teste alcança uma seleção** (regra 61). A grade é um
+**conjunto de hipóteses** — um campo por candidato, com a pergunta que responde escrita ao lado
+—, nunca produto cartesiano
+([ADR-034](../decisions/ADR-034-the-grid-is-a-hypothesis-set-not-a-search-space.md)). E os três
+segmentos têm o **mesmo tamanho**, cada um partindo de carteira vazia, porque a idade da carteira
+seria confundidor da própria comparação que a wave faz
+([ADR-035](../decisions/ADR-035-equal-segments-from-an-empty-portfolio.md)).
+
+🔴 **Rodar contra o banco real achou um defeito que fixture nenhum acharia.** Candidato que **não
+preencheu ordem nenhuma** era pontuado em **zero** — índice achatado em 100 por construção — e
+zero ganha de todo candidato que aplicou e perdeu. Uma política que não financiou nada venceria
+qualquer ano de queda. Agora é `NO_POSITION_TAKEN`: não-ranqueável, não pontuado em zero.
+
+✅ **E o veredicto, que é o produto da wave.** PETR4+BBAS3, três folds anuais: o vencedor mudou a
+cada fold (`selection_rate` 0,50), o fold 2 escolheu por **0,2 ponto percentual** e perdeu **90
+pontos** de retorno fora da amostra, e a `default` não foi selecionada em fold nenhum. **Os
+parâmetros não são estáveis** sobre a história que existe hoje. Uma wave de validação que só
+sabe dizer "passou" não valida nada.
+
+⚠️ **Com os quatro ativos acompanhados o esquema padrão recusa**: nove meses de janela replayável
+contra 36 exigidos (`WINDOW_TOO_SHORT`, `bounded_by: ITUB4`). Ampliar isso é ingerir os eventos
+societários que faltam, **não** relaxar a regra.
 
 ✅ **Fora de wave, em 2026-08-22: a verificação da IA fechou para a Gemini.** A API foi
 habilitada, a chamada real aconteceu e o contrato `v1beta` bateu **nome por nome** — nenhum
@@ -195,11 +220,11 @@ CDI e IPCA **não** são afetados: vêm do Banco Central (SGS), aberto e sem cot
 
 | | |
 |---|---|
-| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine · W08 Benchmark Engine · W09 Recommendation Engine · W10 Rebalancing · W11 Dashboard · W12 AI Engine · **W13 Backtesting** · **PRICE Open Price History** (inserida) · **EVENTS Corporate Actions & Distributions** (inserida) |
-| **In Progress** | — nenhuma. Próxima: **Wave 14 — Walk-Forward Validation**; ver [CURRENT_TASK.md](CURRENT_TASK.md) |
-| **Blocked** | — nenhuma. ⚠️ Mas os dois providers de IA da W12 são código **não verificado** até que uma chamada real aconteça |
+| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine · W08 Benchmark Engine · W09 Recommendation Engine · W10 Rebalancing · W11 Dashboard · W12 AI Engine · W13 Backtesting · **W14 Walk-Forward Validation** · **PRICE Open Price History** (inserida) · **EVENTS Corporate Actions & Distributions** (inserida) |
+| **In Progress** | — nenhuma. Próxima: **Wave 15 — Day Trade Data**; ver [CURRENT_TASK.md](CURRENT_TASK.md) |
+| **Blocked** | — nenhuma. ⚠️ Mas o `OllamaProvider` da W12 continua **não verificado** até que um servidor local exista |
 
-Baseline atual: `pytest` → **1.063 passed** (backend/.venv), verificado em 2026-08-21. Frontend: `npm run build` e `npm run lint` limpos. `ruff check .` e `black --check .` limpos no repositório inteiro; `alembic check` sem drift na última execução (2026-08-19, com o banco no ar); `npm run lint` e `npm run build` funcionando.
+Baseline atual: `pytest` → **1.129 passed** (backend/.venv), verificado em 2026-08-22. Frontend: `npm run build` e `npm run lint` limpos. `ruff check .` e `black --check .` limpos no repositório inteiro; `alembic check` sem drift na última execução (2026-08-19, com o banco no ar); `npm run lint` e `npm run build` funcionando.
 
 ## Completed Work (nível wave)
 
@@ -310,21 +335,19 @@ Detalhe por task: [../history/COMPLETED_TASKS.md](../history/COMPLETED_TASKS.md)
 
 ## Current Work
 
-**Nenhuma.** A Wave 13 fechou em 2026-08-21 com as seis tasks entregues e nada de código pela
+**Nenhuma.** A Wave 14 fechou em 2026-08-22 com as cinco tasks entregues e nada de código pela
 metade. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ## Next Recommended Step
 
-1. **Fechar a verificação da W12-001, e é curto.** Habilitar a Gemini API no projeto Google
-   Cloud da chave, fazer **uma** chamada real, conferir o formato campo a campo e escrever o
-   teste de regressão. Enquanto isso não acontece, `gemini.py` e `ollama.py` são código não
-   verificado — e a W06-003 já mostrou o que isso custa quando passa despercebido.
-2. **Wave 14 — Walk-Forward Validation** (roadmap §26). A W13 inteira já existe — motor,
-   estratégia e métricas; o que falta é o **particionamento** das janelas (treino / validação /
-   teste) e o que se afirma a partir dele: estabilidade, e não um número melhor (regra 60).
-   ⚠️ **A janela herdada é apertada**: o universo dos quatro ativos acompanhados dá **nove
-   meses**, porque a série ajustada da ITUB4 tem 198 de 1.495 pregões. Ampliar isso é ingerir os
-   eventos que faltam, **não** relaxar a regra de completude.
+1. **Wave 15 — Day Trade Data** (roadmap §27): a primeira wave do módulo intraday.
+   `intraday_prices`, ingestão de 1m/5m/15m, normalização, atualização, detecção de gaps e
+   timezone. ⚠️ **Primeira integração externa nova desde a IA** — vale o procedimento inteiro do
+   IMPLEMENTATION_GUIDE: **uma chamada real antes dos mocks**. Note também que o OHLC de
+   `IntradayPrice` ainda é `Float` (regra 17) e o `timestamp` é naive: migration nova.
+2. **Ingerir os eventos societários que faltam em ITUB4 e MGLU3.** Não é wave, é dado — e é o
+   que destrava tudo o que a W14 acabou de recusar. Nove meses de janela replayável contra 36
+   exigidos pelo esquema padrão. Relaxar o esquema não é alternativa.
 3. **Antes de confiar no Risco de um ativo novo, rode o sync de ações societárias.** Um papel só
    com preço bruto continua sem `adjusted_close`, e portanto sem risco — o que é o estado normal
    que o motor de score já trata, não um defeito. O comando é

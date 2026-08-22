@@ -10,8 +10,9 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 ---
 
 ## Current Phase
-- **Phase**: **Wave 13 — Backtesting de carteira** (roadmap §25), a wave que mede a estratégia contra o passado sem deixá-la enxergar o futuro
-- **Status**: 🟢 **WAVE 13 COMPLETED** (2026-08-21) — **6 de 6 tasks**: W13-001 (ação societária aplicada no replay do ledger), W13-002 (o motor de simulação, puro e sem I/O), W13-003 (a **própria estratégia do projeto** replayada, com o lag de publicação da CVM, [ADR-031](decisions/ADR-031-a-statement-is-readable-only-after-the-filing-deadline.md)), W13-004 (métricas de execução: alpha, slippage **medido**, e as cinco figuras de trade fechado que voltam `null` porque nada aqui vende), W13-005 (o serviço, com a janela limitada pela série de retorno total, [ADR-032](decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md)) e W13-006 (`GET /api/v1/backtests`). ⚠️ **Rodar contra o banco real achou dois defeitos** — ver *Last Execution*.
+- **Phase**: **Wave 14 — Walk-Forward Validation** (roadmap §26), a wave que pergunta se os parâmetros se sustentam fora da amostra em que foram escolhidos
+- **Status**: 🟢 **WAVE 14 COMPLETED** (2026-08-22) — **5 de 5 tasks**: W14-001 (a partição train/validation/test, com os três segmentos do mesmo tamanho, [ADR-035](decisions/ADR-035-equal-segments-from-an-empty-portfolio.md)), W14-002 (a grade de hipóteses e o objetivo de seleção, [ADR-034](decisions/ADR-034-the-grid-is-a-hypothesis-set-not-a-search-space.md)), W14-003 (o serviço: treino ordena, validação escolhe, **teste só reporta**), W14-004 (`GET /api/v1/backtests/walk-forward`) e W14-005 (rodar contra o banco real). 🔴 **Um defeito achado ao rodar** — candidato que não comprou nada era pontuado em zero — e ✅ **um veredicto**: sobre PETR4+BBAS3, os parâmetros **não são estáveis**. Ver a seção da Wave 14 e *Last Execution*.
+- **Status anterior**: 🟢 **WAVE 13 COMPLETED** (2026-08-21) — **6 de 6 tasks**: W13-001 (ação societária aplicada no replay do ledger), W13-002 (o motor de simulação, puro e sem I/O), W13-003 (a **própria estratégia do projeto** replayada, com o lag de publicação da CVM, [ADR-031](decisions/ADR-031-a-statement-is-readable-only-after-the-filing-deadline.md)), W13-004 (métricas de execução: alpha, slippage **medido**, e as cinco figuras de trade fechado que voltam `null` porque nada aqui vende), W13-005 (o serviço, com a janela limitada pela série de retorno total, [ADR-032](decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md)) e W13-006 (`GET /api/v1/backtests`). ⚠️ **Rodar contra o banco real achou dois defeitos** — ver *Last Execution*.
 - **Status anterior**: 🟢 **WAVE 12 COMPLETED** (2026-08-21) — **3 de 3 tasks**: W12-001 (`AIProvider` + Gemini + Ollama, falando REST pelo transporte compartilhado, [ADR-029](decisions/ADR-029-ai-provider-speaks-rest.md)), W12-002 (o domínio de explicação: fact pack, prompts versionados e o guard de alucinação, [ADR-030](decisions/ADR-030-fact-pack-and-the-hallucination-guard.md)) e W12-003 (as três rotas `POST /portfolios/{id}/explain/*`). ⚠️ **Com uma ressalva que vale ler**: o parser do Gemini **não foi verificado contra uma resposta real** — ver Known Issues.
 - **Status**: 🟢 **WAVE 11 COMPLETED** (2026-08-21) — **5 de 5 tasks**: W11-001 (valor de mercado), W11-002 (série de evolução, **corrigindo um erro de unidade que deixava o índice time-weighted negativo**), W11-003 (**a primeira aplicação real de frontend do projeto**), W11-004 (**o Dashboard**, que expôs e corrigiu um comparativo que media duas janelas diferentes) e W11-005 (tela de Ativo). Antes dela: 🟢 **WAVE 10 COMPLETED** (2026-08-21). - **Status**: 🟡 **WAVE 11 IN_PROGRESS** (2026-08-21) — 3 de 5 tasks: W11-001 (valor de mercado), W11-002 (série de evolução, **corrigindo um erro de unidade que deixava o índice time-weighted negativo**) W11-003 (**a primeira aplicação real de frontend do projeto**) e W11-004 (**o Dashboard**, que expôs e corrigiu um comparativo que media duas janelas diferentes). Antes dela: 🟢 **WAVE 10 COMPLETED** (2026-08-21) — **3 de 3 tasks**: W10-001 (peso-alvo derivado do **mérito** e não do `final_score`, [ADR-027](decisions/ADR-027-target-weight-comes-from-merit.md)), W10-002 (tabela de desvio sobre a API) e W10-003 (o aporte que fecha os gaps, sem vender, [ADR-028](decisions/ADR-028-rebalancing-is-cash-flow-only.md)). Antes dela: 🟢 EVENTS COMPLETED (2026-08-20) — **3 de 3 tasks**: EVENTS-001 (distribuições por exercício, da DMPL da CVM — fechou o `dy`), EVENTS-002 (data e natureza do evento societário, pelo arquivo de fim de dia da B3) e EVENTS-003 (a **magnitude**, pelo serviço aberto de eventos da B3, e o `adjusted_close` derivado dela — **destravou o pilar de Risco**). A wave **PRICE** (3 tasks) fechou antes, em 2026-08-19. Próxima: **Wave 12 — AI Engine**, a primeira que explica em linguagem natural o que os motores calculam
 
@@ -19,9 +20,9 @@ Plataforma pessoal de análise e acompanhamento de investimentos com foco no mer
 
 ## Overall Progress
 - **Total Waves**: 33 (W00 a W32)
-- **Completed Waves**: 14 do roadmap (W00 a W13) + 2 inseridas (PRICE, EVENTS)
+- **Completed Waves**: 15 do roadmap (W00 a W14) + 2 inseridas (PRICE, EVENTS)
 - **In Progress Waves**: nenhuma
-- **Pending Waves**: 19 (W14 a W32)
+- **Pending Waves**: 18 (W15 a W32)
 
 ---
 
@@ -717,7 +718,7 @@ produz — que é onde `benchmarks/comparison.py`, `portfolio/performance.py` e
 ---
 
 ### Wave 14 — Walk-Forward Validation
-Status: 🟡 IN_PROGRESS (2026-08-22), 1 de 5 tasks
+Status: 🟢 COMPLETED (2026-08-22), 5 de 5 tasks
 
 O roadmap previa uma task. A execução precisa de cinco, e as quatro a mais não são
 subdivisão: a partição é uma coisa, **o que se ajusta** é outra, medir out-of-sample é uma
@@ -728,7 +729,7 @@ que fixture nenhum acha.
 - [x] **W14-002**: A grade de políticas candidatas e o objetivo de seleção 🟢 COMPLETED
 - [x] **W14-003**: O serviço walk-forward — seleção in-sample, medição out-of-sample, estabilidade 🟢 COMPLETED
 - [x] **W14-004**: `GET /api/v1/backtests/walk-forward` 🟢 COMPLETED
-- [ ] **W14-005**: Rodar contra o banco real e corrigir o que ele achar ⚪ NOT_STARTED
+- [x] **W14-005**: Rodar contra o banco real e corrigir o que ele achar 🟢 COMPLETED
 
 #### Notas de implementação
 
@@ -824,6 +825,55 @@ Uma escolha de tamanho de resposta que vale registrar: `CandidateRunResponse` **
 política. Ela aparece uma vez em `candidates[]`, e `name` é o que junta — com 7 candidatos ×
 (1 treino + 3 validação) por fold, repetir dez campos de política por linha seria triplicar a
 resposta sem acrescentar um fato.
+
+**W14-005 — o que rodar contra o banco real achou, e o que ele mostrou que não é defeito.**
+
+🔴 **Um defeito, e nenhum fixture o acharia.** Candidato que **não preencheu ordem nenhuma**
+estava sendo pontuado em **zero**. `performance_index` sobre um ledger de depósitos sem compra
+alguma é achatado em 100 *por construção*, então o segmento reporta retorno total de exatamente
+zero — e zero ganha de todo candidato que aplicou e perdeu dinheiro. Uma política que não
+financiou nada venceria **qualquer ano de queda**, na força de uma figura que mediu carteira
+nenhuma. Visto no fold 0 do par PETR4+BBAS3: seis dos sete candidatos com `trades=0` e
+`ret=0.00%`, contra o único que operou e fez −7,69%. Corrigido: o candidato é **não-ranqueável**
+(`NO_POSITION_TAKEN`), não pontuado em zero — mesma leitura que `profit_factor` faz de amostra
+sem perdas. E quando **todos** dizem isso, o fold recusa com esse nome e não com
+`OBJECTIVE_UNAVAILABLE`: *"sua política não financiou nada aqui"* e *"não há CDI cobrindo este
+segmento"* são mensagens diferentes.
+
+⚠️ **Uma leitura que engana e não é defeito: o objetivo mede o dinheiro *aplicado*, não o
+dado.** Todas as figuras saem do índice time-weighted, que avalia posição e não caixa — o mesmo
+índice do dashboard, deliberadamente ([ADR-019](decisions/ADR-019-portfolio-return-is-time-weighted.md)).
+Medido: o segmento de 2023 sobre PETR4+BBAS3 com `min_score=30` terminou com **R$ 3.239,88 em
+posição e R$ 9.892,81 em caixa** sobre R$ 12.000 aportados — índice **+101,38%**, dinheiro
+**+9,44%**. O caixa não é ociosidade, é o teto funcionando: com dois ativos e `max_asset_weight`
+em 20%, no máximo 40% da carteira pode estar aplicada. `contributed` e `final_value` vêm lado a
+lado para a segunda leitura ficar a uma subtração; um objetivo que precifique deployment está em
+*Future Work*, e inventar aqui uma segunda definição de retorno seria pior do que nomear a
+lacuna.
+
+✅ **O que a execução mostrou, e é o produto da wave.** PETR4+BBAS3, três folds anuais,
+`total-return`:
+
+| fold | vencedor | in-sample | out-of-sample | degradação |
+|---|---|---|---|---|
+| 0 | — (`NO_POSITION_TAKEN`) | — | — | — |
+| 1 | `min-score-30` | 46,20% | **101,38%** | −0,5518 |
+| 2 | `min-score-70` | 101,58% | **11,34%** | **+0,9024** |
+
+`selection_rate` **0,50**, `stdev` 0,6367, `degradation_mean` 0,1753. O fold 2 é o caso de
+livro: o vencedor foi escolhido por **0,2 ponto percentual** sobre o segundo e perdeu **90
+pontos** de retorno fora da amostra. E a `default` — a política que o projeto entrega — não foi
+selecionada em fold nenhum. **A leitura honesta é que os parâmetros não são estáveis**, que é
+exatamente o que a wave existe para conseguir dizer.
+
+✅ **As três recusas dispararam contra dado real, nenhuma por fixture.** Universo dos quatro com
+o esquema padrão: `required=36m`, `available=9m`, `WINDOW_TOO_SHORT`, `bounded_by=ITUB4`. Com
+esquema trimestral: **exatamente um fold**, `SINGLE_FOLD` na estabilidade e agregados retidos.
+Com objetivo `sharpe`: `OBJECTIVE_UNAVAILABLE` em todos os folds, porque o CDI ingerido começa
+em 2025-08-18 e nenhum segmento anual é coberto. E o **empate triplo** em 0,0037 no fold
+trimestral ficou com o `default`, que é a regra de desempate valendo sobre dado real.
+
+⏱️ Três folds anuais sobre dois ativos: **~5,6 s** contra o Postgres real (33 backtests).
 
 ---
 
@@ -1246,6 +1296,29 @@ Nenhuma tarefa bloqueada no momento.
 
 ## Future Work
 
+- 🟡 **O objetivo do walk-forward não precifica *deployment*** (W14-005). Todas as figuras saem
+  do índice time-weighted, que avalia posição e **não caixa** — o mesmo índice do dashboard,
+  deliberadamente ([ADR-019](decisions/ADR-019-portfolio-return-is-time-weighted.md)). Então uma
+  política que aplicou um décimo dos aportes e dobrou esse décimo ordena **acima** de outra que
+  aplicou a maior parte e ganhou um terço. Medido: um segmento de 2023 sobre PETR4+BBAS3 com
+  `min_score=30` terminou com R$ 3.239,88 em posição e R$ 9.892,81 em caixa sobre R$ 12.000 —
+  índice +101,38%, dinheiro +9,44%. `contributed` e `final_value` vêm lado a lado para a segunda
+  leitura ficar a uma subtração, mas o **ranking** não a enxerga. A correção não é uma segunda
+  definição de retorno neste módulo (seria o erro que o ADR-019 existe para impedir, com os
+  operandos trocados); é um objetivo que componha retorno e fração aplicada, e ele precisa ser
+  definido antes de ser implementado.
+- 🟡 **O walk-forward mede a estratégia acumulando, não madura** ([ADR-035](decisions/ADR-035-equal-segments-from-an-empty-portfolio.md)).
+  Cada segmento parte de carteira vazia, que é o que torna candidatos comparáveis entre si e o
+  in-sample comparável ao out-of-sample. Avaliar a estratégia sobre carteira madura exigiria
+  replay contínuo com troca de política na fronteira do fold — recusado agora porque o segmento
+  de teste herdaria o que o vencedor por acaso comprou, e os dois lados deixariam de ser o mesmo
+  experimento. Volta a valer a pena se algum dia houver histórico para folds longos o bastante.
+- 🟡 **Data de entrada por ativo no walk-forward.** O [ADR-032](decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md)
+  registrou isso como *"fica para a W14, que já move janelas por construção"*, e a W14
+  deliberadamente **não** fez: ela move janelas de **medição**, e um universo que cresce no meio
+  da execução muda a **estratégia sob teste**, não a validação dela. Continua sendo a forma mais
+  fiel de aproveitar ativos com série curta, e continua exigindo o alocador reordenando sobre
+  conjuntos diferentes a cada mês — o que aproxima o viés que a regra 59 vigia.
 - 🟡 **O retry compartilhado trata 429 de cota diária como se fosse transitório** (encontrado em 2026-08-22 ao verificar a Gemini; **fora do escopo daquela task**, regra 134). `RETRYABLE_STATUS_CODES` em `app/integrations/http.py` inclui 429, o que é correto para um limite por minuto e desperdício para um limite por dia: a chave da Gemini é free tier, **20 requisições/dia** para `gemini-3.7-flash` (`GenerateRequestsPerDayPerProjectPerModel-FreeTier`), e uma cota diária esgotada é retentada três vezes com backoff antes de falhar. Distinguir as duas exige ler o corpo de erro específico do fornecedor — `details[].QuotaFailure.quotaId` no caso do Google —, e esse conhecimento **não pode** descer para o cliente compartilhado, que serve Brapi, B3 e BCB. A correção provável é o provider passar um predicado de não-retentável, não o transporte aprender vocabulário de fornecedor.
 - 🔴 **A data de arquivamento da CVM existe e não é ingerida** (W13-003). O backtest trata um
   demonstrativo como público **três meses** depois do fim do período — o prazo do DFP, ou seja a
@@ -1330,8 +1403,35 @@ Nenhuma tarefa bloqueada no momento.
 ---
 
 ## Last Execution
-- **Timestamp**: 2026-08-22T00:00:00-03:00
-- **Action**: **Verificação da W12-001 — a Gemini, fora de wave** (`7e05953`). A pendência
+- **Timestamp**: 2026-08-22T12:00:00-03:00
+- **Action**: **Wave 14 — Walk-Forward Validation, 5 de 5 tasks.** O roadmap previa uma; foram
+  cinco, e as quatro a mais não são subdivisão — a partição é uma coisa, **o que se ajusta** é
+  outra, medir out-of-sample é uma terceira, e rodar contra o banco real é o passo que nas waves
+  anteriores achou o que fixture nenhum acha.
+
+  **O ponto da wave em uma frase**: nada medido no teste alcança uma seleção. Treino pergunta à
+  grade inteira, validação pergunta só à shortlist sobre história que a ordenação não viu, e
+  teste roda o vencedor e mais ninguém — que é a única razão de um número out-of-sample
+  significar alguma coisa (regra 61). E a grade é **conjunto de hipóteses**, um campo por
+  candidato com a pergunta escrita ao lado, nunca produto cartesiano
+  ([ADR-034](decisions/ADR-034-the-grid-is-a-hypothesis-set-not-a-search-space.md)).
+
+  **A decisão que sustenta a comparação**: os três segmentos têm o **mesmo tamanho** e cada um
+  parte de **carteira vazia**. A estratégia constrói carteira por aporte mensal, então o tamanho
+  do segmento muda o que ele mede — e um teste mais curto reportaria degradação que é em parte
+  só carteira mais nova, sem ninguém conseguir dizer qual parte. Confundidor removido **por
+  construção** ([ADR-035](decisions/ADR-035-equal-segments-from-an-empty-portfolio.md)).
+
+  🔴 **O defeito que só o banco real achou**: candidato que **não preencheu ordem nenhuma** era
+  pontuado em zero, e zero ganha de todo candidato que aplicou e perdeu — uma política que não
+  financiou nada venceria qualquer ano de queda. Agora é `NO_POSITION_TAKEN`, não-ranqueável.
+
+  ✅ **E o veredicto que a wave existe para conseguir emitir**: sobre PETR4+BBAS3, três folds
+  anuais, o vencedor mudou a cada fold (`selection_rate` 0,50), o fold 2 escolheu por **0,2 p.p.**
+  e perdeu **90 pontos** fora da amostra, e a `default` não foi selecionada em fold nenhum. **Os
+  parâmetros não são estáveis.** Ver a seção da Wave 14 acima.
+
+- **Action anterior**: **Verificação da W12-001 — a Gemini, fora de wave** (`7e05953`). A pendência
   herdada da W12 fechou na metade que dependia de acesso. Procedimento do
   [IMPLEMENTATION_GUIDE](planning/IMPLEMENTATION_GUIDE.md) seguido na ordem: **uma chamada real
   → conferir nome por nome → corrigir o que divergiu → e só então o teste de regressão**.
@@ -1454,20 +1554,21 @@ Nenhuma tarefa bloqueada no momento.
 ---
 
 ## Next Action
-**Duas coisas, e a primeira continua curta.**
+**A Wave 14 fechou. A próxima é a Wave 15 — e há uma coisa a montante que vale antes dela.**
 
-1. ✅ **A verificação da W12-001 fechou para a Gemini** (2026-08-22). A API foi habilitada, a
-   chamada real aconteceu, o contrato bateu nome por nome e o teste de regressão existe
-   (`tests/test_gemini_provider.py`). O que ela encontrou foi um defeito de **orçamento**, não
-   de nome: frase truncada servida como explicação pronta
-   ([ADR-033](decisions/ADR-033-a-truncated-explanation-is-reported-not-discarded.md)).
-   ⚠️ **O `OllamaProvider` continua não verificado** — sem servidor local — e segue em Known
-   Issues, sem teste de regressão, de propósito.
-2. **Wave 14 — Walk-Forward Validation** (roadmap §26): dividir a série em treino, validação e
-   teste e rodar períodos móveis, para medir estabilidade e evitar overfitting (regras 60, 61,
-   62). Ela consome a W13 inteira — o motor, a estratégia e as métricas já existem; o que falta é
-   o particionamento das janelas e o que se afirma a partir dele.
-   ⚠️ **A W14 herda a janela apertada da W13**: uma série já truncada por
-   [ADR-032](decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md) tem
-   menos espaço para ser dividida em três, e o universo dos quatro ativos acompanhados hoje dá
-   nove meses. Ampliar isso é ingerir os eventos que faltam, não relaxar a regra.
+1. 🔵 **Wave 15 — Day Trade Data** (roadmap §27): a primeira wave do módulo intraday. Tabela
+   `intraday_prices`, ingestão de velas de 1m/5m/15m, normalização, atualização, detecção de
+   gaps e controle de timezone. É também a primeira integração externa nova desde a IA — o
+   procedimento do [IMPLEMENTATION_GUIDE](planning/IMPLEMENTATION_GUIDE.md) vale inteiro:
+   **uma chamada real antes dos mocks**. A verificação da W12-001 acabou de mostrar de novo o
+   que custa pular.
+2. ⚠️ **Ingerir os eventos societários que faltam em ITUB4 e MGLU3** é o que destrava tudo o
+   que a W14 acabou de recusar. A janela replayável do universo dos quatro é de **nove meses**
+   ([ADR-032](decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md),
+   `bounded_by: ITUB4`), o que dá exatamente um fold trimestral e nenhum anual. Não é uma wave
+   do roadmap; é dado, e é o único caminho para uma afirmação de estabilidade que valha alguma
+   coisa. Relaxar o esquema não é alternativa
+   ([ADR-035](decisions/ADR-035-equal-segments-from-an-empty-portfolio.md)).
+3. ⚠️ **O `OllamaProvider` continua não verificado** — sem servidor local — e segue em Known
+   Issues, sem teste de regressão, de propósito. É o que resta da pendência da W12-001, e
+   depende de instalar um servidor, não de uma decisão do projeto.

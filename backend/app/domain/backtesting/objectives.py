@@ -34,6 +34,29 @@ database, which is the failure mode `ADR-014` and the coverage rules of
 `TOTAL_RETURN` is offered for exactly that case, and asking for it is a
 choice the result then carries.
 
+## ⚠️ The objective measures the money that was **deployed**, not the money
+## that was given
+
+Every figure here comes from the time-weighted index, which values
+positions and not cash — the same index the live dashboard reports, and
+deliberately the same (ADR-019). So a policy that invested a tenth of the
+contributions and doubled that tenth outranks one that invested most of
+them and gained a third.
+
+Measured on the real database (W14-005): a 2023 segment over PETR4 and
+BBAS3 with `min_score=30` ended holding **R$ 3.239,88 against
+R$ 9.892,81 in cash** on R$ 12.000 contributed. The index reported
+**+101,38%**; the money grew **9,44%**. Neither number is wrong and they
+answer different questions.
+
+The cash was not idleness, it was the ceiling working: with two assets and
+`max_asset_weight` at 20%, no more than 40% of the portfolio can ever be
+invested. `SegmentOutcome` carries `contributed` and `final_value` side by
+side so the money reading is one subtraction away — reading only the
+objective is the ADR-019 mistake with the operands swapped. An objective
+that prices deployment is Future Work; inventing a second definition of
+return here would be worse than naming the gap.
+
 ## Why CAGR is measured and never selected on
 
 Within one fold all three segments are the same length by construction

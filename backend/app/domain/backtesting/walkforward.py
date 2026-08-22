@@ -115,6 +115,23 @@ SINGLE_FOLD = "SINGLE_FOLD"
 #: filter, so there is no history to partition.
 NOTHING_TESTABLE = "NOTHING_TESTABLE"
 
+#: The policy never filled an order in this segment, so its index measures
+#: an empty portfolio.
+#:
+#: Found by running against the real database (W14-005), and it is not a
+#: cosmetic distinction. `performance_index` over a ledger of deposits and
+#: no purchases is flat at 100 by construction, so the segment reports a
+#: total return of **exactly zero** — and zero beats every candidate that
+#: actually invested and lost money. A policy that funded nothing would
+#: win any falling year, on the strength of a figure that measured
+#: nothing.
+#:
+#: So the candidate is unrankable rather than scored at zero, the same
+#: reading `profit_factor` takes of a sample with no losses. What it did
+#: is still reported: `trades` at zero is the fact, and it is a real
+#: finding about the policy.
+NO_POSITION_TAKEN = "NO_POSITION_TAKEN"
+
 
 @dataclass(frozen=True)
 class WalkForwardSettings:
@@ -145,7 +162,11 @@ class SegmentOutcome:
 
     `objective` is the single figure the fold ranks on, lifted out of
     `metrics` so a reader can see which number decided without having to
-    know which enum was passed. `None` means unrankable, never worst.
+    know which enum was passed. `None` means unrankable, never worst, and
+    `unrankable` names which of the two reasons applied:
+    `OBJECTIVE_UNAVAILABLE` (the figure could not be computed at all) or
+    `NO_POSITION_TAKEN` (it could, and it describes a portfolio that was
+    never built).
     """
 
     metrics: SegmentMetrics
@@ -155,6 +176,7 @@ class SegmentOutcome:
     slippage: Decimal
     contributed: Decimal
     final_value: Decimal | None
+    unrankable: str | None = None
 
 
 @dataclass(frozen=True)
@@ -302,7 +324,7 @@ def _run_fold(
     shortlist = tuple(run.name for run in ranked[: settings.shortlist])
 
     if not shortlist:
-        return _unselected(fold, trained, OBJECTIVE_UNAVAILABLE)
+        return _unselected(fold, trained, _no_ranking_reason(trained))
 
     by_name = {candidate.name: candidate for candidate in grid}
     validated = tuple(
@@ -311,7 +333,9 @@ def _run_fold(
     )
     confirmed = _ranked(validated)
     if not confirmed:
-        return _unselected(fold, trained, OBJECTIVE_UNAVAILABLE, shortlist, validated)
+        return _unselected(
+            fold, trained, _no_ranking_reason(validated), shortlist, validated
+        )
 
     winner = confirmed[0]
     tested = _run_candidate(
@@ -369,18 +393,31 @@ def _run_candidate(
         segment.end,
     )
     final = result.final
+    objective = objective_value(metrics, settings.objective)
+
+    # A run that never filled an order has an index flat at 100 by
+    # construction, so its total return is exactly zero — and zero would
+    # outrank every candidate that invested and lost. Unrankable, not
+    # scored at zero (see `NO_POSITION_TAKEN`).
+    unrankable = None
+    if result.trades.trades == 0:
+        objective, unrankable = None, NO_POSITION_TAKEN
+    elif objective is None:
+        unrankable = OBJECTIVE_UNAVAILABLE
+
     return CandidateRun(
         name=candidate.name,
         question=candidate.question,
         policy=candidate.policy,
         outcome=SegmentOutcome(
             metrics=metrics,
-            objective=objective_value(metrics, settings.objective),
+            objective=objective,
             trades=result.trades.trades,
             fees=result.trades.fees,
             slippage=result.trades.slippage,
             contributed=result.trades.contributed,
             final_value=final.total if final is not None else None,
+            unrankable=unrankable,
         ),
     )
 
@@ -398,6 +435,21 @@ def _ranked(runs: Sequence[CandidateRun]) -> list[CandidateRun]:
     """
     scored = [run for run in runs if run.outcome.objective is not None]
     return sorted(scored, key=lambda run: -run.outcome.objective)
+
+
+def _no_ranking_reason(runs: Sequence[CandidateRun]) -> str:
+    """Why an empty ranking is empty, when every candidate says the same.
+
+    Two very different messages hide behind "nothing could be chosen":
+    *no CDI covers this segment* and *your policy funded nothing here*.
+    The second is a finding about the policy and deserves its own name;
+    conflating them would hide it behind a data problem.
+
+    Mixed reasons fall back to the general one — the fold could not be
+    scored, and the per-candidate `unrankable` is where the detail is.
+    """
+    reasons = {run.outcome.unrankable for run in runs if run.outcome.unrankable}
+    return reasons.pop() if len(reasons) == 1 else OBJECTIVE_UNAVAILABLE
 
 
 def _unselected(
@@ -443,7 +495,10 @@ def _stability(folds: Sequence[FoldResult], layout: Partition) -> Stability:
     if not folds:
         refusal = layout.refusal
     elif not measured:
-        refusal = OBJECTIVE_UNAVAILABLE
+        # Echoed from the folds when they agree, so *your policy funded
+        # nothing* does not arrive dressed as a missing benchmark.
+        reasons = {fold.refusal for fold in folds if fold.refusal}
+        refusal = reasons.pop() if len(reasons) == 1 else OBJECTIVE_UNAVAILABLE
     elif len(measured) < 2:
         refusal = SINGLE_FOLD
 

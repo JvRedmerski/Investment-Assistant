@@ -30,6 +30,7 @@ from app.domain.backtesting.objectives import (
 )
 from app.domain.backtesting.service import NO_TOTAL_RETURN_SERIES
 from app.domain.backtesting.walkforward import (
+    NO_POSITION_TAKEN,
     NOTHING_TESTABLE,
     SINGLE_FOLD,
     WalkForwardSettings,
@@ -319,6 +320,42 @@ def test_the_same_run_selects_on_sharpe_once_the_cdi_exists(db_session, universe
     assert fold.selected is not None
     assert fold.refusal is None
     assert fold.tested.metrics.sharpe is not None
+
+
+def test_a_candidate_that_never_bought_anything_does_not_rank_at_zero(
+    db_session, universe
+):
+    """W14-005, found by running against the real database.
+
+    A run that fills no order has an index flat at 100 by construction,
+    so its total return is exactly zero — and zero outranks every
+    candidate that invested and lost money. A policy that funded nothing
+    would win any falling year on a figure that measured nothing.
+
+    A contribution below the minimum ticket funds nothing under any
+    candidate, since the grid varies neither.
+    """
+    result = run_walk_forward(db_session, universe, _settings(contribution=Decimal(1)))
+    fold = result.folds[0]
+
+    assert all(run.outcome.trades == 0 for run in fold.trained)
+    assert all(run.outcome.metrics.total_return == Decimal(0) for run in fold.trained)
+    assert all(run.outcome.objective is None for run in fold.trained)
+    assert all(run.outcome.unrankable == NO_POSITION_TAKEN for run in fold.trained)
+
+    assert fold.selected is None
+    # Named for what it is: the policy funded nothing, which is not the
+    # same message as a missing benchmark.
+    assert fold.refusal == NO_POSITION_TAKEN
+    assert result.stability.refusal == NO_POSITION_TAKEN
+
+
+def test_a_candidate_that_did_buy_carries_no_unrankable_reason(db_session, universe):
+    fold = run_walk_forward(db_session, universe, _settings()).folds[0]
+
+    ranked = [run for run in fold.trained if run.outcome.trades > 0]
+    assert ranked
+    assert all(run.outcome.unrankable is None for run in ranked)
 
 
 def test_nothing_testable_is_named_rather_than_returned_as_zero(db_session):
