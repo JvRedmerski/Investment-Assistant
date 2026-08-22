@@ -1226,6 +1226,49 @@ Nenhuma tarefa bloqueada no momento.
 ---
 
 ## Last Execution
+- **Timestamp**: 2026-08-22T00:00:00-03:00
+- **Action**: **Verificação da W12-001 — a Gemini, fora de wave** (`7e05953`). A pendência
+  herdada da W12 fechou na metade que dependia de acesso. Procedimento do
+  [IMPLEMENTATION_GUIDE](planning/IMPLEMENTATION_GUIDE.md) seguido na ordem: **uma chamada real
+  → conferir nome por nome → corrigir o que divergiu → e só então o teste de regressão**.
+  O contrato `v1beta` bateu **nome por nome** — nenhum campo com nome errado, diferente da
+  Brapi na W06-003. O que a chamada real encontrou foi **orçamento**: `gemini-flash-latest`
+  resolve para `gemini-3.7-flash`, um **modelo de raciocínio** que cobra o pensamento contra o
+  mesmo `maxOutputTokens` da prosa. Medido com um fact pack realista de plano de aporte (28
+  fatos, prompts reais): no padrão de então (1.024), **981 tokens pensando, 39 de texto,
+  `finishReason: MAX_TOKENS` e uma frase cortada em `"...entre três ativos:"`**; a 2.048,
+  `STOP` com 1.383 + 295. Como `MAX_TOKENS` estava em `_COMPLETE` e o texto não estava vazio,
+  **o fragmento era servido ao leitor como explicação pronta** — no valor padrão, com um pack
+  comum, não numa borda. Correções: `MAX_TOKENS` virou truncagem; cada provider normaliza seu
+  próprio vocabulário (`MAX_TOKENS`, `length`) para `Completion.truncated`, de modo que o
+  domínio nunca aprende palavra de fornecedor; `Explanation.truncated` leva isso à API
+  (aditivo, default `false`); o texto vai **exatamente como gerado**, sem aparar até a última
+  frase inteira, porque aparar produz algo que *parece* completo; `thinking_tokens` passou a
+  ser contado ao lado da prosa e **nunca somado** (`output_tokens` reportava 153 numa
+  requisição de 701); e `AI_MAX_OUTPUT_TOKENS` foi de 1.024 para **4.096**, com folga em vez de
+  no valor medido, porque o raciocínio cresce com o espaço que recebe.
+  [ADR-033](decisions/ADR-033-a-truncated-explanation-is-reported-not-discarded.md).
+- **Result**: Sucesso. **1.063 testes** (1.049 + 14: 11 em `tests/test_gemini_provider.py`,
+  todos sobre payload capturado depois da chamada real, e 3 no domínio). `ruff` e `black`
+  limpos; nenhuma migration; nenhuma dependência nova.
+- **Rejeitado por medição, não por gosto**: limitar o raciocínio via `thinkingConfig`.
+  `thinkingBudget: 0` é aceito com HTTP 200 e **ignorado** (398 tokens de pensamento assim
+  mesmo); `thinkingLevel: "low"` idem, com 436. Um botão que o fornecedor aceita e não honra
+  documenta uma garantia que não existe.
+- **O que ficou pendente e por quê**:
+  1. ⚠️ **O `OllamaProvider` continua não verificado** — não há servidor local, e por isso
+     **nenhum teste de regressão foi escrito para ele**, pela mesma disciplina que produziu o
+     achado acima. Ele carrega uma suposição a mais, agora nomeada no docstring:
+     `done_reason == "length"`.
+  2. ⚠️ **A re-verificação ao vivo no novo padrão de 4.096 não aconteceu**: a chave é free
+     tier, **20 requisições/dia** para `gemini-3.7-flash`, e a cota foi esgotada durante a
+     verificação. O comportamento do parser está coberto pelos payloads capturados; a
+     confirmação ponta a ponta no valor novo, não.
+  3. 🟡 **429 de cota diária é retentado como se fosse transitório** — do transporte
+     compartilhado, portanto fora do escopo desta task (regra 134). Está em *Future Work*.
+
+---
+
 - **Timestamp**: 2026-08-21T20:00:00-03:00
 - **Action**: **Wave 13 — Backtesting de carteira**, 6 de 6 tasks (`02cd288`, `a42a91f`,
   `6409568`, `67b6cf7`, `9c55cab`, `6142a97`, `0f5bb0b`). O roadmap previa duas tasks; a

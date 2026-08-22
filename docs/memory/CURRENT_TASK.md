@@ -143,7 +143,22 @@ Todo o backend das waves 00–13 e as quatro telas. Contrato completo em
 [../architecture/API.md](../architecture/API.md); o backtesting em
 [../architecture/BACKEND.md](../architecture/BACKEND.md).
 
-## Estado do ambiente (verificado 2026-08-21)
+## Os arquivos que a W14 provavelmente vai tocar
+
+A wave **consome** a W13 inteira, então quase tudo abaixo é leitura, não reescrita:
+
+| arquivo | por quê |
+|---|---|
+| `backend/app/domain/backtesting/service.py` | é onde a janela é decidida hoje; o particionamento nasce ao lado |
+| `backend/app/domain/backtesting/simulation.py` | o motor e seus objetos — **consumir, não alterar** |
+| `backend/app/domain/backtesting/universe.py` | a estratégia numa data passada, já com o lag da CVM |
+| `backend/app/domain/backtesting/metrics.py` | as métricas por janela que a W14 vai comparar entre partições |
+| `backend/app/domain/backtesting/schemas.py` | os contratos Pydantic; a saída da W14 entra aqui |
+| `backend/app/api/routes/backtests.py` | o endpoint existente, se a wave expuser o walk-forward |
+| `docs/planning/ROADMAP.md` §26 | o escopo da wave |
+| `AGENTS.md` §60–62 | as regras de overfitting/validação que a wave existe para respeitar |
+
+## Estado do ambiente (verificado 2026-08-22)
 
 - ✅ `pytest -q` → **1.063 passed** (944 → 1.049 na W13 → 1.063 com a verificação da Gemini).
   `ruff` e `black` limpos nos arquivos alterados.

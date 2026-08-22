@@ -227,7 +227,16 @@ um com rótulo, unidade, a string **já renderizada** e o endpoint de origem
 | `guard.py` | depois da geração, confronta todo número do texto com o conjunto fechado de figuras que o backend escreveu. O que não casar volta em `unverified_figures` |
 | `service.py` | os quatro passos, nesta ordem: pack → prompt → provedor → guard |
 
-Três consequências que valem lembrar antes de mexer:
+A camada de **integração** (`app/integrations/ai/`) fica atrás dessa, e a
+fronteira entre as duas tem uma regra própria desde 2026-08-22: **vocabulário
+de fornecedor morre no provider.** A Gemini escreve `MAX_TOKENS`, o Ollama
+escreve `length`, e as duas coisas viram o mesmo `Completion.truncated`; o
+`finish_reason` cru continua viajando só para a auditoria. Um domínio que
+comparasse a string contra literais de fornecedor quebraria no primeiro
+provider novo — em silêncio, porque a comparação apenas deixaria de casar
+(§22, [ADR-033](../decisions/ADR-033-a-truncated-explanation-is-reported-not-discarded.md)).
+
+Quatro consequências que valem lembrar antes de mexer:
 
 - **Fato ausente fica no pack**, com traço, sob o cabeçalho que diz o que
   aquele bloco é. Removê-lo deixa o modelo livre para supor que o número não
@@ -237,6 +246,14 @@ Três consequências que valem lembrar antes de mexer:
 - **`key` e `source` não vão no prompt.** Servem ao leitor, viajam na
   `Explanation`, e mandá-los colocaria os dígitos de `/api/v1/portfolios/1`
   na frente de um modelo instruído a citar só o que recebeu (§91).
+- **Há dois jeitos de um texto acabar cedo, e só um deles é honesto.** Acabar
+  porque os *fatos* acabaram é completo; acabar porque o *orçamento de saída*
+  acabou não é — e da prosa sozinha os dois são indistinguíveis. Por isso
+  `Explanation.truncated` viaja ao lado de `unverified_figures`, e o texto vai
+  **exatamente como gerado**: aparar até a última frase inteira produziria algo
+  que *parece* completo, que é o defeito com uma camada em cima. O modelo em
+  uso raciocina e o raciocínio é cobrado contra `AI_MAX_OUTPUT_TOKENS`, então
+  isto não é hipótese — era o comportamento padrão até 2026-08-22.
 
 Tópico novo exige builder novo. Não existe tópico livre, de propósito:
 tópico sem builder é prompt sem fatos.

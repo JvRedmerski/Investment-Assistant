@@ -609,6 +609,13 @@ quando a regra 72 o põe no topo. **O teste é que estava errado.**
   está desabilitada no projeto Google Cloud dela, e não há Ollama local. Por isso **nenhum teste
   de regressão de parser foi escrito**: um mock construído sobre suposição não verifica a
   suposição, reproduz ela (a lição da W06-003). Os dois providers são código não verificado.
+  - ✅ **Fechado para a Gemini em 2026-08-22**, fora de wave. A API foi habilitada, a chamada
+    real aconteceu, e a espera se pagou: o contrato bateu nome por nome, mas a chamada revelou
+    que o modelo **raciocina** e que o raciocínio come o mesmo orçamento da prosa — no valor
+    padrão, uma frase cortada era servida como explicação pronta
+    ([ADR-033](../decisions/ADR-033-a-truncated-explanation-is-reported-not-discarded.md)).
+    `tests/test_gemini_provider.py` existe agora, sobre payload capturado.
+    ⚠️ **O `OllamaProvider` continua não verificado e sem teste** — não há servidor local.
 - ⚠️ Duas das cinco capacidades do roadmap §24 ficaram fora **por falta de fonte**: resumir
   notícia e resumir documento exigem ingestão que o projeto não tem.
 - ⚠️ `unverified_figures` **não tem quem o exiba** — a wave é backend-only por decisão.
