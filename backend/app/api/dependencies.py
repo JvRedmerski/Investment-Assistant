@@ -21,12 +21,14 @@ from app.integrations.market_data.base import (
     CorporateActionProvider,
     CorporateEventProvider,
     DailyHistoryProvider,
+    IntradayHistoryProvider,
     MarketDataProvider,
 )
 from app.integrations.market_data.factory import (
     build_corporate_action_provider,
     build_corporate_event_provider,
     build_historical_price_provider,
+    build_intraday_provider,
     build_market_data_provider,
 )
 
@@ -135,6 +137,24 @@ def get_corporate_action_provider() -> Generator[CorporateActionProvider, None, 
     network.
     """
     provider = build_corporate_action_provider()
+    try:
+        yield provider
+    finally:
+        close = getattr(provider, "close", None)
+        if callable(close):
+            close()
+
+
+def get_intraday_provider() -> Generator[IntradayHistoryProvider, None, None]:
+    """Provide the intraday bar source for a single request.
+
+    Same contract as the other provider dependencies: routes depend only
+    on the abstract type (rule 21) and tests override this with a fake
+    rather than reaching the network — which matters more here than
+    elsewhere, since the live source serves intraday for only some
+    tickers and a test must not depend on which.
+    """
+    provider = build_intraday_provider()
     try:
         yield provider
     finally:

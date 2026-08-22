@@ -15,6 +15,7 @@ from app.integrations.market_data.base import (
     CorporateActionProvider,
     CorporateEventProvider,
     DailyHistoryProvider,
+    IntradayHistoryProvider,
     MarketDataProvider,
 )
 from app.integrations.market_data.brapi import BrapiProvider
@@ -76,3 +77,19 @@ def build_corporate_action_provider() -> CorporateActionProvider:
     raise ValueError(
         f"Unknown CORPORATE_ACTION_PROVIDER: {settings.CORPORATE_ACTION_PROVIDER!r}"
     )
+
+
+def build_intraday_provider() -> IntradayHistoryProvider:
+    """The source that serves intraday bars.
+
+    Its own selector, not a cast of `build_market_data_provider`, even
+    though Brapi backs both today. Serving a live quote and serving
+    one-minute bars are different capabilities with different limits:
+    B3's open archive can do neither, and the vendor that quotes every
+    ticker serves intraday for only some of them. A deployment must be
+    able to move this without moving the daily source (rule 21).
+    """
+    provider_name = settings.INTRADAY_PROVIDER.lower()
+    if provider_name == "brapi":
+        return BrapiProvider()
+    raise ValueError(f"Unknown INTRADAY_PROVIDER: {settings.INTRADAY_PROVIDER!r}")

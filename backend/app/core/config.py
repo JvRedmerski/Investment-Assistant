@@ -57,6 +57,15 @@ class Settings(BaseSettings):
     # hard ceiling on how far back history can reach - not a page size.
     BRAPI_MAX_RANGE: str = "3mo"
 
+    # Which source serves intraday bars (AGENTS.md rules 21/47). Its own
+    # setting rather than a reuse of MARKET_DATA_PROVIDER because the two
+    # are not the same question: a vendor can quote and serve daily bars
+    # without serving intraday at all, and on Brapi's free plan intraday
+    # is granted per ticker - PETR4, ITUB4, MGLU3 and VALE3 are served,
+    # BBAS3 and BOVA11 are refused. Pointing this elsewhere must not
+    # require giving up the daily source.
+    INTRADAY_PROVIDER: str = "brapi"
+
     # Fundamentals ingestion is far lower-frequency than price ingestion
     # (statements change quarterly, not daily), but it shares the same
     # provider and therefore the same rate limit — hence its own knobs.

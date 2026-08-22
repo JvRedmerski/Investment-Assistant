@@ -20,6 +20,7 @@ and supply their own domain-specific exception types, so callers of
 
 import logging
 import time
+from collections.abc import Callable
 from typing import Any, Self
 
 import httpx
@@ -48,6 +49,7 @@ class RetryingJsonClient:
         logger: logging.Logger,
         default_params: dict[str, Any] | None = None,
         default_headers: dict[str, str] | None = None,
+        error_mapper: Callable[[int, httpx.Response], Exception | None] | None = None,
         client: httpx.Client | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
@@ -65,6 +67,14 @@ class RetryingJsonClient:
         # Header values are never logged; the error paths below quote the
         # response body, never the request.
         self._default_headers = dict(default_headers or {})
+        # Consulted before the default status mapping, for the cases where
+        # a provider answers a well-formed error this class cannot read.
+        # Brapi refuses an intraday interval with HTTP 400 and a body that
+        # names a plan limit; mapped by status alone that becomes
+        # "provider unavailable", which reads as an outage and invites a
+        # retry that can never succeed. Returning `None` (or leaving this
+        # unset) keeps the default behaviour exactly as it was.
+        self._error_mapper = error_mapper
         self._last_request_at: float | None = None
         # A caller-supplied client makes every provider trivially testable
         # (httpx.Client(transport=httpx.MockTransport(...))) without any
@@ -152,6 +162,10 @@ class RetryingJsonClient:
                     exc,
                 )
             else:
+                if response.status_code >= 400 and self._error_mapper is not None:
+                    mapped = self._error_mapper(response.status_code, response)
+                    if mapped is not None:
+                        raise mapped
                 if response.status_code == 404:
                     raise self._not_found_error(f"Not found: {path}")
                 if response.status_code in RETRYABLE_STATUS_CODES:

@@ -29,20 +29,40 @@ import httpx
 
 from app.core.config import settings
 from app.integrations.http import RetryingJsonClient
-from app.integrations.market_data.base import MarketDataProvider
+from app.integrations.market_data.base import (
+    IntradayHistory,
+    IntradayHistoryProvider,
+    MarketDataProvider,
+)
 from app.integrations.market_data.exceptions import (
     HistoryWindowTooLargeError,
+    IntradayNotAvailableError,
     InvalidMarketDataResponseError,
     MarketDataUnavailableError,
     TickerNotFoundError,
 )
-from app.integrations.market_data.schemas import DailyBar, Quote
+from app.integrations.market_data.schemas import (
+    DailyBar,
+    HistoryWindow,
+    IntradayBar,
+    Quote,
+    Timeframe,
+)
 
 logger = logging.getLogger("investment_assistant.market_data.brapi")
 
 
-class BrapiProvider(MarketDataProvider):
-    """`MarketDataProvider` backed by https://brapi.dev/api."""
+class BrapiProvider(MarketDataProvider, IntradayHistoryProvider):
+    """Brapi as both a daily-history/quote source and an intraday one.
+
+    Two interfaces on one class because it is genuinely one adapter over
+    one endpoint: `/quote/{ticker}` serves daily bars, the live quote and
+    intraday bars, differing only by `interval`. Splitting it would
+    duplicate the client construction and the URL knowledge for no seam
+    that anyone needs. The *interfaces* stay separate so that an
+    intraday-only source can implement just one of them, which is the
+    part that has to remain replaceable (rule 21).
+    """
 
     source_name = "brapi"
 
@@ -80,6 +100,7 @@ class BrapiProvider(MarketDataProvider):
             invalid_response_error=InvalidMarketDataResponseError,
             logger=logger,
             default_params={"token": token} if token else None,
+            error_mapper=_map_brapi_error,
             client=client,
         )
 
@@ -117,6 +138,66 @@ class BrapiProvider(MarketDataProvider):
 
         bars = [self._parse_bar(raw, ticker) for raw in raw_bars]
         return [bar for bar in bars if start <= bar.date <= end]
+
+    def get_intraday_history(
+        self,
+        ticker: str,
+        timeframe: Timeframe,
+        start: datetime,
+        end: datetime,
+    ) -> IntradayHistory:
+        """Intraday bars for `ticker`, and the window that produced them.
+
+        Two checks here are not defensive padding — each answers a
+        behaviour measured against the live API on 2026-08-22.
+
+        `usedInterval` is confirmed against what was asked, because the
+        response echoes it and rule 47 forbids treating a daily bar as
+        an intraday one. If the vendor ever silently downgrades an
+        interval it cannot serve, the alternative to failing here is
+        storing daily bars in `intraday_prices`, which nothing
+        downstream could detect.
+
+        The window is returned rather than discarded because it is part
+        of what the bars mean; `_intraday_window_for` documents why.
+        """
+        if start.tzinfo is None or end.tzinfo is None:
+            raise ValueError(
+                "An intraday window must be timezone-aware; a naive one "
+                "names no interval (AGENTS.md rule 18)."
+            )
+        if start > end:
+            raise ValueError("start must not be after end")
+
+        today = datetime.now(UTC).date()
+        window = _intraday_window_for(timeframe, start.astimezone(UTC).date(), today)
+
+        payload = self._http.get_json(
+            f"/quote/{ticker}",
+            params={"range": window.value, "interval": timeframe.value},
+        )
+        result = self._extract_result(payload, ticker)
+
+        used = result.get("usedInterval")
+        if used is not None and used != timeframe.value:
+            raise InvalidMarketDataResponseError(
+                f"Asked Brapi for {timeframe.value} bars of {ticker} and it "
+                f"answered with {used!r}. Storing those as intraday would be "
+                f"exactly what rule 47 forbids."
+            )
+
+        raw_bars = result.get("historicalDataPrice")
+        if raw_bars is None:
+            raise InvalidMarketDataResponseError(
+                f"Brapi response for {ticker} has no 'historicalDataPrice'."
+            )
+
+        bars = [self._parse_intraday_bar(raw, ticker, timeframe) for raw in raw_bars]
+        return IntradayHistory(
+            timeframe=timeframe,
+            window=window,
+            bars=[bar for bar in bars if start <= bar.timestamp <= end],
+        )
 
     # -- internals ---------------------------------------------------
 
@@ -191,6 +272,39 @@ class BrapiProvider(MarketDataProvider):
                 f"Brapi daily bar for {ticker} could not be parsed: {exc}"
             ) from exc
 
+    @staticmethod
+    def _parse_intraday_bar(
+        raw: dict[str, Any], ticker: str, timeframe: Timeframe
+    ) -> IntradayBar:
+        """One bar, with no adjusted close read and none invented.
+
+        `adjustedClose` is present on every intraday row and null on
+        every one of them (1,389 of 1,389 measured), so it is not read.
+        `date` is epoch seconds, which is why the timestamp below is
+        unambiguous without the vendor stating a timezone.
+        """
+        required = ("date", "open", "high", "low", "close", "volume")
+        missing = [field for field in required if raw.get(field) is None]
+        if missing:
+            raise InvalidMarketDataResponseError(
+                f"Brapi intraday bar for {ticker} is missing field(s): "
+                f"{', '.join(missing)}."
+            )
+        try:
+            return IntradayBar(
+                timestamp=_parse_timestamp(raw["date"]).astimezone(UTC),
+                timeframe=timeframe,
+                open=Decimal(str(raw["open"])),
+                high=Decimal(str(raw["high"])),
+                low=Decimal(str(raw["low"])),
+                close=Decimal(str(raw["close"])),
+                volume=Decimal(str(raw["volume"])),
+            )
+        except (InvalidOperation, ValueError) as exc:
+            raise InvalidMarketDataResponseError(
+                f"Brapi intraday bar for {ticker} could not be parsed: {exc}"
+            ) from exc
+
 
 def _parse_timestamp(value: Any) -> datetime:
     if isinstance(value, bool):
@@ -262,4 +376,103 @@ def _brapi_range_for(start: date, today: date, max_range: str) -> str:
         f"beyond the '{max_range}' cap this plan serves. Brapi anchors every "
         f"range at today and accepts no start date, so the window cannot be "
         f"paginated. Raise BRAPI_MAX_RANGE if the account's plan allows more."
+    )
+
+
+def _map_brapi_error(status_code: int, response: httpx.Response) -> Exception | None:
+    """Name the one Brapi error that a status code alone gets wrong.
+
+    Brapi refuses an intraday interval it will not serve with HTTP 400
+    and `{"code": "INVALID_INTERVAL"}`. Mapped by status alone that
+    becomes `MarketDataUnavailableError`, which says "the provider could
+    not be reached" — wrong twice over: the provider answered, and no
+    amount of waiting will change the answer.
+
+    The vendor's own message says the *interval* is unavailable. That is
+    not what was measured: `15m` is served for PETR4, ITUB4, MGLU3 and
+    VALE3 and refused for BBAS3 and BOVA11, and BBAS3 answers HTTP 200
+    on the same endpoint at `interval=1d`. The interval is constant
+    across both groups, so the ticker is the discriminator and the
+    message is misleading. `IntradayNotAvailableError` says the part
+    that is true.
+    """
+    if status_code != 400:
+        return None
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    if not isinstance(body, dict) or body.get("code") != "INVALID_INTERVAL":
+        return None
+    return IntradayNotAvailableError(
+        f"Brapi will not serve intraday bars on this plan for this ticker: "
+        f"{str(body.get('message') or '')[:200]}"
+    )
+
+
+#: How far back each intraday window actually reaches, per timeframe, in
+#: days before today — **measured**, not read off the documentation.
+#:
+#: Two things here are not what a range table would normally look like,
+#: and both are behaviours of the live API:
+#:
+#: 1. `1m` stops at `1mo`. Asking for `3mo` of one-minute bars does not
+#:    fail and does not return three months: it returns **five sessions**
+#:    (2,057 bars from 2026-08-17) where `1mo` returns twenty-two (8,652
+#:    bars from 2026-07-23), while still echoing `usedRange: 3mo`. A
+#:    table that let `1m` escalate to `3mo` would silently serve less
+#:    history the further back the caller asked.
+#: 2. `3mo` is listed last for the other two not merely because it is
+#:    largest but because it is a **different partition** of the same
+#:    sessions (see `HistoryWindow`). Escalating into it is safe only
+#:    because the window travels back with the bars.
+_INTRADAY_WINDOWS: dict[Timeframe, tuple[tuple[HistoryWindow, int], ...]] = {
+    Timeframe.ONE_MINUTE: (
+        (HistoryWindow.ONE_DAY, 1),
+        (HistoryWindow.FIVE_DAYS, 5),
+        (HistoryWindow.ONE_MONTH, 30),
+    ),
+    Timeframe.FIVE_MINUTES: (
+        (HistoryWindow.ONE_DAY, 1),
+        (HistoryWindow.FIVE_DAYS, 5),
+        (HistoryWindow.ONE_MONTH, 30),
+        (HistoryWindow.THREE_MONTHS, 90),
+    ),
+    Timeframe.FIFTEEN_MINUTES: (
+        (HistoryWindow.ONE_DAY, 1),
+        (HistoryWindow.FIVE_DAYS, 5),
+        (HistoryWindow.ONE_MONTH, 30),
+        (HistoryWindow.THREE_MONTHS, 90),
+    ),
+}
+
+
+def _intraday_window_for(
+    timeframe: Timeframe, start: date, today: date
+) -> HistoryWindow:
+    """The smallest window that reaches back to `start` for `timeframe`.
+
+    Same shape as `_brapi_range_for` and for the same reason: every
+    Brapi range is anchored at today and the API takes no start date, so
+    what decides the bucket is `today - start`, never `end - start`.
+
+    Smallest-that-reaches matters more here than it does for daily bars.
+    Overshooting into `3mo` does not merely fetch more rows, it fetches
+    a *differently partitioned* series (`HistoryWindow`), so a caller
+    asking for last week would get bars that disagree with the ones a
+    previous sync of last week already stored.
+    """
+    windows = _INTRADAY_WINDOWS[timeframe]
+    days_back = (today - start).days
+
+    for window, reach in windows:
+        if days_back <= reach:
+            return window
+
+    furthest, reach = windows[-1]
+    raise HistoryWindowTooLargeError(
+        f"Intraday history from {start.isoformat()} needs {days_back} days of "
+        f"range, beyond the {reach} days '{furthest.value}' serves for "
+        f"{timeframe.value} bars. Brapi anchors every range at today and "
+        f"accepts no start date, so the window cannot be paginated."
     )
