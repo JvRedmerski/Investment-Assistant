@@ -10,7 +10,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class DailyBar(BaseModel):
@@ -264,3 +264,111 @@ class CorporateAction(BaseModel):
         if ratio is not None and ratio <= 0:
             raise ValueError("A share ratio that is not positive is not a ratio.")
         return self
+
+
+class Timeframe(str, Enum):
+    """The bar sizes this project ingests intraday (AGENTS.md rule 47).
+
+    Three, and deliberately not the thirteen the vendor advertises. Rule
+    47 names `1m`, `5m` and `15m`, and every one of them was confirmed
+    served against a live response before being listed here — the same
+    evidence standard `CorporateEventKind` is held to.
+    """
+
+    ONE_MINUTE = "1m"
+    FIVE_MINUTES = "5m"
+    FIFTEEN_MINUTES = "15m"
+
+    @property
+    def seconds(self) -> int:
+        """How long one bar covers, in seconds.
+
+        This is the cadence a gap is measured against: two consecutive
+        bars of the same session more than this far apart have something
+        missing between them.
+        """
+        return _TIMEFRAME_SECONDS[self]
+
+
+_TIMEFRAME_SECONDS: dict[Timeframe, int] = {
+    Timeframe.ONE_MINUTE: 60,
+    Timeframe.FIVE_MINUTES: 300,
+    Timeframe.FIFTEEN_MINUTES: 900,
+}
+
+
+class HistoryWindow(str, Enum):
+    """How far back a single intraday request reached.
+
+    Part of a bar's identity, not a detail of how it was fetched, and
+    the reason is measured rather than assumed (ADR-036). The vendor
+    exposes intraday history as range buckets anchored at now, and
+    **two buckets partition the same session differently**: asking for
+    `3mo` of PETR4's 15-minute bars returns a series whose every bar
+    disagrees with the `5d` and `1mo` answer for the same timestamps —
+    0 of 135 identical, and 0 of 567 against `1mo`.
+
+    It is not noise and not a late revision. The same bucket asked twice
+    returns byte-identical bars (135/135 and 1,194/1,194), and `5d`
+    against `1mo` is also identical (135/135). Two regimes, then: one
+    shared by `1d`/`5d`/`1mo`, another used by `3mo`, which additionally
+    carries a 10:00 bar the short buckets never return.
+
+    So a session's bars are only mutually consistent if they came from
+    one window. Storing which one produced a row is what lets the
+    ingestion refuse to interleave two partitions into a series that
+    never traded.
+    """
+
+    ONE_DAY = "1d"
+    FIVE_DAYS = "5d"
+    ONE_MONTH = "1mo"
+    THREE_MONTHS = "3mo"
+
+
+class IntradayBar(BaseModel):
+    """One OHLCV bar covering `timeframe` starting at `timestamp`.
+
+    ## No adjusted close, because the source publishes none
+
+    `DailyBar` carries an `adjusted_close` that is `None` when the
+    source did not report one. This does not, and the difference is
+    measured: across 1,389 live intraday bars spanning all three
+    timeframes, `adjustedClose` came back null on **every single one**.
+    A field that is present and null in 1,389 of 1,389 is an absent
+    field (the lesson of W06-003), and carrying it here would invite
+    exactly the fabrication ADR-023 exists to prevent. Intraday bars
+    are raw traded prices; nothing in this project may treat them as a
+    total-return series.
+
+    ## The timestamp is aware, and that is enforced rather than assumed
+
+    A one-minute bar without a timezone is a bar without a time (rule
+    18). The vendor publishes epoch seconds, which are unambiguous, and
+    everything downstream stores and compares UTC — so a naive datetime
+    reaching here means a conversion was skipped somewhere, and it is
+    rejected instead of being guessed at.
+
+    ## The timestamp labels the bar's opening instant
+
+    Verified against a live response: PETR4's 15-minute session tiles
+    exactly to 17:00 local, so a bar stamped 16:45 covers 16:45-17:00.
+    """
+
+    timestamp: datetime
+    timeframe: Timeframe
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    volume: Decimal = Field(ge=0)
+
+    @field_validator("timestamp")
+    @classmethod
+    def _must_be_timezone_aware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+            raise ValueError(
+                "An intraday bar's timestamp must carry a timezone; a naive "
+                "one names no instant (AGENTS.md rule 18)."
+            )
+        return value

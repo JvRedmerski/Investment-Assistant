@@ -27,14 +27,18 @@ interface that answers its question.
 """
 
 from abc import ABC, abstractmethod
-from datetime import date
+from dataclasses import dataclass
+from datetime import date, datetime
 
 from app.integrations.market_data.schemas import (
     CorporateAction,
     CorporateEvent,
     DailyBar,
+    HistoryWindow,
+    IntradayBar,
     Quote,
     SecurityIdentity,
+    Timeframe,
 )
 
 
@@ -177,4 +181,72 @@ class CorporateActionProvider(ABC):
             TickerNotFoundError: the provider has no data for this security.
             MarketDataUnavailableError: the provider could not be reached.
             InvalidMarketDataResponseError: the response could not be parsed.
+        """
+
+
+@dataclass(frozen=True)
+class IntradayHistory:
+    """Intraday bars, together with the request window that produced them.
+
+    The pairing is the point. `HistoryWindow` explains why two windows
+    are not interchangeable; this is the type that stops a caller
+    forgetting it, by making the window impossible to drop on the way
+    from the provider to storage.
+    """
+
+    timeframe: Timeframe
+    window: HistoryWindow
+    bars: list[IntradayBar]
+
+
+class IntradayHistoryProvider(ABC):
+    """A source of intraday OHLCV bars (AGENTS.md rules 45, 47).
+
+    The fifth interface, separate from `DailyHistoryProvider` for the
+    same reason the other four are separate: it answers a different
+    question, from a different part of a source, under different limits.
+    B3's open end-of-day archive cannot answer it at all, and the vendor
+    that can serves it only for some tickers and only a few months back.
+
+    Rule 45 keeps day trade apart from the long-term engine at the level
+    of *scores and strategies*. Bars are not either, so this lives beside
+    the other market data interfaces rather than in a parallel package —
+    but nothing downstream may treat an intraday bar as a daily one
+    (rule 47), and there is no adjusted close here to tempt it (see
+    `IntradayBar`).
+    """
+
+    #: Stamped onto every bar this source supplies, so a stored row says
+    #: where it came from — the same contract as
+    #: `DailyHistoryProvider.source_name`.
+    source_name: str = "unknown"
+
+    @abstractmethod
+    def get_intraday_history(
+        self,
+        ticker: str,
+        timeframe: Timeframe,
+        start: datetime,
+        end: datetime,
+    ) -> IntradayHistory:
+        """Bars of size `timeframe` for `ticker` within [start, end].
+
+        `start` and `end` must be timezone-aware; an intraday window
+        expressed in naive local time names no interval (rule 18).
+
+        Returns the bars **and the window that produced them**, not a
+        bare list, because which request window answered is part of what
+        the bars mean: two windows partition the same session
+        differently, and a caller that cannot tell them apart will
+        eventually store a mixture of both (ADR-036).
+
+        Raises:
+            TickerNotFoundError: the provider has no data for this ticker.
+            IntradayNotAvailableError: the source will not serve intraday
+                bars for this ticker — a plan limit, not an outage, and
+                not distinguishable from an unknown ticker on this path.
+            MarketDataUnavailableError: the provider could not be reached.
+            InvalidMarketDataResponseError: the response could not be parsed.
+            HistoryWindowTooLargeError: the window reaches further back than
+                this timeframe is served for.
         """
