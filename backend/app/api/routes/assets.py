@@ -1,6 +1,6 @@
 from datetime import UTC, date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import (
@@ -9,6 +9,7 @@ from app.api.dependencies import (
     get_current_user,
     get_fundamentals_provider,
     get_historical_price_provider,
+    get_intraday_provider,
     get_market_data_provider,
 )
 from app.core.config import settings
@@ -20,6 +21,17 @@ from app.domain.assets.schemas import AssetCreate, AssetResponse
 from app.domain.benchmarks.catalog import UnknownBenchmarkError, get_benchmark
 from app.domain.benchmarks.schemas import BenchmarkComparisonResponse
 from app.domain.benchmarks.service import compare_asset_with_benchmark
+from app.domain.daytrade.schemas import (
+    IntradayBarResponse,
+    IntradaySyncResponse,
+    SessionCoverageResponse,
+    WindowConflictResponse,
+)
+from app.domain.daytrade.service import (
+    IntradaySyncResult,
+    read_intraday_bars,
+    sync_intraday_history,
+)
 from app.domain.fundamentals.schemas import (
     FinancialIndicatorResponse,
     FundamentalResponse,
@@ -55,15 +67,18 @@ from app.integrations.market_data.base import (
     CorporateActionProvider,
     CorporateEventProvider,
     DailyHistoryProvider,
+    IntradayHistoryProvider,
     MarketDataProvider,
 )
 from app.integrations.market_data.exceptions import (
     HistoryWindowTooLargeError,
+    IntradayNotAvailableError,
     InvalidMarketDataResponseError,
     MarketDataError,
     MarketDataUnavailableError,
     TickerNotFoundError,
 )
+from app.integrations.market_data.schemas import Timeframe
 
 router = APIRouter(prefix="/assets", tags=["Assets"])
 
@@ -242,6 +257,25 @@ def _price_source_http_error(exc: MarketDataError, ticker: str) -> HTTPException
                 }
             },
         )
+    if isinstance(exc, IntradayNotAvailableError):
+        # 400 for the same reason HistoryWindowTooLargeError is: the
+        # provider answered, the answer will not change on retry, and the
+        # request (or the account's plan) is the thing that has to move.
+        # Emphatically not 503 - "currently unavailable" would send a
+        # caller back to try again forever against a per-ticker limit
+        # that is not going to lift.
+        return HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "code": "INTRADAY_NOT_AVAILABLE",
+                    "message": (
+                        f"The configured intraday source will not serve bars "
+                        f"for {ticker}. {exc}"
+                    ),
+                }
+            },
+        )
     if isinstance(exc, InvalidMarketDataResponseError):
         return HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -260,6 +294,118 @@ def _price_source_http_error(exc: MarketDataError, ticker: str) -> HTTPException
                 "message": "Market data provider is currently unavailable.",
             }
         },
+    )
+
+
+@router.post("/{ticker}/intraday/sync", response_model=IntradaySyncResponse)
+def sync_asset_intraday(
+    ticker: str,
+    timeframe: Timeframe = Query(
+        Timeframe.FIFTEEN_MINUTES,
+        description="Bar size to ingest. Rule 47's three, and nothing else.",
+    ),
+    days: int = Query(
+        5,
+        ge=1,
+        le=90,
+        description=(
+            "How many days back from now to ingest. A day count rather "
+            "than a start/end pair because the source only works that "
+            "way: every range it serves is anchored at the request "
+            "instant and it accepts no start date. Offering an arbitrary "
+            "window would promise precision the source does not have."
+        ),
+    ),
+    resync: bool = Query(
+        False,
+        description=(
+            "Replace a session already stored under a different request "
+            "window, instead of reporting the conflict and leaving it. "
+            "Whole sessions only - replacing part of one would create "
+            "exactly the mixture the conflict exists to prevent."
+        ),
+    ),
+    db: Session = Depends(get_db),
+    provider: IntradayHistoryProvider = Depends(get_intraday_provider),
+    current_user: User = Depends(get_current_user),
+):
+    """Ingest intraday bars for an asset (AGENTS.md rules 45, 47).
+
+    The only endpoint that calls the intraday source; reading bars
+    (`GET /{ticker}/intraday`) never leaves the database (rule 23).
+
+    A response with a non-empty `conflicts` is a **success**, not a
+    failure: every other session was ingested. It means those sessions
+    are already stored under a different request window, and the two
+    windows partition a session differently enough that merging them
+    would fabricate a series that never traded (ADR-036).
+    """
+    asset = _get_asset_by_ticker(db, ticker)
+    end = datetime.now(UTC)
+    start = end - timedelta(days=days)
+
+    try:
+        result = sync_intraday_history(
+            db, provider, asset, timeframe, start, end, resync=resync
+        )
+    except MarketDataError as exc:
+        raise _price_source_http_error(exc, ticker) from exc
+
+    return _as_intraday_sync_response(result)
+
+
+@router.get("/{ticker}/intraday", response_model=list[IntradayBarResponse])
+def list_asset_intraday(
+    ticker: str,
+    timeframe: Timeframe = Query(Timeframe.FIFTEEN_MINUTES),
+    days: int = Query(5, ge=1, le=90),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Read stored intraday bars. Never queries the external provider
+    (rule 23) - use `POST /{ticker}/intraday/sync` first.
+
+    That matters more here than on the daily path: the source serves
+    intraday for only some tickers, so a read that reached out would
+    fail for reasons that have nothing to do with the read.
+    """
+    asset = _get_asset_by_ticker(db, ticker)
+    end = datetime.now(UTC)
+    return read_intraday_bars(db, asset, timeframe, end - timedelta(days=days), end)
+
+
+def _as_intraday_sync_response(result: IntradaySyncResult) -> IntradaySyncResponse:
+    return IntradaySyncResponse(
+        ticker=result.ticker,
+        timeframe=result.timeframe,
+        window=result.window,
+        start=result.start,
+        end=result.end,
+        fetched=result.fetched,
+        inserted=result.inserted,
+        skipped_existing=result.skipped_existing,
+        rejected=result.rejected,
+        missing_bars=result.missing_bars,
+        replaced=result.replaced,
+        sessions=[
+            SessionCoverageResponse(
+                session=coverage.session,
+                bar_count=coverage.bar_count,
+                first=coverage.first,
+                last=coverage.last,
+                missing_bars=coverage.missing_bars,
+            )
+            for coverage in result.sessions
+        ],
+        conflicts=[
+            WindowConflictResponse(
+                session=conflict.session,
+                stored_window=conflict.stored_window,
+                incoming_window=conflict.incoming_window,
+                bars_skipped=conflict.bars_skipped,
+            )
+            for conflict in result.conflicts
+        ],
     )
 
 
