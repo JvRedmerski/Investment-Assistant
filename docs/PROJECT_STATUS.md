@@ -725,7 +725,7 @@ terceira, e rodar contra o banco real é o passo que nas waves anteriores achou 
 que fixture nenhum acha.
 
 - [x] **W14-001**: A partição train/validation/test, pura e determinística 🟢 COMPLETED
-- [ ] **W14-002**: A grade de políticas candidatas e o objetivo de seleção ⚪ NOT_STARTED
+- [x] **W14-002**: A grade de políticas candidatas e o objetivo de seleção 🟢 COMPLETED
 - [ ] **W14-003**: O serviço walk-forward — seleção in-sample, medição out-of-sample, estabilidade ⚪ NOT_STARTED
 - [ ] **W14-004**: `GET /api/v1/backtests/walk-forward` ⚪ NOT_STARTED
 - [ ] **W14-005**: Rodar contra o banco real e corrigir o que ele achar ⚪ NOT_STARTED
@@ -753,6 +753,31 @@ O passo padrão é igual ao segmento, que é o walk-forward rolante do livro: o 
 é a validação do anterior, e os segmentos de **teste** ladrilham a história sem se sobrepor —
 é o que faz uma figura out-of-sample por fold somar uma afirmação sobre a estratégia, em vez
 do mesmo período contado duas vezes.
+
+**W14-002 — uma grade é um conjunto de hipóteses, não um espaço de busca.** A diferença
+aparece quando ela cresce: espaço de busca é varrido, e mais pontos deixam o melhor ponto
+melhor — melhor em descrever o ruído em que foi ajustado. Conjunto de hipóteses é
+*perguntado*: cada entrada responde uma pergunta que alguém formularia em palavras **antes**
+de ver qualquer resultado. Por isso a grade é **um parâmetro por vez** a partir da política do
+próprio chamador, nunca produto cartesiano: sete candidatos, cada um diferindo da base em
+exatamente um campo, cada um carregando a pergunta que responde — o produto cartesiano dos
+mesmos três eixos seria dezoito, e dezoito resultados sobre três folds são uma varredura
+vestida de walk-forward. Os valores são redondos (30 e 70 num score de 0–100, um quarto e três
+quartos de cobertura, três e oito posições) e nenhum foi escolhido olhando resultado — que é a
+única propriedade que importa e a única que o leitor não consegue conferir, daí
+`WALK_FORWARD_GRID_VERSION` ao lado de `SCORING_FORMULA_VERSION` e `ALLOCATION_RULES_VERSION`.
+A grade é **relativa à política do chamador**: quem já apertou `min_coverage` está perguntando
+se **os seus** limites são estáveis, e variar os defaults de outra pessoa responderia pergunta
+que ninguém fez. Variante que aterrissa na própria base é descartada, não reportada duas vezes.
+O objetivo é um enum fechado de dois, ambos maximizados, e o padrão é `sharpe` — porque a regra
+32 põe o perfil conservador como restrição quantitativa e porque ordenar por retorno cru é o
+que a regra 60 vigia mesmo com validação empilhada atrás. Sharpe precisa da taxa livre de
+risco, que este projeto lê do CDI e é `None` até ele ser ingerido: candidato **sem valor de
+objetivo não é ranqueado em último, é não-ranqueado** (`OBJECTIVE_UNAVAILABLE`). Fallback
+silencioso para uma segunda figura tornaria duas execuções do mesmo comando incomparáveis
+conforme o que estivesse no banco. CAGR é medido e **nunca** é objetivo: dentro de um fold os
+três segmentos têm o mesmo tamanho por construção, então anualizar não muda ordenação nenhuma
+— seria o mesmo objetivo com outro nome.
 
 ---
 
