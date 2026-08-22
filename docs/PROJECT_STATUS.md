@@ -717,9 +717,42 @@ produz — que é onde `benchmarks/comparison.py`, `portfolio/performance.py` e
 ---
 
 ### Wave 14 — Walk-Forward Validation
-Status: ⚪ NOT_STARTED
+Status: 🟡 IN_PROGRESS (2026-08-22), 1 de 5 tasks
 
-- [ ] **W14-001**: Implementação de Janelas Móveis e Validação Out-of-Sample ⚪ NOT_STARTED
+O roadmap previa uma task. A execução precisa de cinco, e as quatro a mais não são
+subdivisão: a partição é uma coisa, **o que se ajusta** é outra, medir out-of-sample é uma
+terceira, e rodar contra o banco real é o passo que nas waves anteriores achou os defeitos
+que fixture nenhum acha.
+
+- [x] **W14-001**: A partição train/validation/test, pura e determinística 🟢 COMPLETED
+- [ ] **W14-002**: A grade de políticas candidatas e o objetivo de seleção ⚪ NOT_STARTED
+- [ ] **W14-003**: O serviço walk-forward — seleção in-sample, medição out-of-sample, estabilidade ⚪ NOT_STARTED
+- [ ] **W14-004**: `GET /api/v1/backtests/walk-forward` ⚪ NOT_STARTED
+- [ ] **W14-005**: Rodar contra o banco real e corrigir o que ele achar ⚪ NOT_STARTED
+
+#### Notas de implementação
+
+**W14-001 — os três segmentos têm o mesmo tamanho, e é isso que sustenta a wave.** Parece
+simplificação arbitrária e é o contrário. A estratégia sob teste constrói carteira com aporte
+mensal, então **o tamanho do segmento muda o que ele mede**: três meses são três aportes numa
+carteira que estava vazia em janeiro; doze são doze numa carteira que já tem pesos, setores e
+um pilar de Diversificação lendo isso de volta. Segmentos de tamanhos diferentes produzem
+figuras **não comparáveis** — e a wave inteira é uma comparação, entre o que foi escolhido
+in-sample e o que aconteceu out-of-sample. Um segmento de teste mais curto reportaria uma
+degradação que é em parte só uma carteira mais nova, e ninguém saberia dizer qual parte. O
+confundidor é removido **por construção**, como o `allocation` recusa ordenar dois scores de
+cobertura diferente em vez de ajustar um ao outro.
+A segunda decisão é a recusa: três segmentos de `segment_months` precisam de
+`3 × segment_months` de janela, e quando a história é mais curta a resposta é
+`WINDOW_TOO_SHORT` com as duas figuras — nunca segmentos aparados até caberem, que produziriam
+resultado com cara de validado a partir de janela que não validou nada. Não é hipotético: a
+janela herdada do [ADR-032](decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md)
+tem **nove meses** para o universo dos quatro ativos, então o esquema padrão (12/12/12) recusa
+contra o banco real e diz por quanto.
+O passo padrão é igual ao segmento, que é o walk-forward rolante do livro: o treino de um fold
+é a validação do anterior, e os segmentos de **teste** ladrilham a história sem se sobrepor —
+é o que faz uma figura out-of-sample por fold somar uma afirmação sobre a estratégia, em vez
+do mesmo período contado duas vezes.
 
 ---
 
