@@ -23,6 +23,7 @@ from app.domain.benchmarks.schemas import BenchmarkComparisonResponse
 from app.domain.benchmarks.service import compare_asset_with_benchmark
 from app.domain.daytrade.schemas import (
     IntradayBarResponse,
+    IntradaySeriesResponse,
     IntradaySyncResponse,
     SessionCoverageResponse,
     WindowConflictResponse,
@@ -78,7 +79,8 @@ from app.integrations.market_data.exceptions import (
     MarketDataUnavailableError,
     TickerNotFoundError,
 )
-from app.integrations.market_data.schemas import Timeframe
+from app.integrations.market_data.intraday_quality import session_date
+from app.integrations.market_data.schemas import HistoryWindow, Timeframe
 
 router = APIRouter(prefix="/assets", tags=["Assets"])
 
@@ -354,7 +356,7 @@ def sync_asset_intraday(
     return _as_intraday_sync_response(result)
 
 
-@router.get("/{ticker}/intraday", response_model=list[IntradayBarResponse])
+@router.get("/{ticker}/intraday", response_model=IntradaySeriesResponse)
 def list_asset_intraday(
     ticker: str,
     timeframe: Timeframe = Query(Timeframe.FIFTEEN_MINUTES),
@@ -368,10 +370,30 @@ def list_asset_intraday(
     That matters more here than on the daily path: the source serves
     intraday for only some tickers, so a read that reached out would
     fail for reasons that have nothing to do with the read.
+
+    Returns an envelope rather than a bare list because the series can
+    span more than one request window across sessions, and a caller
+    computing anything across a session boundary has to know. See
+    `IntradaySeriesResponse`.
     """
     asset = _get_asset_by_ticker(db, ticker)
     end = datetime.now(UTC)
-    return read_intraday_bars(db, asset, timeframe, end - timedelta(days=days), end)
+    bars = read_intraday_bars(db, asset, timeframe, end - timedelta(days=days), end)
+    return IntradaySeriesResponse(
+        ticker=asset.ticker,
+        timeframe=timeframe,
+        # Declaration order (shortest reach first), not alphabetical and
+        # not set order: `sorted(key=str)` on a str-Enum sorts by member
+        # *name*, which put "3mo" after "5d" for a reason no reader could
+        # guess. This is deterministic and means something (rule 113).
+        windows=[
+            window
+            for window in HistoryWindow
+            if window in {HistoryWindow(bar.source_window) for bar in bars}
+        ],
+        session_count=len({session_date(bar.timestamp) for bar in bars}),
+        bars=[IntradayBarResponse.model_validate(bar) for bar in bars],
+    )
 
 
 def _as_intraday_sync_response(result: IntradaySyncResult) -> IntradaySyncResponse:

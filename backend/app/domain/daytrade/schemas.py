@@ -74,3 +74,36 @@ class IntradaySyncResponse(BaseModel):
     replaced: int
     sessions: list[SessionCoverageResponse]
     conflicts: list[WindowConflictResponse]
+
+
+class IntradaySeriesResponse(BaseModel):
+    """Stored bars, and which partitions they came from.
+
+    An envelope rather than a bare list — unlike `GET /{ticker}/prices`,
+    which returns daily bars and needs none. The difference is measured,
+    not stylistic: a daily bar is the same bar whoever asks, while an
+    intraday series assembled over time can hold sessions fetched under
+    different request windows, and those windows partition a session
+    differently (ADR-036).
+
+    Ingestion guarantees that **no single session** mixes windows. It
+    cannot guarantee that a multi-session series is homogeneous: syncing
+    three days and then sixty leaves the first three sessions under `5d`
+    and the rest under `3mo`, which is exactly what a real run produced.
+    Every bar carries its own `source_window`, but a caller should not
+    have to scan for that, so `windows` states it once. More than one
+    entry means any calculation that crosses a session boundary — an EMA
+    spanning days, say — is reading across a seam.
+
+    Re-syncing the whole range with `resync=true` is what collapses it
+    back to one window.
+    """
+
+    ticker: str
+    timeframe: Timeframe
+    #: Every request window represented in `bars`, sorted. One entry is a
+    #: homogeneous series; more than one is a seam the caller must know
+    #: about.
+    windows: list[HistoryWindow]
+    session_count: int
+    bars: list[IntradayBarResponse]

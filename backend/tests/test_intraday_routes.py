@@ -131,8 +131,11 @@ class TestSyncAndRead:
             f"{ASSETS_URL}/PETR4/intraday?timeframe=15m&days=1", headers=headers
         )
         assert read.status_code == 200
-        assert len(read.json()) == 2
-        assert read.json()[0]["source_window"] == "5d"
+        series = read.json()
+        assert len(series["bars"]) == 2
+        assert series["bars"][0]["source_window"] == "5d"
+        assert series["windows"] == ["5d"]
+        assert series["session_count"] == 1
 
     def test_the_response_reports_session_coverage(self, client):
         headers = _auth_headers(client, "intraday-c@example.com")
@@ -214,7 +217,7 @@ class TestTheWindowConflictReachesTheCaller:
         assert body["inserted"] == 1
 
         read = client.get(f"{ASSETS_URL}/WEGE3/intraday?days=1", headers=headers)
-        assert read.json()[0]["source_window"] == "3mo"
+        assert read.json()["bars"][0]["source_window"] == "3mo"
 
 
 class TestErrorTranslation:
@@ -242,3 +245,62 @@ class TestErrorTranslation:
         response = client.post(f"{ASSETS_URL}/PRIO3/intraday/sync", headers=headers)
         assert response.status_code == 503
         assert response.json()["error"]["code"] == "MARKET_DATA_UNAVAILABLE"
+
+
+class TestTheSeriesReportsItsOwnSeam:
+    """The finding from running W15 against the real database.
+
+    Ingestion guarantees no *session* mixes windows. It cannot guarantee
+    a multi-session series is homogeneous: a real run of three days
+    followed by sixty left three sessions under `5d` and forty under
+    `3mo`. Every bar carried its window, but nothing said so at the level
+    a caller reads, and anything crossing a session boundary would have
+    been computed across a seam it could not see.
+    """
+
+    def test_a_homogeneous_series_reports_one_window(self, client):
+        headers = _auth_headers(client, "intraday-j@example.com")
+        _create_asset(client, headers, "RENT3")
+        _override(FakeIntradayProvider(bars=[_bar(30), _bar(45)]))
+        client.post(f"{ASSETS_URL}/RENT3/intraday/sync?days=1", headers=headers)
+
+        series = client.get(
+            f"{ASSETS_URL}/RENT3/intraday?days=1", headers=headers
+        ).json()
+        assert series["windows"] == ["5d"]
+        assert series["ticker"] == "RENT3"
+        assert series["timeframe"] == "15m"
+
+    def test_a_series_spanning_two_windows_says_so(self, client):
+        headers = _auth_headers(client, "intraday-k@example.com")
+        _create_asset(client, headers, "SUZB3")
+
+        # One session under 5d...
+        _override(FakeIntradayProvider(bars=[_bar(30)], window=HistoryWindow.FIVE_DAYS))
+        client.post(f"{ASSETS_URL}/SUZB3/intraday/sync?days=1", headers=headers)
+
+        # ...and a different session under 3mo. Different sessions, so
+        # this is not a conflict - and that is exactly why the seam needs
+        # reporting rather than refusing.
+        older = _bar(30)
+        older = IntradayBar(
+            timestamp=older.timestamp - timedelta(days=2),
+            timeframe=_15M,
+            open=Decimal("41.00"),
+            high=Decimal("41.00"),
+            low=Decimal("41.00"),
+            close=Decimal("41.00"),
+            volume=Decimal(1000),
+        )
+        _override(FakeIntradayProvider(bars=[older], window=HistoryWindow.THREE_MONTHS))
+        body = client.post(
+            f"{ASSETS_URL}/SUZB3/intraday/sync?days=5", headers=headers
+        ).json()
+        assert body["conflicts"] == []
+
+        series = client.get(
+            f"{ASSETS_URL}/SUZB3/intraday?days=5", headers=headers
+        ).json()
+        # Declaration order: shortest reach first.
+        assert series["windows"] == ["5d", "3mo"]
+        assert series["session_count"] == 2
