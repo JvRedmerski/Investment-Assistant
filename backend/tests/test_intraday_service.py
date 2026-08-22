@@ -306,3 +306,46 @@ class TestReading:
 
         read_intraday_bars(db_session, asset, _15M, *_WINDOW)
         assert provider.calls == 1
+
+
+class TestResyncIsIdempotent:
+    """Regression for a defect reachable straight from the API.
+
+    The replacement used to be keyed on a *window mismatch*, which looked
+    equivalent to "the session already holds something" and was not:
+    re-syncing a session already stored under the **same** window skipped
+    the delete, and then inserted every bar again because `resync` had
+    also switched off the already-stored check. Two identical
+    `?resync=true` calls raised a unique violation - HTTP 500.
+    """
+
+    def test_resync_over_the_same_window_replaces_rather_than_duplicating(
+        self, db_session, asset
+    ):
+        day = date(2026, 8, 18)
+        history = _history(_session_bars(day), HistoryWindow.FIVE_DAYS)
+        _sync(db_session, asset, history)
+
+        result = _sync(db_session, asset, history, resync=True)
+
+        assert result.replaced == 4
+        assert result.inserted == 4
+        assert db_session.query(IntradayPrice).count() == 4
+
+    def test_resync_twice_in_a_row_is_stable(self, db_session, asset):
+        day = date(2026, 8, 18)
+        history = _history(_session_bars(day), HistoryWindow.FIVE_DAYS)
+        _sync(db_session, asset, history)
+
+        _sync(db_session, asset, history, resync=True)
+        _sync(db_session, asset, history, resync=True)
+
+        assert db_session.query(IntradayPrice).count() == 4
+
+    def test_resync_on_a_session_never_stored_inserts_normally(self, db_session, asset):
+        """Nothing to replace is not an error, and `replaced` says zero."""
+        result = _sync(
+            db_session, asset, _history(_session_bars(date(2026, 8, 18))), resync=True
+        )
+        assert result.replaced == 0
+        assert result.inserted == 4

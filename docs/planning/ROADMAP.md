@@ -7,10 +7,15 @@ Legenda: 🟢 concluída · 🟡 em progresso · ⚪ não iniciada
 
 ## Estado geral
 
-**15 / 33 concluídas** (W00–W14), **mais duas waves inseridas fora da ordem** — ver abaixo.
-Fronteira atual: a **Wave 15 — Day Trade Data**, que abre o módulo intraday. A W14 fechou em
-2026-08-22 com 5 tasks (o roadmap previa 1): a validação out-of-sample, e o veredicto de que os
-parâmetros da estratégia **não são estáveis** sobre a história que existe hoje. Antes dela a W13,
+**16 / 33 concluídas** (W00–W15), **mais duas waves inseridas fora da ordem** — ver abaixo.
+Fronteira atual: a **Wave 16 — Day Trade Engine**, que traz indicadores intraday e os três
+setups iniciais. A W15 fechou em 2026-08-22 com 6 tasks (o roadmap previa 1): o dado intraday
+existe, e a wave inteira foi moldada por uma captura da resposta viva feita **antes** de qualquer
+parser — que descobriu que **uma barra intraday não é um fato estável nesta fonte**, já que a
+mesma barra volta diferente conforme o `range` pedido
+([ADR-036](../decisions/ADR-036-the-request-window-is-part-of-a-bars-identity.md)). Antes dela a
+W14 fechou com 5 tasks: a validação out-of-sample, e o veredicto de que os parâmetros da
+estratégia **não são estáveis** sobre a história que existe hoje. Antes dela a W13,
 também em 5 tasks a mais do que o previsto: o backtest **fala ledger**, então mede com o mesmo
 código que mede a carteira do investidor, e replaya **a** estratégia do projeto em vez de uma
 reimplementação dela. As W10, W11 e W12 fecharam em 2026-08-21: a W11 tirou o frontend do estado
@@ -94,8 +99,8 @@ Não compartilha scores nem estratégias com o motor de longo prazo (AGENTS.md �
 
 | Wave | Objetivo | Status | Depende de | Spec |
 |---|---|---|---|---|
-| **W15** | Ingestão intraday (1m/5m/15m) | ⚪ **próxima** | W05 | §27 |
-| W16 | Indicadores (VWAP, EMA 9/21, RSI, ATR, RVOL) e setups (Breakout, Pullback, VWAP) | ⚪ | W15 | §28 |
+| **W15** | Ingestão intraday (1m/5m/15m), qualidade, gaps e timezone | 🟢 **2026-08-22** (6 tasks) | W05 | §27 |
+| **W16** | Indicadores (VWAP, EMA 9/21, RSI, ATR, RVOL) e setups (Breakout, Pullback, VWAP) | ⚪ **próxima** | W15 | §28 |
 | W17 | Risk Engine — sizing, stop, R/R, circuit breaker diário | ⚪ | W16 | §29 |
 | W18 | Dashboard de Day Trade | ⚪ | W16, W17 | §30 |
 | W19 | Backtesting de setups intraday | ⚪ | W16 | §31 |
@@ -138,4 +143,4 @@ Não bloqueiam a wave em andamento, mas precisam ser resolvidas antes de produç
 - Suportar demonstrativos trimestrais e reexpressões: exige coluna de período / versionamento em `fundamentals` ([ADR-013](../decisions/ADR-013-fundamentals-point-in-time.md)). O `refill` da EVENTS-001 **não** resolve isso — ele só preenche coluna nula ([ADR-024](../decisions/ADR-024-refill-fills-null-columns.md)).
 - ✅ ~~Task dedicada de lint cleanup no backend~~ e ~~consertar `npm run lint`~~ — ambas fechadas em FIX-001 (2026-08-19). `ruff`/`black` limpos no repositório inteiro, ESLint 10 rodando.
 - ✅ ~~**Ingestão de proventos, entregável da W05 (roadmap §17)**~~ — **fechada em 2026-08-20** (EVENTS-003). O provento por pagamento, com data e valor, vem do serviço aberto de eventos da B3 e é persistido em `corporate_actions` ([ADR-026](../decisions/ADR-026-corporate-action-magnitude-and-the-completeness-rule.md)). Continua de fora a **subscrição**, que exige um modelo do valor do direito e não uma medição — por ora ela trunca a série ajustada.
-- Converter para `NUMERIC` as colunas monetárias ainda em `Float` (ver [ADR-003](../decisions/ADR-003-decimal-money.md)) — sobraram `intraday_prices` OHLC (W15) e `portfolio_snapshots.total_value`/`cash_value` (W11), as duas **sem consumidor** hoje.
+- Converter para `NUMERIC` as colunas monetárias ainda em `Float` (ver [ADR-003](../decisions/ADR-003-decimal-money.md)) — `intraday_prices` OHLC **foi convertida na W15** (`013_intraday_precision`); sobraram `portfolio_snapshots.total_value`/`cash_value` (W11) e os preços de `daytrade_setups`/`daytrade_results`, que ganham consumidor na W16.

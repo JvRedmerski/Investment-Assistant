@@ -143,15 +143,30 @@ O produto final deve responder: *Como está minha carteira? Estou batendo o CDI?
   90 pontos fora da amostra, e a política que o projeto entrega não foi escolhida em fold nenhum.
   Uma wave de validação que só sabe dizer "passou" não valida nada.
 
+- **A vela intraday, e a janela que a define.** Velas de 1, 5 e 15 minutos, com o mesmo rigor
+  que o resto: `Decimal`, `timestamptz`, e **nenhum `adjusted_close`** — o campo vem nulo em
+  1.389 de 1.389 barras reais, e campo sempre nulo é campo ausente. O achado que moldou a wave é
+  que **uma barra não é um fato estável nesta fonte**: a mesma barra volta diferente conforme o
+  `range` pedido (0 de 135 idênticas entre `5d` e `3mo`, contra 135 de 135 no mesmo balde). Por
+  isso a **sessão** é a unidade que vem de uma janela só, a janela é gravada na linha, e misturar
+  é **reportado, nunca resolvido em silêncio**
+  ([ADR-036](../decisions/ADR-036-the-request-window-is-part-of-a-bars-identity.md)).
+
+  E a série diz onde está furada sem inventar um horário de pregão: buraco é medido **entre
+  barras entregues**, sessão curta é **comparada com as vizinhas do lote**, e não há checagem de
+  alinhamento de grade — ela teria rejeitado 16 preços reais de um pregão que negociou fora de
+  fase ([ADR-037](../decisions/ADR-037-a-gap-is-measured-a-session-edge-is-compared.md)).
+  ⚠️ O universo intraday é de **três ativos**: no plano gratuito o acesso é liberado por ticker.
+
 ### Em desenvolvimento
-- **Nenhuma wave em andamento.** A próxima é a **Wave 15 — Day Trade Data**, que abre o módulo
-  intraday. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
+- **Nenhuma wave em andamento.** A próxima é a **Wave 16 — Day Trade Engine**, que traz
+  indicadores intraday e os três setups iniciais. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ### Planejado (não existe código)
-Day Trade (intraday, setups, risco, paper trading) → Observabilidade/Segurança/CI-CD/Deploy.
+Day Trade (setups, risco, paper trading — o **dado** intraday já existe) → Observabilidade/Segurança/CI-CD/Deploy.
 Ver [../planning/ROADMAP.md](../planning/ROADMAP.md).
 
-As capacidades acima estão **expostas em tela** desde a W11. O que continua sem interface: **backtesting, walk-forward e IA, que existem no backend e não em tela** (as três waves são backend-only por decisão; o roadmap põe `/backtests` na W22), e day trade, que ainda não existe em lugar nenhum.
+As capacidades acima estão **expostas em tela** desde a W11. O que continua sem interface: **backtesting, walk-forward e IA, que existem no backend e não em tela** (as três waves são backend-only por decisão; o roadmap põe `/backtests` na W22), e day trade, cujo **dado** intraday existe desde a W15 mas cujos setups ainda não existem em lugar nenhum.
 
 ## Stack real (o que está de fato em uso)
 
@@ -185,7 +200,7 @@ PostgreSQL  ←  Alembic migrations
 
 Domínios conceituais (AGENTS.md §4):
 `Market Data → Quant Engine → Portfolio Engine → Recommendation Engine → AI Engine (só explicação)`.
-Os cinco existem desde a W12; desde a W13 há um sexto, o **Backtesting Engine**, que não é uma nova contabilidade — é o replay que consome os outros. A W14 acrescentou o **walk-forward** dentro dele, pela mesma razão: não é um segundo motor, é o mesmo backtest rodado sobre partições de janela.
+Os cinco existem desde a W12; desde a W13 há um sexto, o **Backtesting Engine**, que não é uma nova contabilidade — é o replay que consome os outros. A W14 acrescentou o **walk-forward** dentro dele, pela mesma razão: não é um segundo motor, é o mesmo backtest rodado sobre partições de janela. A W15 abriu o **Day Trade**, que por decisão (regra 45) **não** compartilha score nem estratégia com o motor de longo prazo — só o transporte HTTP e o padrão de provider.
 
 ## Documentos-âncora do projeto
 

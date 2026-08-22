@@ -6,9 +6,43 @@
 
 ## Current Phase
 
-**Wave 14 — Walk-Forward Validation concluída** (2026-08-22), **5 de 5 tasks**. **15 de 33 waves
-do roadmap concluídas** (W00–W14), mais as duas inseridas fora da ordem (PRICE e EVENTS).
-**A próxima é a Wave 15 — Day Trade Data**, que abre o módulo intraday.
+**Wave 15 — Day Trade Data concluída** (2026-08-22), **6 de 6 tasks**. **16 de 33 waves do
+roadmap concluídas** (W00–W15), mais as duas inseridas fora da ordem (PRICE e EVENTS).
+**A próxima é a Wave 16 — Day Trade Engine**, que traz indicadores e setups.
+
+✅ **A W15 é a wave em que a chamada real antes dos mocks se pagou de novo, e caro.** Seguindo o
+procedimento do IMPLEMENTATION_GUIDE, uma captura da resposta viva veio **antes de qualquer
+parser** — e achou seis coisas, três das quais mudaram o desenho. A maior: **uma barra intraday
+não é um fato estável nesta fonte.** A mesma barra (mesmo ticker, mesmo timestamp, mesmo
+timeframe) volta com OHLCV diferente conforme o `range` pedido — **0 de 135** idênticas entre
+`5d` e `3mo`, **0 de 567** entre `1mo` e `3mo`, contra **135 de 135** quando o mesmo balde é
+pedido duas vezes. Por isso a janela é gravada na linha e a **sessão** é a unidade que vem de uma
+janela só; misturar é **reportado, nunca resolvido em silêncio**
+([ADR-036](../decisions/ADR-036-the-request-window-is-part-of-a-bars-identity.md)).
+
+✅ **E a detecção de gaps que o dado real reescreveu.** O desenho óbvio — exigir que barras de 15
+minutos caiam na grade `:00/:15/:30/:45` — teria rejeitado **16 preços reais**: o pregão de
+2026-07-31 está numa fase `:01/:16/:31/:46`. Buraco passou a ser medido **entre barras
+entregues**, e borda de sessão **comparada com as vizinhas do lote**, nunca com um horário de
+pregão presumido — uma afirmação verdadeira quer a bolsa tenha aberto tarde, quer o fornecedor
+tenha perdido linhas, e que **não pretende saber qual**
+([ADR-037](../decisions/ADR-037-a-gap-is-measured-a-session-edge-is-compared.md)).
+
+🔴 **Rodar contra o banco real achou o que faltava.** A garantia é **por sessão**, e uma série
+não é uma sessão: três dias sincronizados e depois sessenta deixam 3 sessões em `5d` e 40 em
+`3mo` — cada uma íntegra, a série inteira com uma **costura** que a leitura não declarava.
+`GET /assets/{ticker}/intraday` passou a devolver envelope com `windows`. E um segundo defeito, que só a
+segunda chamada revela: `resync=true` sobre sessão já gravada **na mesma janela** pulava a
+exclusão e reinseria tudo — violação de unicidade, HTTP 500. A substituição passou a depender de
+a sessão ter algo gravado, não de a janela divergir.
+
+⚠️ **O universo intraday é de 3 ativos, não 4.** No plano gratuito da Brapi o intraday é liberado
+**por ticker**: PETR4, ITUB4, MGLU3 e VALE3 são servidos; **BBAS3 e BOVA11 não**. A mensagem do
+fornecedor culpa o intervalo, e o intervalo é o mesmo nos dois grupos.
+
+---
+
+### A wave anterior, para contexto
 
 ✅ **A W14 é a wave que consegue dizer que a estratégia não passou.** Treino pergunta à grade
 inteira, validação pergunta só à shortlist sobre história que a ordenação não viu, e teste roda
@@ -220,11 +254,11 @@ CDI e IPCA **não** são afetados: vêm do Banco Central (SGS), aberto e sem cot
 
 | | |
 |---|---|
-| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine · W08 Benchmark Engine · W09 Recommendation Engine · W10 Rebalancing · W11 Dashboard · W12 AI Engine · W13 Backtesting · **W14 Walk-Forward Validation** · **PRICE Open Price History** (inserida) · **EVENTS Corporate Actions & Distributions** (inserida) |
-| **In Progress** | — nenhuma. Próxima: **Wave 15 — Day Trade Data**; ver [CURRENT_TASK.md](CURRENT_TASK.md) |
+| **Completed** | W00 Foundation · W01 Scaffold · W02 Database · W03 Auth · W04 Portfolio · W05 Market Data · W06 Fundamental Data · W07 Quant Engine · W08 Benchmark Engine · W09 Recommendation Engine · W10 Rebalancing · W11 Dashboard · W12 AI Engine · W13 Backtesting · W14 Walk-Forward Validation · **W15 Day Trade Data** · **PRICE Open Price History** (inserida) · **EVENTS Corporate Actions & Distributions** (inserida) |
+| **In Progress** | — nenhuma. Próxima: **Wave 16 — Day Trade Engine**; ver [CURRENT_TASK.md](CURRENT_TASK.md) |
 | **Blocked** | — nenhuma. ⚠️ Mas o `OllamaProvider` da W12 continua **não verificado** até que um servidor local exista |
 
-Baseline atual: `pytest` → **1.129 passed** (backend/.venv), verificado em 2026-08-22. Frontend: `npm run build` e `npm run lint` limpos. `ruff check .` e `black --check .` limpos no repositório inteiro; `alembic check` sem drift na última execução (2026-08-19, com o banco no ar); `npm run lint` e `npm run build` funcionando.
+Baseline atual: `pytest` → **1.228 passed** (backend/.venv), verificado em 2026-08-22. Frontend: `npm run build` e `npm run lint` limpos. `ruff check .` e `black --check .` limpos no repositório inteiro; `alembic check` sem drift na última execução (2026-08-19, com o banco no ar); `npm run lint` e `npm run build` funcionando.
 
 ## Completed Work (nível wave)
 
@@ -335,27 +369,58 @@ Detalhe por task: [../history/COMPLETED_TASKS.md](../history/COMPLETED_TASKS.md)
 
 ## Current Work
 
-**Nenhuma.** A Wave 14 fechou em 2026-08-22 com as cinco tasks entregues e nada de código pela
+**Nenhuma.** A Wave 15 fechou em 2026-08-22 com as seis tasks entregues e nada de código pela
 metade. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ## Next Recommended Step
 
-1. **Wave 15 — Day Trade Data** (roadmap §27): a primeira wave do módulo intraday.
-   `intraday_prices`, ingestão de 1m/5m/15m, normalização, atualização, detecção de gaps e
-   timezone. ⚠️ **Primeira integração externa nova desde a IA** — vale o procedimento inteiro do
-   IMPLEMENTATION_GUIDE: **uma chamada real antes dos mocks**. Note também que o OHLC de
-   `IntradayPrice` ainda é `Float` (regra 17) e o `timestamp` é naive: migration nova.
-2. **Ingerir os eventos societários que faltam em ITUB4 e MGLU3.** Não é wave, é dado — e é o
-   que destrava tudo o que a W14 acabou de recusar. Nove meses de janela replayável contra 36
-   exigidos pelo esquema padrão. Relaxar o esquema não é alternativa.
-3. **Antes de confiar no Risco de um ativo novo, rode o sync de ações societárias.** Um papel só
-   com preço bruto continua sem `adjusted_close`, e portanto sem risco — o que é o estado normal
-   que o motor de score já trata, não um defeito. O comando é
+1. 🔴 **Redigir a credencial da Brapi do log.** `app/core/logging.py` chama
+   `logging.basicConfig(level=INFO)`, que configura o logger **raiz**, e o `httpx` imprime a URL
+   completa — `?token=<token>` em texto claro. Pré-existe desde a W05, foi achado na W15-006 e
+   registrado sem corrigir por ser fora do escopo (§134). É de uma linha e vale antes de qualquer
+   ingestão em lote nova.
+2. **Wave 16 — Day Trade Engine** (roadmap §28): VWAP, EMA 9/21, RSI, ATR, volume relativo,
+   máxima/mínima do dia, suporte/resistência, e depois os setups Breakout, Pullback e VWAP, cada
+   um função independente. ⚠️ **Calcule por sessão** — a W15 garante que nenhuma sessão mistura
+   partições e **não** que uma série de várias sessões seja homogênea. ⚠️ E o universo intraday
+   é de **3 ativos**: BBAS3 não é servido.
+3. **Ingerir os eventos societários que faltam em ITUB4 e MGLU3.** Não é wave, é dado — e é o
+   que destrava tudo o que a W14 recusou. Nove meses de janela replayável contra 36 exigidos
+   pelo esquema padrão. Relaxar o esquema não é alternativa.
+4. **Antes de confiar no Risco de um ativo novo, rode o sync de ações societárias.** Um papel só
+   com preço bruto continua sem `adjusted_close`, e portanto sem risco — estado normal que o
+   motor de score já trata, não um defeito. O comando é
    `POST /assets/{ticker}/corporate-actions/sync` **depois** do `prices/backfill`.
 
 Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ## Known Issues
+
+🔴 **O token da Brapi vaza para o log da aplicação** (achado 2026-08-22 na W15-006, **não é
+regressão da W15** — vale desde a W05). `logging.basicConfig(level=INFO)` configura o logger
+raiz; o `httpx` emite em INFO `GET https://brapi.dev/api/quote/PETR4?token=<token>&...` com a
+credencial em texto claro. O projeto já conhecia o risco e o escreveu — o docstring de
+`RetryingJsonClient` diz que credencial em header não é logada porque credencial em URL vaza
+para logs e proxies —, mas a Brapi autentica por **query param**. Correção candidata é de uma
+linha. Registrado conforme §134, **não corrigido nesta wave**.
+
+🟡 **Intraday no plano gratuito é liberado por ticker, não por intervalo** (medido 2026-08-22).
+PETR4/ITUB4/MGLU3/VALE3 servem; **BBAS3/BOVA11 recusam** com HTTP 400 `INVALID_INTERVAL`. A
+mensagem culpa o intervalo, que é idêntico nos dois grupos — BBAS3 responde 200 no mesmo
+endpoint em `interval=1d`. Além disso, no caminho intraday um ticker **inexistente** também
+responde `INVALID_INTERVAL` e nunca 404, porque o gate de plano roda antes da resolução do
+ticker: `IntradayNotAvailableError` **não pode ser lida como "ticker não existe"**.
+
+🟡 **`1m` não alcança três meses, e pedir `3mo` devolve menos história.** `interval=1m&range=3mo`
+responde 200 com **5 sessões** onde `range=1mo` devolve **22**, ecoando `usedRange: 3mo`. Por
+isso `1m` é limitado a `1mo` e pedir mais levanta `HistoryWindowTooLargeError`.
+
+🟡 **Uma série intraday pode ter costura entre sessões** (por desenho). A ingestão garante que
+nenhuma **sessão** mistura janelas; não torna homogênea uma série de várias sessões.
+`GET /assets/{ticker}/intraday` reporta em `windows`; mais de uma entrada significa que qualquer
+cálculo cruzando fronteira de sessão lê através da emenda. `resync=true` colapsa para uma janela.
+
+---
 
 Problemas reais, verificados no código. **Última varredura: 2026-08-19**, quando tudo que tinha
 correção possível foi corrigido — o que sobrou está abaixo, cada um com o motivo de continuar

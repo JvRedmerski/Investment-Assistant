@@ -145,30 +145,47 @@ def sync_intraday_history(
         bars = by_session[session]
         stored_window = stored_windows.get(session)
 
-        if stored_window is not None and stored_window is not history.window:
-            if not resync:
-                conflicts.append(
-                    WindowConflict(
-                        session=session,
-                        stored_window=stored_window,
-                        incoming_window=history.window,
-                        bars_skipped=len(bars),
-                    )
+        if (
+            stored_window is not None
+            and stored_window is not history.window
+            and not resync
+        ):
+            conflicts.append(
+                WindowConflict(
+                    session=session,
+                    stored_window=stored_window,
+                    incoming_window=history.window,
+                    bars_skipped=len(bars),
                 )
-                logger.warning(
-                    "Refused to mix windows for %s on %s: stored under %s, "
-                    "fetched under %s. Two windows partition a session "
-                    "differently; pass resync=true to replace it.",
-                    asset.ticker,
-                    session,
-                    stored_window.value,
-                    history.window.value,
-                )
-                continue
+            )
+            logger.warning(
+                "Refused to mix windows for %s on %s: stored under %s, "
+                "fetched under %s. Two windows partition a session "
+                "differently; pass resync=true to replace it.",
+                asset.ticker,
+                session,
+                stored_window.value,
+                history.window.value,
+            )
+            continue
+
+        # `resync` replaces whatever the session holds, whichever window
+        # put it there. Keying the replacement on a *window mismatch*
+        # instead looked equivalent and was not: re-syncing a session
+        # already stored under the same window skipped the delete, and
+        # then inserted every bar again because `resync` had also
+        # switched off the already-stored check - a unique violation on
+        # the second call, surfacing as HTTP 500.
+        replacing = resync and stored_window is not None
+        if replacing:
             replaced += _delete_session(db, asset, timeframe, session)
 
+        # After a replacement the session holds nothing, so the stamps
+        # read before it must not be consulted for these bars.
+        already_stored: set[datetime] = set() if replacing else stored_stamps
+
         for bar in bars:
-            if not resync and bar.timestamp in stored_stamps:
+            if bar.timestamp in already_stored:
                 skipped += 1
                 continue
             db.add(

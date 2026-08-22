@@ -754,6 +754,82 @@ não são estáveis** sobre a história que existe hoje.
 
 ---
 
+## Wave 15 — Day Trade Data 🟢
+
+> A wave em que a chamada real antes dos mocks se pagou de novo, e caro. 6 tasks (o roadmap
+> previa 1).
+
+- **W15-001** — o contrato: `Timeframe`, `IntradayBar`, `HistoryWindow`, `IntradayHistoryProvider`
+- **W15-002** — `BrapiProvider.get_intraday_history`, contra uma resposta que foi de fato lida
+- **W15-003** — qualidade e detecção de gaps: `intraday_quality`, puro e sem I/O
+- **W15-004** — `intraday_prices` em `NUMERIC`/`TIMESTAMPTZ` com `source_window` (migration `013`)
+- **W15-005** — ingestão idempotente que recusa misturar janelas, e as duas rotas
+- **W15-006** — rodar contra o banco real e o provider real, e corrigir o que achou
+
+### O ponto da wave, em uma frase
+
+**Uma barra intraday não é um fato estável nesta fonte.** A mesma barra — mesmo ticker, mesmo
+timestamp, mesmo timeframe — volta com OHLCV diferente conforme o `range` pedido, então a janela
+faz parte da identidade da barra e é gravada com ela.
+
+### O que a chamada real mediu, antes de qualquer parser
+
+| medição | resultado |
+|---|---|
+| Mesmo balde, duas vezes | 135/135 e 1.194/1.194 idênticas — a fonte é determinística |
+| `5d` contra `1mo` | 135/135 — mesma partição |
+| **`5d` contra `3mo`** | **0 de 135** |
+| **`1mo` contra `3mo`** | **0 de 567** |
+| `adjustedClose` intraday | **nulo em 1.389 de 1.389** — o campo não existe em `IntradayBar` |
+| Intraday liberado **por ticker** | PETR4/ITUB4/MGLU3/VALE3 sim; BBAS3/BOVA11 não |
+| Ticker inexistente no caminho intraday | `INVALID_INTERVAL`, **nunca 404** |
+| `1m` + `3mo` | **5 sessões** contra 22 em `1m` + `1mo` |
+| Sessão de 2026-07-31 | 16 barras numa fase `:01/:16/:31/:46`, reais |
+
+### As duas decisões que sustentam isso
+
+1. **A janela do pedido faz parte da identidade da barra**
+   ([ADR-036](../decisions/ADR-036-the-request-window-is-part-of-a-bars-identity.md)). A regra
+   diária — nunca sobrescrever data gravada — não basta: aplicada barra a barra, montaria uma
+   sessão a partir de **duas partições dela**. A **sessão** é a unidade que vem de uma janela só,
+   como o período dos fundamentos no ADR-020, e o conflito é **reportado, nunca resolvido em
+   silêncio** — as duas respostas são auto-consistentes e nada no dado diz qual é a certa.
+2. **Buraco se mede, borda de sessão se compara**
+   ([ADR-037](../decisions/ADR-037-a-gap-is-measured-a-session-edge-is-compared.md)). Um buraco
+   entre barras entregues é aritmética. Uma sessão que começou tarde não é mensurável sem o
+   calendário de pregões da B3, que o projeto não tem — então `SHORT_SESSION` compara com as
+   vizinhas do lote e não pretende saber se foi abertura tardia, leilão ou perda de linhas.
+   **Sem checagem de alinhamento de grade**: ela teria rejeitado 16 preços reais.
+
+### O que só rodar contra o banco real achou
+
+A garantia é **por sessão**, e uma série não é uma sessão. Três dias sincronizados e depois
+sessenta deixam 3 sessões em `5d` e 40 em `3mo` — cada uma íntegra, a série inteira com uma
+**costura** que a leitura devolvia sem declarar. `GET /assets/{ticker}/intraday` passou a
+devolver envelope com `windows`.
+
+E um segundo defeito, alcançável direto pela API: a substituição estava condicionada a
+**divergência de janela**, então re-sincronizar sessão já gravada sob a **mesma** janela pulava
+o delete e reinseria todas as barras — violação de unicidade na segunda chamada, HTTP 500.
+
+### Balanço
+
+- `pytest` **1.129 → 1.228**. Migration `013_intraday_precision`, aplicada contra o Postgres
+  real **e revertida e reaplicada** para conferir as duas direções.
+- **Nenhuma dependência adicionada.** `tzdata` foi considerada para `ZoneInfo` e **recusada**:
+  quebra no Windows e funciona no contêiner, o que faria o mesmo código agrupar sessões de
+  formas diferentes conforme onde rodasse.
+- Dois ADRs novos ([036](../decisions/ADR-036-the-request-window-is-part-of-a-bars-identity.md),
+  [037](../decisions/ADR-037-a-gap-is-measured-a-session-edge-is-compared.md)).
+- ⚠️ **O universo intraday é de 3 ativos, não 4** — BBAS3 não é servido no plano gratuito.
+- ⚠️ **Uma série pode ter costura entre sessões.** Reportada em `windows`, não impedida.
+- 🔴 **Achado fora do escopo e registrado sem corrigir** (§134): o token da Brapi vaza para o log
+  da aplicação, porque o logger raiz está em INFO e o `httpx` imprime a URL completa. Pré-existe
+  desde a W05.
+- ⚠️ **Nenhuma tela lê intraday** — backend-only, como a W13 e a W14.
+
+---
+
 ## Marcos de infraestrutura de conhecimento
 
 - **2026-08-17** — Sistema de memória persistente criado: `CLAUDE.md` na raiz + `docs/{memory,architecture,decisions,planning,history}/`, com 11 ADRs extraídos do código e do histórico de decisões.

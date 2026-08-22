@@ -304,3 +304,32 @@ class TestTheSeriesReportsItsOwnSeam:
         # Declaration order: shortest reach first.
         assert series["windows"] == ["5d", "3mo"]
         assert series["session_count"] == 2
+
+
+class TestResyncOverTheApiIsIdempotent:
+    def test_two_identical_resync_calls_do_not_500(self, client):
+        """The defect W15-006 found: keying the replacement on a window
+        mismatch meant a same-window resync skipped the delete and then
+        re-inserted every bar."""
+        headers = _auth_headers(client, "intraday-l@example.com")
+        _create_asset(client, headers, "EGIE3")
+        _override(FakeIntradayProvider(bars=[_bar(30), _bar(45)]))
+
+        client.post(f"{ASSETS_URL}/EGIE3/intraday/sync?days=1", headers=headers)
+
+        first = client.post(
+            f"{ASSETS_URL}/EGIE3/intraday/sync?days=1&resync=true", headers=headers
+        )
+        second = client.post(
+            f"{ASSETS_URL}/EGIE3/intraday/sync?days=1&resync=true", headers=headers
+        )
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert second.json()["replaced"] == 2
+        assert second.json()["inserted"] == 2
+
+        series = client.get(
+            f"{ASSETS_URL}/EGIE3/intraday?days=1", headers=headers
+        ).json()
+        assert len(series["bars"]) == 2

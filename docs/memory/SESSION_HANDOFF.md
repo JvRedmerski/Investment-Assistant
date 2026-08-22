@@ -6,104 +6,112 @@
 
 ## Last Completed Work
 
-### Wave 14 — Walk-Forward Validation, 5/5 (`8e3d820`, `ca60909`, `f806ab0`, `df8cec3`, `29c182b`)
+### Wave 15 — Day Trade Data, 6/6 (`65236dd`, `469d053`, `a76897e`, `7029906`, `15edc26`, e a W15-006 em **dois** commits: `2fbee4c` e o seguinte)
 
-O roadmap previa uma task. Foram cinco, e as quatro a mais não são subdivisão: a partição é
-uma coisa, **o que se ajusta** é outra, medir out-of-sample é uma terceira, e rodar contra o
-banco real é o passo que nas waves anteriores achou o que fixture nenhum acha.
+O roadmap previa uma task. Foram seis, e as cinco a mais não são subdivisão: o contrato da
+barra é uma coisa, buscá-la é outra, dizer que a série está furada é uma terceira, o esquema é
+uma quarta, e rodar contra o banco real é o passo que nas waves anteriores achou o que fixture
+nenhum acha.
 
 | task | entrega |
 |---|---|
-| **W14-001** | A partição `Train → Validate → Test`, pura, com o corte movendo |
-| **W14-002** | A grade de políticas candidatas e o objetivo de seleção |
-| **W14-003** | O serviço: treino ordena, validação escolhe, **teste só reporta** |
-| **W14-004** | `GET /api/v1/backtests/walk-forward` |
-| **W14-005** | Rodar contra o banco real, e corrigir o que ele achou |
+| **W15-001** | O contrato: `Timeframe`, `IntradayBar`, `HistoryWindow`, `IntradayHistoryProvider` |
+| **W15-002** | `BrapiProvider.get_intraday_history`, contra uma resposta que foi de fato lida |
+| **W15-003** | Qualidade e gaps: `intraday_quality`, puro e sem I/O |
+| **W15-004** | `intraday_prices` em `NUMERIC`/`TIMESTAMPTZ` com `source_window` (migration `013`) |
+| **W15-005** | Ingestão idempotente que **recusa misturar janelas**, e as duas rotas |
+| **W15-006** | Rodar contra o banco real, e corrigir o que ele achou |
 
 ### O ponto da wave, em uma frase
 
-**Nada medido no teste alcança uma seleção.** Treino pergunta à grade inteira, validação
-pergunta só à shortlist sobre história que a ordenação não viu, e teste roda o vencedor e mais
-ninguém. É a regra 61 inteira, e é a única razão de um número out-of-sample significar alguma
-coisa.
+**Uma barra intraday não é um fato estável nesta fonte.** A mesma barra — mesmo ticker, mesmo
+timestamp, mesmo timeframe — volta com OHLCV diferente conforme o `range` pedido. Então a
+janela faz parte da identidade da barra, e é gravada com ela.
 
-E nada de novo é medido: cada segmento é um `run_backtest` sobre o mesmo universo, então um
-fold é medido pelo mesmo código que mede a carteira do investidor — a mesma razão de a W13 não
-ter uma segunda contabilidade. `testable_universe` saiu de dentro do `run_backtest` para que a
-partição caia sobre **o mesmo intervalo** que uma execução única usaria.
+### Foi a chamada real que achou isso, e ela veio antes de qualquer parser
+
+O procedimento do [IMPLEMENTATION_GUIDE](../planning/IMPLEMENTATION_GUIDE.md) — a lição cara da
+W06-003 — foi seguido inteiro. Seis achados, três mudaram o desenho:
+
+| medição | resultado | consequência |
+|---|---|---|
+| Mesmo balde, duas vezes | 135/135 e 1.194/1.194 idênticas | A fonte é determinística |
+| `5d` contra `1mo` | 135/135 | Mesma partição |
+| **`5d` contra `3mo`** | **0 de 135** | `source_window` na linha (ADR-036) |
+| **`1mo` contra `3mo`** | **0 de 567** | idem |
+| `adjustedClose` intraday | **nulo em 1.389 de 1.389** | O campo **não existe** em `IntradayBar` |
+| Intraday liberado **por ticker** | PETR4/ITUB4/MGLU3/VALE3 sim; BBAS3/BOVA11 não | `IntradayNotAvailableError`, 400 e não 503 |
+| `1m` + `3mo` | **5 sessões** contra 22 em `1m` + `1mo` | `1m` nunca escala para `3mo` |
+| Sessão de 2026-07-31 | 16 barras em grade `:01/:16/:31/:46` | **Sem checagem de grade** (ADR-037) |
 
 ### As duas decisões, e por que cada uma é a decisão
 
-1. **A grade é conjunto de hipóteses, não espaço de busca**
-   ([ADR-034](../decisions/ADR-034-the-grid-is-a-hypothesis-set-not-a-search-space.md)).
-   Espaço de busca é varrido: mais pontos deixam o melhor ponto melhor **em descrever o ruído
-   em que foi ajustado**. Conjunto de hipóteses é perguntado. Sete candidatos, um campo cada,
-   com a pergunta escrita ao lado — o produto cartesiano dos mesmos três eixos seria dezoito.
-   Empate vai para a política **já em produção**, e candidato sem valor de objetivo é **ausente
-   da ordenação**, não último.
-2. **Os três segmentos têm o mesmo tamanho e cada um parte de carteira vazia**
-   ([ADR-035](../decisions/ADR-035-equal-segments-from-an-empty-portfolio.md)). A estratégia
-   constrói carteira por aporte mensal, então o tamanho do segmento muda **o que ele mede**: um
-   teste mais curto reportaria degradação que é em parte só carteira mais nova, e ninguém
-   saberia dizer qual parte. Confundidor removido por construção.
+1. **A janela do pedido faz parte da identidade da barra**
+   ([ADR-036](../decisions/ADR-036-the-request-window-is-part-of-a-bars-identity.md)). A regra
+   diária — nunca sobrescrever data gravada — não basta aqui: aplicada barra a barra, montaria
+   uma sessão a partir de **duas partições dela**, conforme o que estivesse no banco no momento
+   de cada sync. A **sessão** é a unidade que vem de uma janela só, como o período dos
+   fundamentos no ADR-020. Conflito é **reportado, nunca resolvido em silêncio** — as duas
+   respostas são auto-consistentes e nada no dado diz qual é a certa.
+2. **Buraco se mede, borda de sessão se compara**
+   ([ADR-037](../decisions/ADR-037-a-gap-is-measured-a-session-edge-is-compared.md)). Um buraco
+   entre barras entregues é aritmética. Uma sessão que começou tarde não é mensurável sem o
+   calendário de pregões da B3, que o projeto não tem — então `SHORT_SESSION` compara com as
+   vizinhas do lote e **não pretende saber** se foi abertura tardia, leilão ou perda de linhas.
 
-### O defeito que rodar contra o banco real encontrou
+### O que rodar contra o banco real encontrou
 
-Candidato que **não preencheu ordem nenhuma** era pontuado em **zero**. `performance_index`
-sobre ledger de depósitos sem compra é achatado em 100 *por construção* — e zero ganha de todo
-candidato que aplicou e perdeu dinheiro. Uma política que não financiou nada venceria **qualquer
-ano de queda**. Agora é `NO_POSITION_TAKEN`: não-ranqueável, não pontuado em zero.
+✅ Funcionou: 76 barras por ticker no sync de 3 dias, segundo sync inserindo 0 e pulando 76,
+BBAS3 recusado nos três timeframes, e o conflito disparando de verdade ao ampliar para 60 dias
+(1.109 sessões novas, 3 recusadas). **Nenhuma sessão no banco tem mais de uma janela.**
 
-### O veredicto, que é o produto da wave
+🔴 Achou: a garantia é **por sessão**, e uma série não é uma sessão. Três dias sincronizados e
+depois sessenta deixam 3 sessões em `5d` e 40 em `3mo` — cada uma íntegra, a série inteira com
+uma **costura**, e a leitura devolvia lista pura sem dizer. `GET /assets/{ticker}/intraday`
+passou a devolver envelope com `windows`.
 
-PETR4+BBAS3, três folds anuais, `total-return`: o vencedor **mudou a cada fold**
-(`selection_rate` 0,50), o fold 2 escolheu por **0,2 ponto percentual** e perdeu **90 pontos**
-de retorno fora da amostra, e a `default` — a política que o projeto entrega — não foi
-selecionada em fold nenhum. **Os parâmetros não são estáveis** sobre a história que existe hoje.
-
-Isso é o resultado da wave, não a falha dela. Uma wave de validação que só sabe dizer "passou"
-não valida nada.
+🔴 Achou também um segundo defeito, alcançável direto pela API e invisível na primeira chamada:
+a substituição estava condicionada a **divergência de janela**, e re-sincronizar sessão já
+gravada sob a **mesma** janela pulava o delete e reinseria todas as barras, porque `resync`
+também desligava a checagem de duplicata. Duas chamadas `?resync=true` idênticas davam violação
+de unicidade — **HTTP 500**. Agora a condição é "a sessão tem algo gravado", e `resync` é
+idempotente.
 
 ## Current State
 
-- `pytest` → **1.129 passed** (1.063 → 1.129 na W14), verificado em 2026-08-22. `ruff` e
+- `pytest` → **1.228 passed** (1.129 → 1.228 na W15), verificado em 2026-08-22. `ruff` e
   `black` limpos.
-- **Nenhuma migration**: nada da W14 é gravado (regra 16). Schema segue `012_corporate_actions`.
-- **Nenhuma dependência nova.**
-- **Wave 14 🟢 concluída**, 5/5. Nada iniciado da W15.
+- **Migration nova**: `013_intraday_precision` — OHLC para `NUMERIC(18,6)`, `timestamp` para
+  `TIMESTAMPTZ`, `source_window` `NOT NULL`. Aplicada contra o Postgres real e **revertida e
+  reaplicada** para conferir as duas direções.
+- **Nenhuma dependência nova.** `tzdata` foi considerada para `ZoneInfo` e **recusada** — ela
+  quebra no Windows e funciona no contêiner, o que faria o mesmo código agrupar sessões de
+  formas diferentes conforme onde rodasse (ADR-037).
+- **Wave 15 🟢 concluída**, 6/6. Nada iniciado da W16.
 
 ## Important Details
 
 ### Os enganos fáceis de cometer aqui
 
-**A figura que responde a pergunta é `stability.degradation_mean`, não o retorno.** Estratégia
-cujo out-of-sample acompanha o in-sample tem parâmetro que descreve alguma coisa; a que desaba
-tem parâmetro que descrevia a amostra. `selection_rate` é a outra metade: vencedor diferente a
-cada fold é **ruído**, não parâmetro.
+⚠️ **Não calcule indicador atravessando fronteira de sessão sem olhar `windows`.** A garantia é
+por sessão. Uma série com `windows: ["5d", "3mo"]` tem uma emenda, e uma EMA que cruza o dia lê
+através dela. É o aviso mais importante para a W16.
 
-**Com um fold só, todo agregado vem `null`** e `refusal` é `SINGLE_FOLD`. Média de uma
-observação e dispersão zero leriam como *perfeitamente estável*.
+⚠️ **O universo intraday é de 3 ativos, não 4.** BBAS3 é recusado pelo plano gratuito e não tem
+nenhuma barra. A mensagem do fornecedor culpa o *intervalo*, e o intervalo é o mesmo dos tickers
+que funcionam — o discriminante é o ticker, e BBAS3 responde 200 em `interval=1d`.
 
-⚠️ **O objetivo mede o dinheiro *aplicado*, não o dado.** Tudo sai do índice time-weighted, que
-avalia posição e **não caixa** ([ADR-019](../decisions/ADR-019-portfolio-return-is-time-weighted.md)).
-Medido: um segmento de 2023 sobre PETR4+BBAS3 terminou com **R$ 3.239,88 em posição e
-R$ 9.892,81 em caixa** sobre R$ 12.000 aportados — índice **+101,38%**, dinheiro **+9,44%**. O
-caixa não é ociosidade, é o teto funcionando: com dois ativos e `max_asset_weight` em 20%, no
-máximo 40% da carteira pode estar aplicada. `contributed` e `final_value` vêm lado a lado; o
-**ranking** não os enxerga. Em *Future Work*.
+⚠️ **`IntradayNotAvailableError` não significa "ticker não existe".** No caminho intraday o gate
+de plano roda **antes** da resolução do ticker, então um ticker inventado devolve a mesma coisa.
+Nunca leia inexistência dessa exceção.
 
-⚠️ **O objetivo padrão (`sharpe`) recusa contra o banco real.** O CDI ingerido começa em
-2025-08-18 e nenhum segmento anual é coberto, então todos os folds voltam
-`OBJECTIVE_UNAVAILABLE`. Use `objective=total-return` ou ingira mais CDI — e note que **não há
-fallback silencioso** de propósito: ele tornaria duas execuções do mesmo comando incomparáveis
-conforme o que estivesse no banco.
+⚠️ **Ampliar a janela pedida gera conflito nas sessões já gravadas.** É o comportamento correto.
+O caminho para uma série longa e homogênea é `resync=true` sobre o intervalo inteiro.
 
-⚠️ **O esquema padrão (12/12/12) não cabe no universo dos quatro ativos.** Nove meses de janela
-replayável contra 36 exigidos → `WINDOW_TOO_SHORT`, `bounded_by: ITUB4`. Com esquema trimestral
-sai exatamente **um** fold. A correção é ingerir os eventos societários que faltam, **nunca**
-encurtar os segmentos.
+### E os das waves anteriores, que continuam valendo
 
-### E os da W13, que continuam valendo
+**A figura que responde a pergunta do walk-forward é `stability.degradation_mean`**, não o
+retorno. Com um fold só, todo agregado vem `null` e `refusal` é `SINGLE_FOLD`.
 
 **`wealth` não é desempenho.** É patrimônio em BRL com `contributed` por baixo. A resposta
 comparável a um benchmark é `comparison`, que é time-weighted (ADR-019).
@@ -111,27 +119,32 @@ comparável a um benchmark é `comparison`, que é time-weighted (ADR-019).
 **As cinco figuras de trade fechado voltam `null` de propósito** — são definidas sobre trade
 fechado, e nada que este projeto entrega vende (ADR-028).
 
-**O lag de publicação é zero por padrão** no caminho vivo; só o backtest passa o valor real.
-
 ## Pending Work
 
-1. **Wave 15 — Day Trade Data** (roadmap §27). Ver [CURRENT_TASK.md](CURRENT_TASK.md).
-   ⚠️ Primeira integração externa nova desde a IA: **uma chamada real antes dos mocks**.
-2. **Ingerir os eventos societários que faltam em ITUB4 e MGLU3.** Não é wave, é dado — e é o
-   único caminho para uma afirmação de estabilidade que valha alguma coisa.
-3. **Verificar o `OllamaProvider`** contra um servidor real, quando houver um.
+1. 🔴 **Redigir a credencial da Brapi do log.** `app/core/logging.py` chama
+   `logging.basicConfig(level=INFO)`, que configura o logger **raiz**, e o `httpx` imprime
+   `GET https://brapi.dev/api/quote/PETR4?token=<token>&...` em texto claro. Pré-existe desde a
+   W05; achado na W15-006 e registrado sem corrigir por ser fora do escopo (§134). Correção
+   candidata: `logging.getLogger("httpx").setLevel(logging.WARNING)`, e/ou mover a autenticação
+   da Brapi para header — o `RetryingJsonClient` já suporta `default_headers`, e o docstring
+   dele já diz por que header é o lugar certo.
+2. **Wave 16 — Day Trade Engine** (roadmap §28). Ver [CURRENT_TASK.md](CURRENT_TASK.md).
+3. **Ingerir os eventos societários que faltam em ITUB4 e MGLU3.** Não é wave, é dado.
+4. **Verificar o `OllamaProvider`** contra um servidor real, quando houver um.
 
 ## Next Step
 
-Ler [CURRENT_TASK.md](CURRENT_TASK.md) e **começar a Wave 15**.
+Ler [CURRENT_TASK.md](CURRENT_TASK.md). A correção do log (item 1) é de uma linha e vale antes
+de **começar a Wave 16**.
 
 ## Relevant Files
 
-- `backend/app/domain/backtesting/folds.py` — a partição, e a recusa quando ela não cabe
-- `backend/app/domain/backtesting/grid.py` — o que pode ser ajustado, e com que valores
-- `backend/app/domain/backtesting/objectives.py` — quanto vale um segmento, e qual figura decide
-- `backend/app/domain/backtesting/walkforward.py` — o serviço, a seleção e a estabilidade
-- `backend/app/domain/backtesting/service.py` — `testable_universe`, agora público
-- `backend/app/api/routes/backtests.py` — as duas rotas
-- `docs/decisions/ADR-034-*.md`, `ADR-035-*.md`
-- `backend/tests/test_walk_forward_{folds,grid,service,routes}.py`
+- `backend/app/integrations/market_data/schemas.py` — `Timeframe`, `HistoryWindow`, `IntradayBar`
+- `backend/app/integrations/market_data/base.py` — `IntradayHistoryProvider`, `IntradayHistory`
+- `backend/app/integrations/market_data/brapi.py` — `get_intraday_history`, `_INTRADAY_WINDOWS`, `_map_brapi_error`
+- `backend/app/integrations/market_data/intraday_quality.py` — sessões, buracos, `EXCHANGE_TIMEZONE`
+- `backend/app/domain/daytrade/service.py` — a ingestão e a recusa de misturar janelas
+- `backend/app/domain/daytrade/schemas.py` — os contratos, incluindo `IntradaySeriesResponse`
+- `backend/migrations/versions/013_intraday_precision.py`
+- `docs/decisions/ADR-036-*.md`, `ADR-037-*.md`
+- `backend/tests/test_intraday_{schemas,quality,storage,service,routes}.py`, `test_brapi_intraday_provider.py`

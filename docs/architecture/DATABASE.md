@@ -27,6 +27,7 @@
     ⚠️ O `revision` é curto de propósito: `alembic_version.version_num` é `varchar(32)`, e um id mais longo falha **depois** de o schema já ter sido aplicado.
   - `011_dividends_paid` — adiciona `fundamentals.dividends_paid` (`NUMERIC(24,4)`): o que a companhia debitou ao patrimônio como distribuição no exercício, dividendos **mais** JCP, somados. Era o último insumo que faltava a algum indicador — destravou o `dy`. Guardado como **agregado, não por ação**, pelo mesmo motivo de `net_income` e `equity`: o valor por ação é derivado no cálculo do indicador, a partir da contagem **do mesmo período**, então uma reexpressão de qualquer um dos dois não deixa os dois fora de passo. `NULL` significa "a peça não reportou linha de distribuição", nunca zero — ver [ADR-024](../decisions/ADR-024-refill-fills-null-columns.md) para como períodos já gravados ganharam a coluna.
   - `012_corporate_actions` — cria `corporate_actions`: a **magnitude** de um evento societário, que é o que faltava para existir série de retorno total. O arquivo de fim de dia data todo evento e jamais o dimensiona ([ADR-025](../decisions/ADR-025-corporate-events-come-from-the-distribution-counter.md)); o tamanho vem do serviço aberto de eventos da própria B3 ([ADR-026](../decisions/ADR-026-corporate-action-magnitude-and-the-completeness-rule.md)). **Duas colunas de magnitude anuláveis, não uma**: `cash_amount` é reais por ação e `share_ratio` é ações depois por ação antes — juntá-las numa coluna cujo sentido dependesse de `kind` seria a mesma confusão que fez `close` e `adjusted_close` valerem a pena separados. Exatamente uma é preenchida por linha, garantido no schema Pydantic antes de chegar ao banco. **Sem unique constraint, de propósito**: a identidade de uma ação é a tupla de tudo que foi reportado, duas colunas dela anuláveis — e constraint sobre coluna anulável não dispara no PostgreSQL, então anunciaria uma garantia que não cumpre. A supressão de duplicata mora no service, como já mora para `asset_prices`.
+  - `013_intraday_precision` — deixa `intraday_prices` apta a guardar vela intraday. OHLC `Float` → `NUMERIC(18,6)` (regra 17, adiada explicitamente pela `002` até a wave que usasse a tabela) e `timestamp` → **`TIMESTAMPTZ`**, a única coluna de tempo do schema onde a distinção muda uma resposta: uma data diária é `Date` e não carrega ambiguidade, enquanto uma barra carimbada 10:15 sem fuso poderia ser três instantes (regra 18). `created_at` continua naive, como todo carimbo de auditoria — mudar isso é outra decisão. Acrescenta `source_window` **`NOT NULL`**: qual janela de pedido serviu a barra faz parte do que a barra significa, porque a mesma barra volta diferente conforme a janela ([ADR-036](../decisions/ADR-036-the-request-window-is-part-of-a-bars-identity.md)). Conversão simples porque a tabela estava **vazia** — verificado contra o banco de desenvolvimento; tabela populada exigiria `source_window` anulável e backfill, já que barra de janela desconhecida não pode ser mostrada como pertencente a partição nenhuma.
 
 - Todas foram **escritas manualmente**, não por autogenerate.
 
@@ -56,7 +57,7 @@ Agrupadas por domínio; `id` serial PK e `created_at` são universais e foram om
 | `assets` | `ticker` (unique, index), `name`, `asset_type`, `sector`, `currency`, `is_active`, `cnpj` | ✅ |
 | `asset_prices` | `asset_id`, `date`, OHLC (`NUMERIC`), `adjusted_close` (`NUMERIC`, **anulável**), `volume` (`Float`), `source` | ✅ |
 | `corporate_actions` | `asset_id`, `ex_date`, `last_date_prior`, `kind`, `cash_amount` (`NUMERIC(18,6)`, anulável), `share_ratio` (`NUMERIC(24,12)`, anulável), `label`, `source` | ✅ |
-| `intraday_prices` | `asset_id`, `timestamp`, `timeframe` (1m/5m/15m), OHLCV (`Float`) | ❌ Wave 15 |
+| `intraday_prices` | `asset_id`, `timestamp` (**`TIMESTAMPTZ`**, UTC), `timeframe` (1m/5m/15m), OHLC (`NUMERIC`), `volume` (`Float`), `source_window`, `source`. Único: `(asset_id, timestamp, timeframe)` — `source_window` fica **fora** da chave de propósito: admiti-la deixaria o mesmo instante ter duas linhas, que é a mistura que o ADR-036 impede | ✅ |
 
 ### Benchmarks
 | Tabela | Campos-chave | Usada? |
@@ -131,8 +132,9 @@ Conversão deliberadamente adiada para a wave que for usar cada tabela:
 
 | Coluna | Wave |
 |---|---|
-| `intraday_prices` OHLC | W15 |
-| `portfolio_snapshots.total_value`, `.cash_value` | W11 |
-| `investor_profiles.monthly_contribution` | W09 |
+| ~~`intraday_prices` OHLC~~ | ✅ **convertida na W15** (`013_intraday_precision`) |
+| `daytrade_setups` e `daytrade_results` (preços, P&L, custos) | W16/W17 — mesma dívida, ainda aberta |
+| `portfolio_snapshots.total_value`, `.cash_value` | W11 (prazo perdido) |
+| `investor_profiles.monthly_contribution` | W09 (prazo perdido; sem wave associada) |
 
 (`fundamentals` foi convertida na W06-001; `financial_indicators` permanece `Float` por decisão, não por dívida.)

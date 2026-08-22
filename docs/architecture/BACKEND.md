@@ -10,13 +10,13 @@ backend/
 ├── app/
 │   ├── main.py                 App FastAPI, CORS, exception handler global, registro de routers
 │   ├── api/
-│   │   ├── dependencies.py     get_current_user · get_{market_data,historical_price,fundamentals,benchmark}_provider
+│   │   ├── dependencies.py     get_current_user · get_{market_data,historical_price,intraday,fundamentals,benchmark}_provider
 │   │   └── routes/             health · auth · assets · portfolios · benchmarks · backtests
 │   ├── core/
 │   │   ├── config.py           Settings (pydantic-settings, lê .env) → singleton `settings`
 │   │   ├── security.py         hash/verify de senha (bcrypt) · create/decode de JWT (PyJWT)
 │   │   └── logging.py          setup_logging()
-│   ├── domain/                 users · portfolio · assets · market_data · fundamentals · benchmarks · recommendations · ai · backtesting
+│   ├── domain/                 users · portfolio · assets · market_data · fundamentals · benchmarks · recommendations · ai · backtesting · daytrade
 │   │   ├── <área>/             schemas.py (Pydantic) + service.py (regra de negócio)
 │   │   ├── recommendations/    + scoring.py e allocation.py — puros, no molde do app/quant/
 │   │   ├── ai/                 facts · formatting · prompting · guard · service + prompts/*.txt (versionados)
@@ -24,7 +24,7 @@ backend/
 │   ├── quant/                  returns.py · risk.py — puro, sem I/O, tudo em Decimal
 │   ├── integrations/
 │   │   ├── http.py             RetryingJsonClient — transporte compartilhado (retry/throttle)
-│   │   ├── market_data/        base · schemas · exceptions · brapi · cotahist · factory · data_quality
+│   │   ├── market_data/        base · schemas · exceptions · brapi · cotahist · factory · data_quality · intraday_quality
 │   │   ├── fundamentals/       base · schemas · exceptions · factory · brapi · cvm · identity · composite
 │   │   ├── benchmarks/         base · schemas · exceptions · bcb · brapi_index · factory
 │   │   └── ai/                 base · schemas · exceptions · gemini · ollama · factory
@@ -37,7 +37,9 @@ backend/
 └── alembic.ini
 ```
 
-**Ainda não existem** (previstos no AGENTS.md §6, waves futuras): `app/workers/` (W17), `app/domain/daytrade/` (W15+), `app/integrations/intraday/` (W15).
+**Ainda não existem** (previstos no AGENTS.md §6, waves futuras): `app/workers/` (W17).
+
+`app/domain/daytrade/` existe desde a W15. `app/integrations/intraday/` **não foi criado, de propósito**: a fonte intraday é o mesmo endpoint do mesmo fornecedor que já serve preço diário, então a interface mora em `market_data/base.py` junto das outras quatro e `BrapiProvider` implementa as duas. Um pacote paralelo duplicaria a construção do cliente sem criar costura que alguém precise.
 
 **`app/data/repositories/` não existe e não está previsto** — não é pendência: as rotas recebem a `Session` do SQLAlchemy por injeção e os services a consomem direto ([ADR-011](../decisions/ADR-011-no-repository-layer.md)). O AGENTS.md §6 foi corrigido para dizer isso.
 
@@ -196,6 +198,65 @@ Duas armadilhas moram no adaptador e ambas foram medidas antes de virar código:
   `GRUPAMENTO`. E `valueCash` é cotado por `quotedPerShares`, que é 1000 em 332 de 2.305 linhas —
   o mesmo erro de mil vezes que o `FATCOT` e o `ESCALA_MOEDA` já tentaram.
 
+### A quinta interface: a vela intraday, e a janela que a define
+
+`IntradayHistoryProvider` serve velas de 1, 5 e 15 minutos (regra 47). Separada das outras
+quatro pela mesma razão que elas são separadas entre si: responde outra pergunta, de outra parte
+da fonte, sob outros limites. O arquivo aberto de fim de dia da B3 não responde a esta de jeito
+nenhum, e o fornecedor que responde serve **só alguns tickers** e poucos meses para trás.
+
+`BrapiProvider` implementa esta **e** `MarketDataProvider`, porque é genuinamente um adaptador
+sobre um endpoint: `/quote/{ticker}` difere só por `interval`. As *interfaces* seguem separadas,
+para que uma fonte intraday-only possa implementar apenas uma.
+
+**A janela viaja com as barras, e isso não é detalhe de fetch.** `get_intraday_history` devolve
+`IntradayHistory`, que emparelha `bars` com `window` — porque **a mesma barra volta diferente
+conforme a janela pedida**. Medido: `5d` contra `3mo` dá **0 de 135** barras idênticas, `1mo`
+contra `3mo` dá **0 de 567**, e o mesmo balde pedido duas vezes dá **135 de 135**. São duas
+partições auto-consistentes da mesma sessão, e o `3mo` ainda carrega uma barra de 10:00 que os
+baldes curtos nunca devolvem
+([ADR-036](../decisions/ADR-036-the-request-window-is-part-of-a-bars-identity.md)).
+
+Três armadilhas moram no adaptador, todas medidas antes de virar código:
+
+- **`adjustedClose` existe em toda linha e é nulo em todas** — 1.389 de 1.389 na captura. Campo
+  sempre nulo é campo ausente (a lição da W06-003), então `IntradayBar` **não tem** o campo:
+  nada aqui pode ser tratado como série de retorno total.
+- **O plano gratuito libera intraday por ticker, não por intervalo.** PETR4/ITUB4/MGLU3/VALE3
+  servem, BBAS3/BOVA11 não, com HTTP 400 `INVALID_INTERVAL` — e BBAS3 responde 200 no mesmo
+  endpoint em `1d`, o que descarta ticker desconhecido. Daí `IntradayNotAvailableError` própria,
+  e o `error_mapper` opcional que o `RetryingJsonClient` ganhou: mapeado só pelo status, isso
+  viraria `MarketDataUnavailableError` e convidaria a um retry que nunca funciona.
+- **`1m` + `3mo` devolve menos que `1m` + `1mo`** — 5 sessões contra 22, ainda ecoando
+  `usedRange: 3mo`. `_INTRADAY_WINDOWS` limita `1m` a `1mo` por isso.
+
+E `usedInterval` é conferido contra o que foi pedido: guardar barra diária em `intraday_prices`
+é exatamente o que a regra 47 proíbe, e nada a jusante conseguiria detectar depois.
+
+### O day trade é módulo separado, e a sessão é a unidade
+
+`domain/daytrade/` é pacote próprio (regra 45): não compartilha score nem estratégia com o motor
+de longo prazo. Compartilha só o transporte HTTP e o formato de provider.
+
+`sync_intraday_history` tem a mesma forma de `sync_daily_history` — buscar, validar, inserir o
+que é novo — com uma diferença que a medição obrigou. A regra diária *nunca sobrescrever data
+gravada* não basta: aplicada barra a barra, montaria uma sessão a partir de duas partições dela,
+conforme o que estivesse no banco no momento de cada sync. Então a **sessão** é a unidade que vem
+de uma janela só, como o período dos fundamentos no
+[ADR-020](../decisions/ADR-020-cvm-primary-fundamentals-source.md), e um sync que alcança sessão
+já gravada sob outra janela **não toca nela** e reporta `WindowConflict`. `resync=true` substitui
+sessão inteira.
+
+⚠️ A garantia é **por sessão**. Uma série de várias sessões pode ter emenda, e por isso
+`GET /assets/{ticker}/intraday` devolve envelope com `windows`.
+
+`intraday_quality.validate_intraday_bars` é o validador puro, irmão de `data_quality` e
+deliberadamente não uma extensão dele: uma série diária não tem noção de sessão, e quase tudo
+que interessa aqui é afirmação sobre uma sessão ou sobre como as sessões se comparam. Buraco é
+medido entre barras entregues; borda de sessão é comparada com as vizinhas do lote; e **não há
+checagem de alinhamento de grade**, porque o dado real tem um pregão negociando fora de fase
+([ADR-037](../decisions/ADR-037-a-gap-is-measured-a-session-edge-is-compared.md)).
+
 ### Onde `adjusted_close` nasce, e a regra que decide se ele pode nascer
 
 `domain/market_data/adjustment.py` é puro e sem I/O: recebe barras, ações e eventos, devolve
@@ -314,6 +375,18 @@ Colunas monetárias são `NUMERIC(18,6)` (constante `MONEY` em `data/models/port
 
 ### 5. Timezone explícito
 `utc_now()` em `data/database.py` para defaults; `datetime.now(UTC).date()` quando a rota precisa de "hoje". Nunca `datetime.now()` sem tz. (AGENTS.md §18)
+
+Intraday leva isso um passo adiante, porque é onde a distinção muda uma resposta. `IntradayBar`
+**rejeita** timestamp naive — uma vela de um minuto sem fuso é uma vela sem hora —, a coluna é
+`TIMESTAMPTZ`, e a apresentação converte por `intraday_quality.EXCHANGE_TIMEZONE`, um offset
+fixo de `-03:00` e não uma zona IANA. A razão é o contrário de descuido: `ZoneInfo` precisa da
+base IANA que o Windows não traz, então o mesmo código agruparia sessões de formas diferentes na
+máquina de desenvolvimento e no contêiner. O limite dessa escolha está escrito onde ela mora
+([ADR-037](../decisions/ADR-037-a-gap-is-measured-a-session-edge-is-compared.md)).
+
+⚠️ **Uma pegadinha do SQLite nos testes**: ele devolve datetime **naive** para uma coluna
+`TIMESTAMPTZ`, e o PostgreSQL não. `daytrade/service._as_utc` é o único lugar que restaura o que
+a coluna já promete — não é palpite, já que todo valor escrito ali é convertido para UTC antes.
 
 ### 6. Erro nunca é silenciado
 Rejeições de qualidade de dados são logadas (`logger.warning`) e contabilizadas na resposta (`rejected`), não descartadas em silêncio. (AGENTS.md §122)
