@@ -823,9 +823,11 @@ o delete e reinseria todas as barras — violação de unicidade na segunda cham
   [037](../decisions/ADR-037-a-gap-is-measured-a-session-edge-is-compared.md)).
 - ⚠️ **O universo intraday é de 3 ativos, não 4** — BBAS3 não é servido no plano gratuito.
 - ⚠️ **Uma série pode ter costura entre sessões.** Reportada em `windows`, não impedida.
-- 🔴 **Achado fora do escopo e registrado sem corrigir** (§134): o token da Brapi vaza para o log
-  da aplicação, porque o logger raiz está em INFO e o `httpx` imprime a URL completa. Pré-existe
-  desde a W05.
+- 🔴 **Achado fora do escopo e registrado na hora** (§134): o token da Brapi vazava para o log
+  da aplicação, porque o logger raiz está em INFO e o `httpx` imprime a URL completa. Pré-existia
+  desde a W05. ✅ **Corrigido logo depois da wave**, a pedido — redação por formatter em vez de
+  silenciar o `httpx`, mais `force=True` no `basicConfig`, sem o qual a correção não chegava a
+  ser instalada.
 - ⚠️ **Nenhuma tela lê intraday** — backend-only, como a W13 e a W14.
 
 ---

@@ -401,7 +401,16 @@ máquina de desenvolvimento e no contêiner. O limite dessa escolha está escrit
 `TIMESTAMPTZ`, e o PostgreSQL não. `daytrade/service._as_utc` é o único lugar que restaura o que
 a coluna já promete — não é palpite, já que todo valor escrito ali é convertido para UTC antes.
 
-### 6. Erro nunca é silenciado
+### 6. Credencial nunca chega ao log
+`core/logging.py` instala um `SecretRedactingFormatter` que remove todo segredo configurado
+(`BRAPI_TOKEN`, `GEMINI_API_KEY`) do texto **já renderizado** — o que cobre `record.args`, onde o
+`httpx` põe a URL, e o traceback de uma exceção. É redação e não silenciamento: a linha continua
+dizendo qual URL foi chamada e o que respondeu, com `?token=[REDACTED]` no lugar do segredo.
+`basicConfig` usa `force=True`, sem o qual a redação **não seria instalada** quando algo já
+configurou logging — `basicConfig` é no-op nesse caso. Necessário porque a Brapi autentica por
+query param; a Gemini já usa header (`x-goog-api-key`).
+
+### 7. Erro nunca é silenciado
 Rejeições de qualidade de dados são logadas (`logger.warning`) e contabilizadas na resposta (`rejected`), não descartadas em silêncio. (AGENTS.md §122)
 
 ## Autenticação

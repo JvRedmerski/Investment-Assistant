@@ -1198,7 +1198,9 @@ Nenhuma tarefa bloqueada no momento.
 ---
 
 ## Known Issues
-- 🔴 **O token da Brapi vaza para o log da aplicação** (achado em 2026-08-22 durante a W15-006; **não é regressão da W15** — vale desde a W05). `app/core/logging.py` chama `logging.basicConfig(level=logging.INFO)`, que configura o logger **raiz**; o `httpx` emite em INFO a linha `HTTP Request: GET https://brapi.dev/api/quote/PETR4?token=<token>&range=... "HTTP/1.1 200 OK"`, com a credencial em texto claro. O agravante é que o projeto já sabia do risco e o escreveu: o docstring de `RetryingJsonClient` diz que credencial em header não é logada *"porque credencial em URL vaza para logs e proxies"* — mas a Brapi autentica por **query param** (`default_params={"token": ...}`). Correção candidata é de uma linha (`logging.getLogger("httpx").setLevel(logging.WARNING)`), possivelmente com o token redigido no formatter. Registrado aqui e em *Future Work* conforme AGENTS.md §134 (achado fora do escopo da task) — **não corrigido nesta wave**.
+- ✅ ~~**O token da Brapi vaza para o log da aplicação**~~ — **CORRIGIDO em 2026-08-22**. O vazamento era real e tinha dez waves: `basicConfig(level=INFO)` configura o logger **raiz**, o `httpx` loga a URL completa em INFO, e a Brapi autentica por **query param** — então toda chamada de market data, fundamentals e resolução de CNPJ imprimia o token em texto claro. A correção **redige em vez de silenciar**: `SecretRedactingFormatter` remove todo segredo configurado da string já renderizada, o que preserva a linha útil (`?token=[REDACTED]`, URL e status continuam legíveis) e cobre também `record.args` — onde o `httpx` de fato põe a URL — e o traceback de uma exceção. Silenciar o `httpx` fecharia o mesmo vazamento jogando fora observabilidade, e protegeria só contra aquela biblioteca.
+  - ⚠️ **O segundo defeito, que só apareceu ao verificar**: `basicConfig` é **no-op quando o logger raiz já tem handler**, então qualquer coisa que configurasse logging antes deixaria o formatter simples no lugar e o token de volta em claro — medido. Resolvido com `force=True`, que é o que transforma a redação em garantia em vez de esperança.
+  - Limite da garantia, dito onde ela mora: cobre os registros formatados pelo handler que `setup_logging` instala. O canal que vazava (`httpx`, que não tem handler próprio e propaga para o raiz) está coberto.
 - 🟡 **Intraday no plano gratuito da Brapi é liberado por ticker, não por intervalo** (medido em 2026-08-22, W15-002). `interval` de `1m`/`5m`/`15m` é servido para **PETR4, ITUB4, MGLU3 e VALE3** e recusado para **BBAS3 e BOVA11**, com HTTP 400 `INVALID_INTERVAL` e a mensagem *"O intervalo \"15m\" não está disponível no seu plano"*. A mensagem culpa o intervalo e **o intervalo é o mesmo nos dois grupos** — BBAS3 responde HTTP 200 no mesmo endpoint em `interval=1d`, o que descarta ticker desconhecido ou deslistado. Consequências: (a) o universo intraday do projeto é **3 dos 4 ativos do banco**, e BBAS3 não tem nenhuma barra; (b) no caminho intraday um ticker inexistente **também** responde `INVALID_INTERVAL`, nunca 404 — o gate de plano roda antes da resolução do ticker —, então `IntradayNotAvailableError` não pode ser lida como "ticker não existe". Mapeado para HTTP 400 `INTRADAY_NOT_AVAILABLE`, deliberadamente não 503.
 - 🟡 **`1m` não alcança três meses, e pedir `3mo` devolve *menos* história** (medido em 2026-08-22, W15-002). `interval=1m&range=3mo` responde HTTP 200 com **5 sessões** (2.057 barras) onde `range=1mo` devolve **22** (8.652 barras), enquanto ainda ecoa `usedRange: 3mo`. `_INTRADAY_WINDOWS` limita `1m` a `1mo` por isso; pedir mais levanta `HistoryWindowTooLargeError` em vez de servir uma série curta em silêncio.
 - 🟡 **Uma série intraday pode ter costura entre sessões** (por desenho, W15-006). A ingestão garante que **nenhuma sessão** mistura janelas; ela não torna homogênea uma série de várias sessões. Sincronizar 3 dias e depois 60 deixa 3 sessões em `5d` e 40 em `3mo`. `GET /assets/{ticker}/intraday` reporta isso em `windows`; **mais de uma entrada significa que qualquer cálculo que atravesse fronteira de sessão está lendo através da emenda**. `resync=true` sobre o intervalo inteiro é o que colapsa para uma janela. Relevante para a W16, cujos indicadores devem ser por sessão.
@@ -1380,13 +1382,8 @@ Nenhuma tarefa bloqueada no momento.
 
 ## Future Work
 
-### 🔴 Redigir a credencial da Brapi do log (achado em 2026-08-22, W15-006)
-`logging.basicConfig(level=INFO)` põe o logger raiz em INFO e o `httpx` loga a URL completa,
-com `?token=...` em texto claro. Pré-existe desde a W05 e foi encontrado fora do escopo da
-task, então segue §134: registrado, não corrigido. Correção candidata: silenciar o logger do
-`httpx` para WARNING, e/ou migrar a autenticação da Brapi de query param para header — o
-`RetryingJsonClient` já suporta `default_headers` e o docstring dele já explica por que header
-é o lugar certo. **Verificar antes se a Brapi aceita o token em header.**
+### ✅ Redigir a credencial da Brapi do log — feito em 2026-08-22
+Fechado no mesmo dia em que foi achado, por um formatter que redige todo segredo configurado do texto já renderizado, mais `force=True` no `basicConfig` para que a redação seja instalada mesmo quando alguém configurou logging antes. Ver Known Issues.
 
 ### ⚠️ `intraday_prices` já não é o item pendente da regra 17
 A conversão de `intraday_prices` OHLC para `NUMERIC` **foi feita em 2026-08-22** pela migration
@@ -1534,8 +1531,9 @@ A conversão de `intraday_prices` OHLC para `NUMERIC` **foi feita em 2026-08-22*
   violação de unicidade, HTTP 500. A substituição passou a ser condicionada a "a sessão tem algo
   gravado", não a "a janela diverge".
 
-  Fora do escopo e registrado, não corrigido (§134): 🔴 **o token da Brapi vaza para o log** —
-  logger raiz em INFO faz o `httpx` imprimir a URL com `?token=...`. Pré-existe desde a W05.
+  Fora do escopo da wave e registrado na hora (§134): 🔴 **o token da Brapi vazava para o
+  log** — logger raiz em INFO faz o `httpx` imprimir a URL com `?token=...`, desde a W05.
+  **Corrigido em seguida, a pedido**, por redação em vez de silenciamento; ver Known Issues.
 
 - **Action anterior**: **Wave 14 — Walk-Forward Validation, 5 de 5 tasks.** O roadmap previa uma; foram
   cinco, e as quatro a mais não são subdivisão — a partição é uma coisa, **o que se ajusta** é
@@ -1687,20 +1685,19 @@ A conversão de `intraday_prices` OHLC para `NUMERIC` **foi feita em 2026-08-22*
 ---
 
 ## Next Action
-**A Wave 15 fechou. A próxima é a Wave 16 — e há duas coisas a montante que valem antes dela.**
+**A Wave 15 fechou, e o vazamento de credencial que ela achou já foi corrigido. A próxima é
+a Wave 16.**
 
-1. 🔴 **Redigir a credencial da Brapi do log** (Known Issues / Future Work). É de uma linha, é
-   segurança, e pré-existe desde a W05. Vale fazer antes de qualquer ingestão em lote nova.
-2. 🔵 **Wave 16 — Day Trade Engine** (roadmap §28): VWAP, EMA 9/21, RSI, ATR, volume relativo,
+1. 🔵 **Wave 16 — Day Trade Engine** (roadmap §28): VWAP, EMA 9/21, RSI, ATR, volume relativo,
    máxima/mínima do dia, suporte/resistência; depois os setups Breakout, Pullback e VWAP, cada
    um função independente. ⚠️ **Calcule por sessão.** A W15 garante que nenhuma sessão mistura
    partições, e **não** que uma série de várias sessões seja homogênea — `windows` com mais de
    uma entrada é uma emenda, e um indicador que atravessa fronteira de sessão lê através dela
    ([ADR-036](decisions/ADR-036-the-request-window-is-part-of-a-bars-identity.md)). ⚠️ E o
    universo intraday é de **3 ativos**, não 4: BBAS3 não é servido no plano gratuito.
-3. ⚠️ **Ingerir os eventos societários que faltam em ITUB4 e MGLU3** continua sendo o que
+2. ⚠️ **Ingerir os eventos societários que faltam em ITUB4 e MGLU3** continua sendo o que
    destrava o que a W14 recusou: a janela replayável do universo é de nove meses
    ([ADR-032](decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md),
    `bounded_by: ITUB4`), o que dá um fold trimestral e nenhum anual. Não é wave; é dado.
-4. ⚠️ **O `OllamaProvider` continua não verificado** — sem servidor local — e segue em Known
+3. ⚠️ **O `OllamaProvider` continua não verificado** — sem servidor local — e segue em Known
    Issues, sem teste de regressão, de propósito.

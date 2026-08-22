@@ -258,7 +258,7 @@ CDI e IPCA **não** são afetados: vêm do Banco Central (SGS), aberto e sem cot
 | **In Progress** | — nenhuma. Próxima: **Wave 16 — Day Trade Engine**; ver [CURRENT_TASK.md](CURRENT_TASK.md) |
 | **Blocked** | — nenhuma. ⚠️ Mas o `OllamaProvider` da W12 continua **não verificado** até que um servidor local exista |
 
-Baseline atual: `pytest` → **1.228 passed** (backend/.venv), verificado em 2026-08-22. Frontend: `npm run build` e `npm run lint` limpos. `ruff check .` e `black --check .` limpos no repositório inteiro; `alembic check` sem drift na última execução (2026-08-19, com o banco no ar); `npm run lint` e `npm run build` funcionando.
+Baseline atual: `pytest` → **1.243 passed** (backend/.venv), verificado em 2026-08-22. Frontend: `npm run build` e `npm run lint` limpos. `ruff check .` e `black --check .` limpos no repositório inteiro; `alembic check` sem drift na última execução (2026-08-19, com o banco no ar); `npm run lint` e `npm run build` funcionando.
 
 ## Completed Work (nível wave)
 
@@ -374,20 +374,15 @@ metade. Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ## Next Recommended Step
 
-1. 🔴 **Redigir a credencial da Brapi do log.** `app/core/logging.py` chama
-   `logging.basicConfig(level=INFO)`, que configura o logger **raiz**, e o `httpx` imprime a URL
-   completa — `?token=<token>` em texto claro. Pré-existe desde a W05, foi achado na W15-006 e
-   registrado sem corrigir por ser fora do escopo (§134). É de uma linha e vale antes de qualquer
-   ingestão em lote nova.
-2. **Wave 16 — Day Trade Engine** (roadmap §28): VWAP, EMA 9/21, RSI, ATR, volume relativo,
+1. **Wave 16 — Day Trade Engine** (roadmap §28): VWAP, EMA 9/21, RSI, ATR, volume relativo,
    máxima/mínima do dia, suporte/resistência, e depois os setups Breakout, Pullback e VWAP, cada
    um função independente. ⚠️ **Calcule por sessão** — a W15 garante que nenhuma sessão mistura
    partições e **não** que uma série de várias sessões seja homogênea. ⚠️ E o universo intraday
    é de **3 ativos**: BBAS3 não é servido.
-3. **Ingerir os eventos societários que faltam em ITUB4 e MGLU3.** Não é wave, é dado — e é o
+2. **Ingerir os eventos societários que faltam em ITUB4 e MGLU3.** Não é wave, é dado — e é o
    que destrava tudo o que a W14 recusou. Nove meses de janela replayável contra 36 exigidos
    pelo esquema padrão. Relaxar o esquema não é alternativa.
-4. **Antes de confiar no Risco de um ativo novo, rode o sync de ações societárias.** Um papel só
+3. **Antes de confiar no Risco de um ativo novo, rode o sync de ações societárias.** Um papel só
    com preço bruto continua sem `adjusted_close`, e portanto sem risco — estado normal que o
    motor de score já trata, não um defeito. O comando é
    `POST /assets/{ticker}/corporate-actions/sync` **depois** do `prices/backfill`.
@@ -396,13 +391,14 @@ Ver [CURRENT_TASK.md](CURRENT_TASK.md).
 
 ## Known Issues
 
-🔴 **O token da Brapi vaza para o log da aplicação** (achado 2026-08-22 na W15-006, **não é
-regressão da W15** — vale desde a W05). `logging.basicConfig(level=INFO)` configura o logger
-raiz; o `httpx` emite em INFO `GET https://brapi.dev/api/quote/PETR4?token=<token>&...` com a
-credencial em texto claro. O projeto já conhecia o risco e o escreveu — o docstring de
-`RetryingJsonClient` diz que credencial em header não é logada porque credencial em URL vaza
-para logs e proxies —, mas a Brapi autentica por **query param**. Correção candidata é de uma
-linha. Registrado conforme §134, **não corrigido nesta wave**.
+✅ ~~**O token da Brapi vaza para o log da aplicação**~~ — **CORRIGIDO em 2026-08-22**.
+`basicConfig(level=INFO)` configura o logger raiz, o `httpx` loga a URL completa em INFO e a
+Brapi autentica por query param, então o token saía em texto claro desde a W05. Corrigido por
+**redação, não silenciamento**: `SecretRedactingFormatter` remove todo segredo configurado do
+texto renderizado — cobrindo `record.args`, onde o `httpx` põe a URL, e o traceback — e a
+linha continua útil (`?token=[REDACTED]`). ⚠️ Verificar revelou um segundo defeito:
+`basicConfig` é **no-op se o raiz já tem handler**, o que deixaria a correção não instalada;
+resolvido com `force=True`.
 
 🟡 **Intraday no plano gratuito é liberado por ticker, não por intervalo** (medido 2026-08-22).
 PETR4/ITUB4/MGLU3/VALE3 servem; **BBAS3/BOVA11 recusam** com HTTP 400 `INVALID_INTERVAL`. A

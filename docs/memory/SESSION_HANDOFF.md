@@ -77,10 +77,27 @@ também desligava a checagem de duplicata. Duas chamadas `?resync=true` idêntic
 de unicidade — **HTTP 500**. Agora a condição é "a sessão tem algo gravado", e `resync` é
 idempotente.
 
+### Depois da wave: o vazamento de credencial foi corrigido
+
+A W15-006 achou, fora do escopo, que o token da Brapi saía no log em texto claro — logger raiz em
+INFO faz o `httpx` imprimir a URL completa, e a Brapi autentica por query param. Registrado na
+hora e **corrigido em seguida**, a pedido.
+
+A correção **redige em vez de silenciar**: `SecretRedactingFormatter` remove todo segredo
+configurado da string já renderizada, o que cobre `record.args` (onde o `httpx` de fato põe a
+URL) e o traceback de uma exceção, e mantém a linha útil — `?token=[REDACTED]`, com URL e status
+legíveis. Silenciar o `httpx` fecharia o mesmo buraco jogando fora observabilidade e protegeria
+só contra aquela biblioteca.
+
+⚠️ **Verificar a correção revelou um segundo defeito**, e ele é o mais fácil de deixar passar:
+`basicConfig` é **no-op quando o logger raiz já tem handler**, então qualquer coisa que
+configurasse logging antes deixaria o formatter simples no lugar e o token de volta em claro —
+medido, não hipótese. `force=True` é o que transforma a redação em garantia.
+
 ## Current State
 
-- `pytest` → **1.228 passed** (1.129 → 1.228 na W15), verificado em 2026-08-22. `ruff` e
-  `black` limpos.
+- `pytest` → **1.243 passed**, verificado em 2026-08-22 (1.129 → 1.228 na W15; +15 na
+  correção do vazamento de credencial). `ruff` e `black` limpos.
 - **Migration nova**: `013_intraday_precision` — OHLC para `NUMERIC(18,6)`, `timestamp` para
   `TIMESTAMPTZ`, `source_window` `NOT NULL`. Aplicada contra o Postgres real e **revertida e
   reaplicada** para conferir as duas direções.
@@ -121,21 +138,13 @@ fechado, e nada que este projeto entrega vende (ADR-028).
 
 ## Pending Work
 
-1. 🔴 **Redigir a credencial da Brapi do log.** `app/core/logging.py` chama
-   `logging.basicConfig(level=INFO)`, que configura o logger **raiz**, e o `httpx` imprime
-   `GET https://brapi.dev/api/quote/PETR4?token=<token>&...` em texto claro. Pré-existe desde a
-   W05; achado na W15-006 e registrado sem corrigir por ser fora do escopo (§134). Correção
-   candidata: `logging.getLogger("httpx").setLevel(logging.WARNING)`, e/ou mover a autenticação
-   da Brapi para header — o `RetryingJsonClient` já suporta `default_headers`, e o docstring
-   dele já diz por que header é o lugar certo.
-2. **Wave 16 — Day Trade Engine** (roadmap §28). Ver [CURRENT_TASK.md](CURRENT_TASK.md).
-3. **Ingerir os eventos societários que faltam em ITUB4 e MGLU3.** Não é wave, é dado.
-4. **Verificar o `OllamaProvider`** contra um servidor real, quando houver um.
+1. **Wave 16 — Day Trade Engine** (roadmap §28). Ver [CURRENT_TASK.md](CURRENT_TASK.md).
+2. **Ingerir os eventos societários que faltam em ITUB4 e MGLU3.** Não é wave, é dado.
+3. **Verificar o `OllamaProvider`** contra um servidor real, quando houver um.
 
 ## Next Step
 
-Ler [CURRENT_TASK.md](CURRENT_TASK.md). A correção do log (item 1) é de uma linha e vale antes
-de **começar a Wave 16**.
+Ler [CURRENT_TASK.md](CURRENT_TASK.md) e **começar a Wave 16**.
 
 ## Relevant Files
 

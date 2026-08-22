@@ -8,7 +8,7 @@ setups iniciais.
 ## Status
 
 🟢 **A Wave 15 fechou em 2026-08-22**, 6 de 6 tasks, e não há código pela metade em lugar
-nenhum. `pytest -q` → **1.228 passed**.
+nenhum. `pytest -q` → **1.243 passed**.
 
 ---
 
@@ -106,11 +106,14 @@ Todo o backend das waves 00–15 e as quatro telas. Contrato completo em
 ⚠️ **`daytrade_setups` e `daytrade_results` ainda têm preço em `Float`** — mesma dívida da regra
 17 que a `013` acabou de pagar para `intraday_prices`. Migration nova na W16 ou W17.
 
-## Também na fila, e não é wave
+## Já resolvido depois da wave
 
-🔴 **Redigir a credencial da Brapi do log.** `logging.basicConfig(level=INFO)` põe o logger raiz
-em INFO e o `httpx` imprime a URL com `?token=...` em texto claro. Pré-existe desde a W05,
-achado na W15-006 e registrado sem corrigir (§134). É de uma linha.
+✅ **O token da Brapi não vaza mais para o log** (2026-08-22). Redação por formatter, não
+silenciamento, mais `force=True` no `basicConfig` — sem isso a correção não chegava a ser
+instalada quando algo configurava logging antes. Ver `app/core/logging.py` e
+`tests/test_logging_redaction.py`.
+
+## Também na fila, e não é wave
 
 ⚠️ **Ingerir os eventos societários que faltam em ITUB4 e MGLU3.** A janela replayável do
 universo é de **nove meses** ([ADR-032](../decisions/ADR-032-the-backtest-stops-where-the-total-return-series-stops.md),
@@ -121,7 +124,8 @@ teste de regressão, de propósito.
 
 ## Estado do ambiente (verificado 2026-08-22)
 
-- ✅ `pytest -q` → **1.228 passed** (1.129 → 1.228 na W15). `ruff` e `black` limpos.
+- ✅ `pytest -q` → **1.243 passed** (1.129 → 1.228 na W15; +15 na correção do vazamento de
+  credencial). `ruff` e `black` limpos.
 - ✅ **Migration nova**: `013_intraday_precision`, aplicada contra o Postgres real **e revertida
   e reaplicada** para conferir as duas direções. Schema em `013_intraday_precision`.
 - ✅ **Nenhuma dependência nova.** (`tzdata` foi considerada e recusada — ver ADR-037.)
