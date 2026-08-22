@@ -145,6 +145,19 @@ class AssetPrice(Base):
 
 
 class IntradayPrice(Base):
+    """One intraday OHLCV bar, keyed by the instant it opens on.
+
+    ## The unique key has three parts, and the window is not one of them
+
+    `(asset_id, timestamp, timeframe)` identifies a bar, so one instant
+    at one bar size holds exactly one row. `source_window` records which
+    request window produced it and is deliberately **outside** the key:
+    admitting it would let the same instant hold two rows, which is
+    precisely the mixture ADR-036 exists to prevent. Two windows
+    partition a session differently, so a series assembled from both is
+    one that never traded.
+    """
+
     __tablename__ = "intraday_prices"
     __table_args__ = (
         UniqueConstraint(
@@ -157,13 +170,32 @@ class IntradayPrice(Base):
     asset_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("assets.id", ondelete="CASCADE"), nullable=False
     )
-    timestamp: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    # `timestamptz`, unlike every other timestamp in this schema, and the
+    # only column where the distinction changes an answer: a daily bar is
+    # a `Date` and carries no ambiguity, while a bar stamped 10:15 with
+    # no zone could be three different instants (rule 18). Stored in UTC;
+    # presentation converts (`intraday_quality.EXCHANGE_TIMEZONE`).
+    #
+    # SQLite - which the tests use - has no timestamptz and hands back a
+    # naive value regardless. The domain layer therefore does not trust
+    # the driver to preserve awareness; see `daytrade.service`.
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     timeframe: Mapped[str] = mapped_column(String(10), nullable=False)  # 1m, 5m, 15m
-    open: Mapped[float] = mapped_column(Float, nullable=False)
-    high: Mapped[float] = mapped_column(Float, nullable=False)
-    low: Mapped[float] = mapped_column(Float, nullable=False)
-    close: Mapped[float] = mapped_column(Float, nullable=False)
+    # NUMERIC, not FLOAT, per rule 17. Deferred here from migration 002,
+    # which named this table explicitly as Wave 15's to convert.
+    open: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    high: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    low: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    close: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    # Stays FLOAT: a share count is not a monetary value, the same call
+    # migration 002 made for `asset_prices.volume`.
     volume: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    # Which request window the source served this bar under (`5d`,
+    # `3mo`, ...). Not provenance trivia: the same instant comes back
+    # with different OHLCV depending on it, measured at 0 of 135 bars
+    # agreeing between `5d` and `3mo` (ADR-036). Storing it is what lets
+    # ingestion refuse to interleave two partitions.
+    source_window: Mapped[str] = mapped_column(String(10), nullable=False)
     source: Mapped[str] = mapped_column(
         String(50), default="intraday_provider", nullable=False
     )
