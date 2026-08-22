@@ -2,13 +2,31 @@
 
 > Camada 1 da memória: **onde o projeto está**, em uma página.
 > Ledger detalhado task-a-task (histórico completo, notas de implementação, decisões datadas): [../PROJECT_STATUS.md](../PROJECT_STATUS.md).
-> Última verificação contra o código: **2026-08-21**.
+> Última verificação contra o código: **2026-08-22**.
 
 ## Current Phase
 
 **Wave 13 — Backtesting concluída** (2026-08-21), **6 de 6 tasks**. **14 de 33 waves do roadmap
 concluídas** (W00–W13), mais as duas inseridas fora da ordem (PRICE e EVENTS). **A próxima é a
 Wave 14 — Walk-Forward Validation.**
+
+✅ **Fora de wave, em 2026-08-22: a verificação da IA fechou para a Gemini.** A API foi
+habilitada, a chamada real aconteceu e o contrato `v1beta` bateu **nome por nome** — nenhum
+campo com nome errado, diferente da Brapi na W06-003. O teste de regressão existe
+(`tests/test_gemini_provider.py`, 11 testes sobre payload capturado).
+
+🔴 **E ela encontrou um defeito que fixture nenhum encontraria.** `gemini-flash-latest` resolve
+para `gemini-3.7-flash`, um **modelo de raciocínio** que cobra o pensamento contra o mesmo
+`maxOutputTokens` da prosa. No valor padrão de então (1.024), com um fact pack comum, o modelo
+gastava 981 tokens pensando e devolvia uma frase cortada — e como `MAX_TOKENS` contava como
+término normal, **o fragmento era servido ao leitor como explicação pronta**. Agora `MAX_TOKENS`
+é truncagem, o provider normaliza para `Completion.truncated`, `Explanation.truncated` leva isso
+à API, e o texto vai **exatamente como gerado** — aparar até a última frase inteira produziria
+algo que *parece* completo
+([ADR-033](../decisions/ADR-033-a-truncated-explanation-is-reported-not-discarded.md)).
+
+⚠️ **O `OllamaProvider` continua não verificado** (sem servidor local) e, pela mesma disciplina,
+**sem teste de regressão**.
 
 ✅ **O backtest fala ledger, e é isso que o impede de ter uma segunda contabilidade.** A saída da
 simulação são linhas de `Transaction` — o mesmo formato de uma carteira real — então
@@ -73,12 +91,15 @@ não disse *como* — não havia código de IA para dizer. Agora há, e são tr�
 Três perguntas têm explicação: *estou batendo o CDI?*, *por que o aporte vai para esses ativos?* e
 *o que esse score está medindo?*.
 
-🔴 **Nenhuma chamada real a modelo nenhum aconteceu, e por isso nenhum teste de regressão de parser
-foi escrito.** A `GEMINI_API_KEY` é válida, mas a Gemini API está **desabilitada no projeto Google
-Cloud dela** (HTTP 403 `SERVICE_DISABLED`, projeto `980912867288`); não há Ollama local. A omissão
-é deliberada: um mock construído sobre suposição não verifica a suposição, reproduz ela — foi assim
-que dois campos da Brapi passaram por 45 testes verdes na W06-003. **É a primeira coisa a fazer na
-próxima sessão**; o procedimento está em [CURRENT_TASK.md](CURRENT_TASK.md).
+✅ ~~**Nenhuma chamada real a modelo nenhum aconteceu**~~ — **resolvido para a Gemini em
+2026-08-22** (ver *Current Phase*). A API foi habilitada, a chamada aconteceu, o contrato foi
+conferido campo a campo e o teste de regressão foi escrito sobre payload capturado. A espera se
+pagou: a chamada real encontrou um defeito de orçamento que nenhum mock encontraria
+([ADR-033](../decisions/ADR-033-a-truncated-explanation-is-reported-not-discarded.md)).
+⚠️ **O `OllamaProvider` continua na situação original** — sem servidor local, portanto sem
+chamada real e, deliberadamente, **sem teste de regressão**: um mock construído sobre suposição
+não verifica a suposição, reproduz ela, que foi como dois campos da Brapi passaram por 45 testes
+verdes na W06-003.
 
 ⚠️ **`unverified_figures` ainda não tem quem o exiba.** A W12 é backend-only por decisão. Uma tela
 que mostre a prosa e ignore a lista desfaz metade da garantia. Está em Future Work.
@@ -178,7 +199,7 @@ CDI e IPCA **não** são afetados: vêm do Banco Central (SGS), aberto e sem cot
 | **In Progress** | — nenhuma. Próxima: **Wave 14 — Walk-Forward Validation**; ver [CURRENT_TASK.md](CURRENT_TASK.md) |
 | **Blocked** | — nenhuma. ⚠️ Mas os dois providers de IA da W12 são código **não verificado** até que uma chamada real aconteça |
 
-Baseline atual: `pytest` → **1.049 passed** (backend/.venv), verificado em 2026-08-21. Frontend: `npm run build` e `npm run lint` limpos. `ruff check .` e `black --check .` limpos no repositório inteiro; `alembic check` sem drift na última execução (2026-08-19, com o banco no ar); `npm run lint` e `npm run build` funcionando.
+Baseline atual: `pytest` → **1.063 passed** (backend/.venv), verificado em 2026-08-21. Frontend: `npm run build` e `npm run lint` limpos. `ruff check .` e `black --check .` limpos no repositório inteiro; `alembic check` sem drift na última execução (2026-08-19, com o banco no ar); `npm run lint` e `npm run build` funcionando.
 
 ## Completed Work (nível wave)
 

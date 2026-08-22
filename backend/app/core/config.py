@@ -157,10 +157,21 @@ class Settings(BaseSettings):
     #: because it feeds no calculation, but an explanation that rewords
     #: itself on every refresh reads as unreliable.
     AI_TEMPERATURE: float = 0.2
-    #: Three short paragraphs, which is what the prompts ask for, with
-    #: room to spare. A truncated explanation comes back with a
-    #: finish_reason saying so rather than silently ending mid-sentence.
-    AI_MAX_OUTPUT_TOKENS: int = 1024
+    #: Budget for reasoning **and** prose together, which is the part
+    #: that made the previous value of 1.024 wrong. `gemini-flash-latest`
+    #: resolves to a reasoning model that charges its thinking against
+    #: this same allowance: measured on a realistic 28-fact
+    #: contribution-plan pack, 1.024 was spent 981 tokens on reasoning
+    #: and returned a sentence cut mid-list, while 2.048 finished
+    #: normally using 1.678. Reasoning expands to use the room it is
+    #: given, so this is set with headroom rather than to the measured
+    #: figure — the ratio it consumed fell from 99% to 81% as the budget
+    #: doubled, and truncation only costs something when the budget is
+    #: exhausted outright.
+    #:
+    #: Three short paragraphs is still what the prompts ask for; this
+    #: bounds what it takes to think of them, not their length.
+    AI_MAX_OUTPUT_TOKENS: int = 4096
 
     model_config = SettingsConfigDict(
         case_sensitive=True, env_file=ENV_FILES, extra="ignore"

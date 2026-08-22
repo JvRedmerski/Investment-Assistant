@@ -176,8 +176,9 @@ DEPOSIT/WITHDRAWAL: registrar `quantity = valor`, `price = 1`, sem `asset_id`.
   uma que quase não se moveu. `unfilled{}` conta as ordens que terminaram em nada, por motivo
   (`NO_PRICE`, `BELOW_ONE_SHARE`, `INSUFFICIENT_CASH`, `NOTHING_HELD`).
 
-- `Explanation` (as três rotas `explain/*`): `topic`, `subject`, `text`, `model`, `prompt_version`, `generated_at`, `facts[]` e `unverified_figures[]`.
+- `Explanation` (as três rotas `explain/*`): `topic`, `subject`, `text`, `model`, `prompt_version`, `generated_at`, `facts[]`, `unverified_figures[]` e `truncated`.
   ⚠️ **`unverified_figures` é leitura obrigatória, não diagnóstico.** É a lista de números que aparecem no texto e **não** casam com nenhum fato enviado — ou seja, números que o modelo inventou ou derivou por conta própria. Vem reportada em vez de bloquear a resposta ([ADR-030](../decisions/ADR-030-fact-pack-and-the-hallucination-guard.md)); um cliente que a ignorar desfaz metade da garantia.
+  ⚠️ **`truncated` diz que o texto parou no meio, e não que os fatos acabaram.** É `true` quando o modelo esgotou o orçamento de saída antes de terminar a frase. O texto vem **exatamente como gerado** — sem reticências, sem corte até o último ponto final —, porque aparar produziria uma explicação que *parece* completa ([ADR-033](../decisions/ADR-033-a-truncated-explanation-is-reported-not-discarded.md)). Um cliente que exibe a prosa deve rotular o caso; da leitura do texto sozinho os dois jeitos de acabar cedo são indistinguíveis. Aditivo e com default `false`.
   `facts[]` é a evidência: cada fato traz `key`, `label`, `value` (canônico), `formatted` (a string que a tela mostra), `unit` e `source` — **o endpoint que produziu aquele número** (regra 112). O `key` e o `source` não vão para o modelo, só para o leitor.
   `model` é o modelo que **de fato respondeu**, não o pedido: aliases são resolvidos no servidor do fornecedor. `prompt_version` é `system_vN+topico_vN` (regra 43).
   Quando o backend não conseguiu calcular **nenhum** fato, o provedor nem é chamado: volta uma frase fixa dizendo que os dados estão indisponíveis, com `model: "none"` (regra 44).

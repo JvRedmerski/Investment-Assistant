@@ -101,6 +101,15 @@ O produto final deve responder: *Como está minha carteira? Estou batendo o CDI?
   ativos?* e *o que esse score está medindo?*. Gemini ou Ollama local, atrás da mesma
   interface — ou nenhum dos dois, que é um deployment suportado.
 
+  **Há um segundo jeito de uma explicação sair incompleta, e ele também é reportado.** Um texto
+  pode acabar cedo porque os *fatos* acabaram — honesto — ou porque o *orçamento de saída*
+  acabou, o que não é nem uma coisa nem outra; da prosa sozinha os dois são indistinguíveis.
+  O modelo em uso raciocina, e o raciocínio é cobrado contra o mesmo orçamento da prosa, então
+  isso não é hipótese: no padrão anterior, uma frase cortada no meio era servida como
+  explicação pronta. Agora ela vem marcada, e vem **exatamente como gerada** — aparar até a
+  última frase inteira produziria algo que *parece* completo
+  ([ADR-033](../decisions/ADR-033-a-truncated-explanation-is-reported-not-discarded.md)).
+
 - **A estratégia medida contra o passado, sem deixá-la enxergar o futuro.** O backtest não
   testa *uma* estratégia: replaya **a** estratégia — `allocate_contribution`, a mesma função pura
   que `/contribution-plan` chama hoje. E a saída da simulação são linhas de `Transaction`, então

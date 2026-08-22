@@ -2,16 +2,17 @@
 
 ## Task
 
-**Duas coisas, e a primeira continua curta.**
+**Uma coisa: a Wave 14.** A pendência que vinha na frente fechou.
 
-1. 🔴 **Fechar a verificação da W12-001** — os dois providers de IA são código **não
-   verificado** até que uma chamada real aconteça. Ver *O que continua pendente* abaixo.
-2. ⚪ **Wave 14 — Walk-Forward Validation** (roadmap §26, AGENTS.md §60–62).
+1. ✅ **Verificação da W12-001 (Gemini)** — feita em 2026-08-22. Ver *O que a verificação
+   encontrou* abaixo.
+2. 🔵 **Wave 14 — Walk-Forward Validation** (roadmap §26, AGENTS.md §60–62) — **é a próxima**.
 
 ## Status
 
 🟢 **A Wave 13 fechou em 2026-08-21**, 6 de 6 tasks, e não há código pela metade em lugar
-nenhum. `pytest -q` → **1.049 passed**.
+nenhum. Em 2026-08-22, fora de wave, a **verificação da Gemini** fechou e corrigiu o defeito
+que ela encontrou. `pytest -q` → **1.063 passed**.
 
 ---
 
@@ -81,24 +82,44 @@ cuja série ajustada tem 198 de 1.495 pregões.
 
 ---
 
-## O que continua pendente, e é a primeira coisa a fazer
+## O que a verificação encontrou (2026-08-22)
 
-🔴 **Nenhuma chamada real a modelo nenhum aconteceu** (herdado da W12).
+✅ **A Gemini API está habilitada e respondendo.** HTTP 200, chamada real feita, e o contrato
+`v1beta` publicado bateu **nome por nome**: `candidates[0].content.parts[]`, `finishReason`,
+`usageMetadata.promptTokenCount`, `usageMetadata.candidatesTokenCount`, `modelVersion`. Nada
+com nome errado — diferente da Brapi na W06-003, que é a razão de o procedimento existir.
 
-- A `GEMINI_API_KEY` no `.env` é **válida**, mas a Gemini API está **desabilitada no
-  projeto Google Cloud dela**. Toda chamada responde HTTP 403 `SERVICE_DISABLED`, com a
-  URL de ativação do projeto `980912867288` no corpo.
-- Não há Ollama instalado, então o `OllamaProvider` está igualmente sem verificação.
+✅ **O teste de regressão existe**: `tests/test_gemini_provider.py`, 11 testes, todos
+construídos a partir de payloads capturados **depois** da chamada real.
 
-**Consequência deliberada**: nenhum teste de regressão de parser foi escrito. Um mock
-construído sobre suposição não verifica a suposição — reproduz ela.
+🔴 **E a chamada real achou um defeito que nenhum fixture acharia.** `gemini-flash-latest`
+resolve para **`gemini-3.7-flash`, um modelo de raciocínio**, e o raciocínio é cobrado contra o
+mesmo `maxOutputTokens` da prosa. Medido com um fact pack realista de plano de aporte:
 
-**Procedimento quando houver acesso** (`docs/planning/IMPLEMENTATION_GUIDE.md`): habilitar a
-API → **uma** chamada real → conferir nome por nome (`candidates[0].content.parts[]`,
-`finishReason`, `usageMetadata`, `modelVersion`) → corrigir `gemini.py` no que divergir → e
-**só então** o teste de regressão.
+| orçamento | `finishReason` | pensamento | prosa | resultado |
+|---|---|---|---|---|
+| **1.024** (o padrão) | `MAX_TOKENS` | 981 | 39 | frase cortada em `"...entre três ativos:"` |
+| 2.048 | `STOP` | 1.383 | 295 | explicação completa |
 
----
+Como `MAX_TOKENS` estava em `_COMPLETE` e o texto não estava vazio, **o fragmento chegava ao
+leitor como explicação pronta** — no valor padrão, com um pack comum, não numa borda.
+
+Corrigido em [ADR-033](../decisions/ADR-033-a-truncated-explanation-is-reported-not-discarded.md):
+`MAX_TOKENS` é truncagem, o provider normaliza para `Completion.truncated`, `Explanation.truncated`
+leva isso à API, e o texto é entregue **exatamente como gerado** — aparar até a última frase
+inteira produziria algo que *parece* completo. `thinking_tokens` passou a ser contado ao lado da
+prosa (nunca somado), e `AI_MAX_OUTPUT_TOKENS` subiu para 4.096.
+
+### O que continua pendente
+
+⚠️ **O `OllamaProvider` segue não verificado** — não há servidor Ollama nesta máquina. Por isso
+**nenhum teste de regressão foi escrito para ele**, pela mesma disciplina que produziu o achado
+acima. Ele carrega uma suposição a mais, agora nomeada no docstring: `done_reason == "length"`
+lido como truncagem. Se estiver errada, uma explicação local truncada será reportada como
+completa — exatamente o defeito que a Gemini acabou de mostrar.
+
+⚠️ **A chave é free tier: 20 requisições/dia** para `gemini-3.7-flash`, e o modelo devolve 503
+`"high demand"` com frequência. Dimensione qualquer validação ao vivo por isso.
 
 ## O que a W14 tem que respeitar
 
@@ -124,9 +145,12 @@ Todo o backend das waves 00–13 e as quatro telas. Contrato completo em
 
 ## Estado do ambiente (verificado 2026-08-21)
 
-- ✅ `pytest -q` → **1.049 passed** (era 944). `ruff` e `black` limpos no repositório inteiro.
-- ✅ **Nenhuma migration nova**: nada da W13 é gravado (regra 16). Schema segue
-  `012_corporate_actions`.
+- ✅ `pytest -q` → **1.063 passed** (944 → 1.049 na W13 → 1.063 com a verificação da Gemini).
+  `ruff` e `black` limpos nos arquivos alterados.
+- ✅ **Nenhuma migration nova**: nada da W13 é gravado (regra 16), e a verificação da Gemini
+  também não grava nada. Schema segue `012_corporate_actions`.
+- ✅ **IA funcional**: `AI_PROVIDER=gemini`, `GEMINI_MODEL=gemini-flash-latest` (resolve para
+  `gemini-3.7-flash`), `AI_MAX_OUTPUT_TOKENS=4096`. Free tier, **20 requisições/dia**.
 - Banco real: quatro ativos, 1.495 pregões cada. Série ajustada **completa** em BBAS3 e
   PETR4; **198** pregões em ITUB4 (último buraco em 2025-03-18) e **478** em MGLU3 (último em
   2024-02-01). Só a PETR4 tem setor e demonstrativos.

@@ -2,9 +2,37 @@
 
 ## Last Updated
 
-2026-08-21
+2026-08-22
 
 ## Last Completed Work
+
+### Verificação da W12-001 — a Gemini, fora de wave (2026-08-22)
+
+A pendência que abria as últimas duas sessões fechou pela metade que dependia de acesso. O
+procedimento do [IMPLEMENTATION_GUIDE](../planning/IMPLEMENTATION_GUIDE.md) foi seguido na
+ordem: **uma chamada real → conferir nome por nome → corrigir o que divergiu → e só então o
+teste de regressão**.
+
+| o que | resultado |
+|---|---|
+| contrato `v1beta` | bateu **nome por nome** — nenhum campo com nome errado |
+| `modelVersion` | `gemini-3.7-flash` (o alias resolveu, e a trilha de auditoria captura isso) |
+| **orçamento de saída** | 🔴 **defeito**: pensamento come `maxOutputTokens`, e `MAX_TOKENS` contava como término normal |
+| `thoughtsTokenCount` | 🔴 não era contado: `output_tokens` reportava 153 numa requisição de 701 |
+| `OllamaProvider` | ⚠️ continua sem verificação e sem teste (sem servidor local) |
+
+**O defeito, em uma frase:** uma explicação cortada no meio da frase era servida ao leitor como
+se estivesse pronta. Agora `MAX_TOKENS` é truncagem, o provider normaliza para
+`Completion.truncated`, `Explanation.truncated` leva isso à API, e o texto vai **exatamente
+como gerado** — aparar até a última frase inteira produziria algo que *parece* completo, que é
+o defeito com uma camada a mais em cima
+([ADR-033](../decisions/ADR-033-a-truncated-explanation-is-reported-not-discarded.md)).
+
+**Rejeitada por medição, não por gosto:** limitar o raciocínio via `thinkingConfig`.
+`thinkingBudget: 0` é aceito com HTTP 200 e **ignorado** (398 tokens de pensamento assim mesmo);
+`thinkingLevel: "low"` idem, com 436. Um botão que o fornecedor aceita e não honra documenta uma
+garantia que não existe.
+
 
 ### Wave 13 — Backtesting de carteira, 6/6 (`02cd288`, `a42a91f`, `6409568`, `67b6cf7`, `9c55cab`, `6142a97`, `0f5bb0b`)
 
@@ -66,22 +94,37 @@ motor. Elas foram para `simulation.py`, ao lado do replay que as produz.
 
 ## Current State
 
-- `pytest` → **1.049 passed** (944 → 1.049), verificado em 2026-08-21. `ruff` e `black`
-  limpos no repositório inteiro.
-- **Nenhuma migration**: nada da W13 é gravado (regra 16). Schema segue `012_corporate_actions`.
+- `pytest` → **1.063 passed** (944 → 1.049 na W13 → 1.063 com a verificação da Gemini),
+  verificado em 2026-08-22. `ruff` e `black` limpos nos arquivos alterados.
+- **Nenhuma migration**: nada da W13 é gravado (regra 16), e a verificação da Gemini também não
+  grava nada. Schema segue `012_corporate_actions`.
+- **IA funcional**: `AI_PROVIDER=gemini`, `AI_MAX_OUTPUT_TOKENS` subiu de 1.024 para **4.096**.
 - **Nenhuma dependência nova.** `alpha` entrou em `app/quant/risk.py`, em `Decimal`, como
   todo o resto do motor.
 - **Wave 13 🟢 concluída**, 6/6. Nada iniciado da W14.
 
 ## Important Details
 
-### 🔴 O que NÃO foi verificado, e é a primeira coisa a fazer
+### ✅ A verificação da IA fechou para a Gemini — e achou um defeito
 
-**Nenhuma chamada real a modelo nenhum aconteceu** (herdado da W12). A `GEMINI_API_KEY` é
-válida, mas a Gemini API está **desabilitada no projeto Google Cloud dela** — HTTP 403
-`SERVICE_DISABLED`, projeto `980912867288`. Não há Ollama local. Por isso **nenhum teste de
-regressão de parser foi escrito**, de propósito. Procedimento completo em
-[CURRENT_TASK.md](CURRENT_TASK.md).
+A API respondeu, o contrato `v1beta` bateu **nome por nome**, e o teste de regressão existe
+(`tests/test_gemini_provider.py`, 11 testes sobre payload capturado).
+
+**O que ela achou não foi nome errado, foi orçamento.** `gemini-flash-latest` resolve para
+`gemini-3.7-flash`, um **modelo de raciocínio**, e o pensamento é cobrado contra o mesmo
+`maxOutputTokens` da prosa. No padrão de então (1.024), com um fact pack comum de plano de
+aporte: 981 tokens pensando, 39 de texto, `finishReason: MAX_TOKENS` e uma frase cortada em
+`"...entre três ativos:"`. E como `MAX_TOKENS` estava em `_COMPLETE` e o texto não estava
+vazio, **o fragmento era entregue como explicação pronta** — no valor padrão, não numa borda.
+
+Ver [ADR-033](../decisions/ADR-033-a-truncated-explanation-is-reported-not-discarded.md).
+
+⚠️ **O `OllamaProvider` continua não verificado** — não há servidor local. Pela mesma
+disciplina, **nenhum teste de regressão foi escrito para ele**, e ele carrega agora uma
+suposição a mais e nomeada no docstring: `done_reason == "length"`.
+
+⚠️ **A chave é free tier: 20 requisições/dia** para `gemini-3.7-flash`, e o modelo devolve 503
+`"high demand"` com frequência. Uma sessão de validação ao vivo tem que caber nisso.
 
 ### Os enganos fáceis de cometer aqui
 
@@ -115,13 +158,15 @@ Exatamente uma das duas é preenchida por linha, e é isso que separa "quanto pa
 
 ## Pending Work
 
-1. **Verificar os providers de IA contra uma resposta real** (acima).
-2. **Wave 14 — Walk-Forward Validation**. Ver [CURRENT_TASK.md](CURRENT_TASK.md) e o roadmap §26.
+1. **Wave 14 — Walk-Forward Validation**. Ver [CURRENT_TASK.md](CURRENT_TASK.md) e o roadmap §26.
+2. **Verificar o `OllamaProvider`** contra um servidor real, quando houver um. É o que resta da
+   pendência da W12-001, e a Gemini acabou de mostrar que a espera se paga.
 
 ## Next Step
 
-Ler [CURRENT_TASK.md](CURRENT_TASK.md). Se a Gemini API já estiver habilitada, comece pelo
-item 1 — são vinte minutos e ele tira dois módulos do estado "não verificado".
+Ler [CURRENT_TASK.md](CURRENT_TASK.md) e **começar a Wave 14**. Não há mais nada na frente
+dela: a pendência da IA que abria as duas últimas sessões fechou no que dependia de acesso, e
+o que sobra (Ollama) depende de instalar um servidor, não de uma decisão do projeto.
 
 ## Relevant Files
 
@@ -133,4 +178,7 @@ item 1 — são vinte minutos e ele tira dois módulos do estado "não verificad
 - `backend/app/domain/backtesting/schemas.py` — os contratos da API (Pydantic, como nos outros)
 - `backend/app/quant/risk.py` — `alpha`, ao lado do `beta` em que se apoia
 - `backend/app/api/routes/backtests.py` — `GET /api/v1/backtests`
-- `docs/decisions/ADR-031-*.md` e `ADR-032-*.md`
+- `docs/decisions/ADR-031-*.md`, `ADR-032-*.md` e `ADR-033-*.md`
+- `backend/app/integrations/ai/gemini.py` — o formato do fio, agora com a resposta real documentada
+- `backend/app/integrations/ai/schemas.py` — `Completion.truncated` e `thinking_tokens`
+- `backend/tests/test_gemini_provider.py` — os payloads capturados, e o defeito travado

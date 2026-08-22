@@ -131,6 +131,15 @@ class Explanation(BaseModel):
 
     `unverified_figures` lists numbers that appear in the text and match
     no fact. It is a report, not a rejection; see `guard` for why.
+
+    `truncated` says the prose stops mid-argument because the model ran
+    out of output budget. It travels for the same reason
+    `unverified_figures` does: the reader is entitled to know which of
+    the two kinds of incomplete answer they are looking at. A text that
+    ends early because the *facts* ran out is complete and honest; one
+    that ends early because the *budget* ran out is neither, and the two
+    are indistinguishable from the prose alone
+    ([ADR-033](../../../docs/decisions/ADR-033-a-truncated-explanation-is-reported-not-discarded.md)).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -145,3 +154,7 @@ class Explanation(BaseModel):
     generated_at: datetime
     facts: tuple[Fact, ...]
     unverified_figures: tuple[str, ...]
+    #: Whether the model ran out of output budget before finishing.
+    #: Always `False` for the no-facts short circuit, which never calls
+    #: a provider at all.
+    truncated: bool = False

@@ -98,6 +98,21 @@ def explain(
             ", ".join(flagged),
         )
 
+    if completion.truncated:
+        # Same reasoning as the block above: an incomplete explanation
+        # is not a quiet event. The operator fix is a setting
+        # (`AI_MAX_OUTPUT_TOKENS`), and nobody changes a setting they
+        # were never told about.
+        logger.warning(
+            "Model %s ran out of output budget explaining topic %s on %r; "
+            "the text is truncated (prose=%s, reasoning=%s tokens).",
+            completion.model,
+            pack.topic.value,
+            pack.subject,
+            completion.output_tokens,
+            completion.thinking_tokens,
+        )
+
     return Explanation(
         topic=pack.topic,
         subject=pack.subject,
@@ -107,4 +122,5 @@ def explain(
         generated_at=datetime.now(UTC),
         facts=pack.facts,
         unverified_figures=flagged,
+        truncated=completion.truncated,
     )

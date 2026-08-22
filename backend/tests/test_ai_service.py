@@ -21,9 +21,16 @@ from tests.test_ai_facts import _comparison
 class FakeProvider(AIProvider):
     """Answers with a canned text and records what it was asked."""
 
-    def __init__(self, text: str = "Tudo certo.", *, raises: Exception | None = None):
+    def __init__(
+        self,
+        text: str = "Tudo certo.",
+        *,
+        raises: Exception | None = None,
+        truncated: bool = False,
+    ):
         self._text = text
         self._raises = raises
+        self._truncated = truncated
         self.requests: list[CompletionRequest] = []
 
     def complete(self, request: CompletionRequest) -> Completion:
@@ -33,9 +40,10 @@ class FakeProvider(AIProvider):
         return Completion(
             text=self._text,
             model="fake-model-001",
-            finish_reason="STOP",
+            finish_reason="MAX_TOKENS" if self._truncated else "STOP",
             prompt_tokens=100,
             output_tokens=50,
+            truncated=self._truncated,
         )
 
     @property
@@ -174,3 +182,39 @@ def test_a_single_available_fact_is_enough_to_call_the_provider():
     provider = FakeProvider()
     _explain(provider, portfolio_performance_facts("Carteira Local", 1, comparison))
     assert len(provider.requests) == 1
+
+
+def test_a_truncated_completion_reaches_the_reader_labelled_as_truncated():
+    """The flag travels; the text is neither discarded nor repaired.
+
+    Found by a live call on 2026-08-22: at the then-default budget, a
+    reasoning model spent 981 of 1.024 tokens thinking and returned a
+    sentence cut after a colon. It was served as a finished explanation
+    because `MAX_TOKENS` counted as a normal finish (ADR-033).
+    """
+    fragment = "O plano alocou R$ 742,30 entre tres ativos:"
+    result = _explain(FakeProvider(fragment, truncated=True))
+
+    assert result.truncated is True
+    assert result.text == fragment
+
+
+def test_an_ordinary_completion_is_not_flagged_as_truncated():
+    assert _explain(FakeProvider()).truncated is False
+
+
+def test_the_no_facts_short_circuit_is_never_truncated():
+    """It calls no provider, so there is no budget to run out of."""
+    empty = _pack().model_copy(
+        update={
+            "facts": tuple(
+                fact.model_copy(update={"value": None, "formatted": "—"})
+                for fact in _pack().facts
+            )
+        }
+    )
+    provider = FakeProvider()
+    result = _explain(provider, empty)
+
+    assert result.truncated is False
+    assert provider.requests == []

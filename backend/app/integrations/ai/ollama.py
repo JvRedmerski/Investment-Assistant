@@ -33,6 +33,21 @@ and response:
 with a sequence of newline-delimited JSON objects, which is not a JSON
 document and would fail parsing in `RetryingJsonClient` — one of those
 defaults that is fine for a chat UI and wrong for everything else.
+
+## The one assumption worth naming separately
+
+`done_reason == "length"` is read as truncation and normalised onto
+`Completion.truncated`. It is documented but **unverified here**, and it
+is called out because its failure mode is silent: were the spelling
+different, a truncated local explanation would be reported as complete —
+the exact defect that a live Gemini call found on 2026-08-22, where
+`MAX_TOKENS` was being counted as a normal finish. Gemini now has a
+regression test built from captured payloads; this stays a documented
+gap until an Ollama server answers once.
+
+Note that Ollama reports no separate reasoning count, so
+`Completion.thinking_tokens` is always `None` — "not measured", which
+for a model that does not think aloud is also the truthful answer.
 """
 
 import logging
@@ -51,6 +66,11 @@ from app.integrations.ai.schemas import Completion, CompletionRequest
 from app.integrations.http import RetryingJsonClient
 
 logger = logging.getLogger("investment_assistant.ai.ollama")
+
+#: Ollama's `done_reason` when generation stopped at `num_predict`
+#: rather than because the model was finished. Gemini spells the same
+#: outcome `MAX_TOKENS`; both are normalised to `Completion.truncated`.
+_TRUNCATED = "length"
 
 
 class OllamaProvider(AIProvider):
@@ -120,19 +140,28 @@ class OllamaProvider(AIProvider):
         if not isinstance(message, dict):
             raise InvalidAIResponseError("Ollama response carried no message object.")
 
+        done_reason = document.get("done_reason")
         text = message.get("content")
         if not isinstance(text, str) or not text.strip():
             raise AIResponseBlockedError(
                 "Ollama returned no text "
-                f"(done_reason={document.get('done_reason') or 'unspecified'})."
+                f"(done_reason={done_reason or 'unspecified'})."
             )
 
         return Completion(
             text=text,
             model=document.get("model") or self._model,
-            finish_reason=document.get("done_reason"),
+            finish_reason=done_reason,
             prompt_tokens=_as_int(document.get("prompt_eval_count")),
             output_tokens=_as_int(document.get("eval_count")),
+            # Ollama reports no separate reasoning count, so the field
+            # stays `None` — "not measured", never a substituted zero.
+            #
+            # `length` is Ollama's spelling of the same thing Gemini
+            # calls `MAX_TOKENS`, and translating it here is the whole
+            # point of the field: the domain must never learn either
+            # word (`Completion`).
+            truncated=done_reason == _TRUNCATED,
         )
 
 

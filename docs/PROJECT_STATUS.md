@@ -858,6 +858,14 @@ Task ID: — (a wave fechou: 6 de 6 tasks)
 Status: 🟢 COMPLETED (2026-08-21). Nenhuma wave em andamento; a próxima é a **W14 —
 Walk-Forward Validation**.
 
+> **Fora de wave, 2026-08-22 — verificação da W12-001 (Gemini).** A pendência herdada da W12
+> fechou pela metade que dependia de acesso: a Gemini API respondeu, o contrato foi conferido
+> campo a campo e o teste de regressão foi escrito sobre payload capturado. A verificação
+> encontrou um defeito real — `MAX_TOKENS` contava como término normal, então uma explicação
+> cortada no meio da frase era servida como pronta
+> ([ADR-033](decisions/ADR-033-a-truncated-explanation-is-reported-not-discarded.md)).
+> O `OllamaProvider` continua sem verificação e sem teste, por falta de servidor local.
+
 > O detalhe task-a-task fica na seção *Waves inseridas fora da ordem* acima, em *Last Execution*
 > e em [history/COMPLETED_TASKS.md](history/COMPLETED_TASKS.md) (esta última só recebe a wave
 > quando ela fecha).
@@ -956,7 +964,7 @@ Nenhuma tarefa bloqueada no momento.
 ---
 
 ## Known Issues
-- 🔴 **Os dois providers de IA não foram verificados contra uma resposta real** (registrado em 2026-08-21, W12-001). A `GEMINI_API_KEY` no `.env` é **válida**, mas a Gemini API está **desabilitada no projeto Google Cloud dela**: toda chamada responde HTTP 403 `SERVICE_DISABLED` apontando para a URL de ativação do projeto `980912867288`. O `OllamaProvider` está na mesma situação por outro motivo — não há servidor local instalado. Consequência **deliberada**, pelo procedimento do [IMPLEMENTATION_GUIDE](planning/IMPLEMENTATION_GUIDE.md): **nenhum teste de regressão foi escrito sobre o formato de resposta suposto**. Um mock construído sobre suposição não verifica a suposição, reproduz ela — foi assim que dois campos da Brapi passaram por 45 testes verdes na W06-003. O parsing segue o contrato publicado e está isolado em `gemini.py` / `ollama.py`, com o aviso no docstring dos dois. **O que fazer quando houver acesso**: habilitar a API, fazer *uma* chamada real, salvar a resposta, conferir nome por nome (`candidates[0].content.parts[]`, `finishReason`, `usageMetadata`, `modelVersion`) e só então escrever o teste de regressão no molde de `tests/test_brapi_fundamentals_provider.py::test_regression_against_the_real_petr4_response`. O que **já** foi observado ao vivo é o envelope de erro (`{"error": {"code": 403, "status": "PERMISSION_DENIED"}}`), e ele está documentado no módulo.
+- 🟡 **O `GeminiProvider` foi verificado; o `OllamaProvider` não** (aberto em 2026-08-21 na W12-001, metade fechada em 2026-08-22). A Gemini API foi habilitada no projeto Google Cloud e respondeu **HTTP 200**. O contrato `v1beta` publicado bateu **nome por nome** — `candidates[0].content.parts[]`, `finishReason`, `usageMetadata.promptTokenCount`, `usageMetadata.candidatesTokenCount` e `modelVersion` —, diferente do episódio da Brapi na W06-003 que originou este procedimento. **O teste de regressão existe agora** (`tests/test_gemini_provider.py`, 11 testes, todos sobre payload capturado). O que a chamada real encontrou não foi nome errado e sim **orçamento**: `gemini-flash-latest` resolve para `gemini-3.7-flash`, um modelo de raciocínio que cobra o pensamento contra o mesmo `maxOutputTokens` da prosa — e com `MAX_TOKENS` contando como término normal, **uma frase cortada no meio era servida como explicação pronta**. Corrigido em [ADR-033](decisions/ADR-033-a-truncated-explanation-is-reported-not-discarded.md). ⚠️ **O `OllamaProvider` continua não verificado** — não há servidor local instalado —, e por isso **nenhum teste de regressão foi escrito para ele**, pela mesma disciplina. Ele carrega agora uma suposição a mais e nomeada no docstring: `done_reason == "length"` lido como truncagem.
 - ✅ ~~**1 dos 10 indicadores permanece `None`**~~ — **os 10 têm insumo desde 2026-08-19** (EVENTS-001). O último era o `dy`, e ele passou a vir da **DMPL da CVM** (`5.04.06` + `5.04.07`, coluna `Patrimônio Líquido`), que reporta a distribuição **por exercício e datada nele** — exatamente o que a Brapi nunca deu, porque `dividendYield` lá é snapshot atual sem data-fim, e aplicá-lo a um balanço passado é o look-ahead que as regras 108/109 proíbem. Medido no banco real: `dy` de 0,22 em 2024 e 0,70 em 2022 para a PETR4. O caminho até aqui foi de **5 `None` → 1 → nenhum**; os outros quatro foram destravados pela fonte da CVM: `debt_ebitda`/`ebitda_margin` em 2026-08-18 (W09-002, EBITDA derivado de verdade em vez da cópia de `ebit` que o fornecedor entregava) e `pe`/`pb` em 2026-08-19 (W09-003, contagem de ações por exercício).
   - ✅ **`pe`/`pb` existem no banco real desde 2026-08-19** (wave PRICE): faltava **preço histórico**, e ele passou a vir do COTAHIST da B3. Seis exercícios da PETR4, P/L de 12,74 e P/VP de 1,27 em 2024. São fechamentos **não ajustados**, e é o correto: múltiplo *point-in-time* casa o preço cotado então com o lucro reportado então.
 - 🔴 **O pilar de Risco continua ausente, e é a pendência de maior retorno do projeto** (registrado em 2026-08-19, wave PRICE). Não é falta de preço — são **1.495 pregões** no banco. É falta de **série de retorno total**: o COTAHIST publica o preço negociado e nenhum ajuste, então `volatility`, `max_drawdown`, `beta` e `sharpe` ficam `None` e a cobertura do score para em **0,75**. **Não remende com `adjusted_close = close`**: medido em dado real, o grupamento 1:10 da MGLU3 em 2024-05-27 aparece como **+896% num pregão** ([ADR-023](decisions/ADR-023-unadjusted-history-is-stored-as-unadjusted.md), que enumera e rejeita, com motivo, todas as alternativas mais baratas — inclusive derivar o ajuste da contagem de ações da CVM, que é **anual** e não data o evento). A correção é a montante — **ingerir eventos societários e proventos** — e ela está **pela metade**: a EVENTS-002 trouxe **data e natureza** de todo evento, de graça e décadas atrás, e deliberadamente **não** a magnitude ([ADR-025](decisions/ADR-025-corporate-events-come-from-the-distribution-counter.md)). O que falta é o **fator** (desdobramento/grupamento) e o **valor por pagamento** do provento, e é isso a EVENTS-003.
@@ -1133,6 +1141,8 @@ Nenhuma tarefa bloqueada no momento.
 ---
 
 ## Future Work
+
+- 🟡 **O retry compartilhado trata 429 de cota diária como se fosse transitório** (encontrado em 2026-08-22 ao verificar a Gemini; **fora do escopo daquela task**, regra 134). `RETRYABLE_STATUS_CODES` em `app/integrations/http.py` inclui 429, o que é correto para um limite por minuto e desperdício para um limite por dia: a chave da Gemini é free tier, **20 requisições/dia** para `gemini-3.7-flash` (`GenerateRequestsPerDayPerProjectPerModel-FreeTier`), e uma cota diária esgotada é retentada três vezes com backoff antes de falhar. Distinguir as duas exige ler o corpo de erro específico do fornecedor — `details[].QuotaFailure.quotaId` no caso do Google —, e esse conhecimento **não pode** descer para o cliente compartilhado, que serve Brapi, B3 e BCB. A correção provável é o provider passar um predicado de não-retentável, não o transporte aprender vocabulário de fornecedor.
 - 🔴 **A data de arquivamento da CVM existe e não é ingerida** (W13-003). O backtest trata um
   demonstrativo como público **três meses** depois do fim do período — o prazo do DFP, ou seja a
   data legal mais tardia ([ADR-031](decisions/ADR-031-a-statement-is-readable-only-after-the-filing-deadline.md)).
@@ -1299,9 +1309,13 @@ Nenhuma tarefa bloqueada no momento.
 ## Next Action
 **Duas coisas, e a primeira continua curta.**
 
-1. **Fechar a verificação da W12-001**: habilitar a Gemini API no projeto Google Cloud da chave,
-   fazer *uma* chamada real, conferir o formato campo a campo e escrever o teste de regressão.
-   Enquanto isso não acontece, os dois providers são código **não verificado** (Known Issues).
+1. ✅ **A verificação da W12-001 fechou para a Gemini** (2026-08-22). A API foi habilitada, a
+   chamada real aconteceu, o contrato bateu nome por nome e o teste de regressão existe
+   (`tests/test_gemini_provider.py`). O que ela encontrou foi um defeito de **orçamento**, não
+   de nome: frase truncada servida como explicação pronta
+   ([ADR-033](decisions/ADR-033-a-truncated-explanation-is-reported-not-discarded.md)).
+   ⚠️ **O `OllamaProvider` continua não verificado** — sem servidor local — e segue em Known
+   Issues, sem teste de regressão, de propósito.
 2. **Wave 14 — Walk-Forward Validation** (roadmap §26): dividir a série em treino, validação e
    teste e rodar períodos móveis, para medir estabilidade e evitar overfitting (regras 60, 61,
    62). Ela consome a W13 inteira — o motor, a estratégia e as métricas já existem; o que falta é
